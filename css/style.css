@@ -426,3 +426,50 @@ h1, h2, h3, .display {
 .posts .meta a { color: var(--gold-deep); border-bottom: 1px solid var(--line); }
 .posts .empty { padding: 20px 16px; color: var(--ink-soft); font-size: 12.5px; }
 .stream li.empty, .stream li.day { display: block; }
+
+/* ---------- Console data views ---------- */
+.orbit-row { display: grid; grid-template-columns: 120px 1fr; gap: 16px; align-items: center; padding: 16px 16px 8px; }
+.orbit { position: relative; width: 120px; height: 120px; }
+.orbit svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.orbit-track { fill: none; stroke: var(--line); stroke-width: 3; }
+.orbit-fill { fill: none; stroke: var(--gold); stroke-width: 3; stroke-linecap: round; stroke-dasharray: 326.7; stroke-dashoffset: 326.7; transition: stroke-dashoffset 1.2s cubic-bezier(.2,.7,.2,1); }
+.orbit img { position: absolute; left: 50%; top: 50%; width: 64px; height: 64px; transform: translate(-50%, -50%); }
+.console.is-awake .orbit-fill { filter: drop-shadow(0 0 3px rgba(176,138,62,.45)); }
+.energy-num { display: grid; gap: 4px; }
+.hero-num { font-family: var(--font-body); font-size: 44px; line-height: 1; letter-spacing: -0.02em; color: var(--ink); }
+.energy-sub { font-size: 11px; color: var(--ink-soft); letter-spacing: .04em; }
+
+.spark { margin: 0; padding: 8px 16px 6px; display: grid; gap: 6px; }
+.spark figcaption { display: flex; justify-content: space-between; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); }
+.spark-val { color: var(--ink); letter-spacing: .04em; text-transform: none; }
+.spark-plot { position: relative; height: 64px; }
+.spark-plot svg { width: 100%; height: 100%; display: block; overflow: visible; }
+.spark-area { fill: var(--gold); fill-opacity: .14; }
+.spark-line { fill: none; stroke: var(--gold); stroke-width: 2; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.spark-base { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.spark-cross { stroke: var(--ink-soft); stroke-width: 1; vector-effect: non-scaling-stroke; opacity: 0; }
+.spark-dot { fill: var(--bg-raised); stroke: var(--gold); stroke-width: 2; vector-effect: non-scaling-stroke; opacity: 0; }
+.spark-plot.is-hover .spark-cross, .spark-plot.is-hover .spark-dot { opacity: 1; }
+.spark-tip { position: absolute; top: -4px; transform: translate(-50%, -100%); background: var(--ink); color: var(--white); font-size: 11px; padding: 4px 8px; border-radius: 6px; white-space: nowrap; pointer-events: none; }
+.spark-empty { position: absolute; inset: 0; display: flex; align-items: center; font-size: 11px; color: var(--ink-soft); }
+
+.beat { padding: 6px 16px 16px; display: grid; gap: 6px; }
+.beat-cap { display: flex; justify-content: space-between; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); }
+.beat-cells { display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px; }
+.beat-cells i { display: block; height: 14px; border-radius: 3px; background: var(--gold); opacity: .12; position: relative; }
+.beat-cells i[data-n="1"] { opacity: .4; } .beat-cells i[data-n="2"] { opacity: .65; } .beat-cells i[data-n="3"] { opacity: .85; } .beat-cells i[data-n="4"] { opacity: 1; }
+.beat-cells i.is-now { outline: 1px solid var(--gold-deep); outline-offset: 1px; }
+.beat-cells i:hover::after { content: attr(title); position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--white); font-size: 10px; padding: 3px 6px; border-radius: 5px; white-space: nowrap; z-index: 2; }
+
+.radar-wrap { display: grid; gap: 4px; padding: 0 16px 8px; }
+.radar { width: 100%; max-width: 240px; height: auto; margin: 4px auto 0; overflow: visible; }
+.radar .ring { fill: none; stroke: var(--line); stroke-width: 1; }
+.radar .axis { stroke: var(--line); stroke-width: 1; }
+.radar .shape { fill: var(--gold); fill-opacity: .18; stroke: var(--gold); stroke-width: 2; stroke-linejoin: round; transition: d .8s ease; }
+.radar .pt { fill: var(--bg-raised); stroke: var(--gold); stroke-width: 2; }
+.radar text { font-family: ui-monospace, Menlo, monospace; font-size: 9px; letter-spacing: .08em; fill: var(--ink-soft); text-transform: uppercase; }
+.feelings { padding: 6px 0 8px; }
+.mood-tape { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 16px 16px; border-top: 1px solid var(--line); }
+.mood-tape span { font-size: 11px; color: var(--ink-soft); border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px; }
+.mood-tape span:last-child { color: var(--gold-deep); border-color: var(--gold); }
+.mood-tape:empty { display: none; }

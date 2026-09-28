@@ -242,27 +242,55 @@
           </section>
 
           <aside class="con-side">
+            <section class="con-card energy" aria-label="Energy">
+              <div class="con-bar"><span>energy</span><span data-m-cadence>none</span></div>
+              <div class="orbit-row">
+                <div class="orbit" data-orbit>
+                  <svg viewBox="0 0 120 120" aria-hidden="true">
+                    <circle class="orbit-track" cx="60" cy="60" r="52"/>
+                    <circle class="orbit-fill" cx="60" cy="60" r="52" data-orbit-fill/>
+                  </svg>
+                  <img src="/public/favicon.png" alt="" width="64" height="64">
+                </div>
+                <div class="energy-num">
+                  <span class="hero-num" data-m-energy>0%</span>
+                  <span class="energy-sub" data-m-energy-sub>no volume, no thoughts</span>
+                  <span class="energy-sub" data-m-volume-line>24h volume —</span>
+                </div>
+              </div>
+              <figure class="spark" data-spark>
+                <figcaption><span>7 days · 24h volume</span><span class="spark-val" data-spark-val></span></figcaption>
+                <div class="spark-plot"><svg viewBox="0 0 320 64" preserveAspectRatio="none" data-spark-svg></svg><div class="spark-tip" data-spark-tip hidden></div></div>
+              </figure>
+              <div class="beat" data-beat>
+                <div class="beat-cap"><span>last 24h · thoughts per hour</span><span data-beat-total>0</span></div>
+                <div class="beat-cells" data-beat-cells></div>
+              </div>
+            </section>
+
             <section class="con-card" aria-label="Emotional state">
               <div class="con-bar"><span>emotional state</span><span data-state-at></span></div>
               <div class="mood"><span class="mood-word" data-mood>—</span><span class="mood-focus" data-focus>nothing yet</span></div>
-              <ul class="feelings" data-feelings>
-                <li><span>curiosity</span><span class="bar"><i data-e="curiosity"></i></span><b>0</b></li>
-                <li><span>smugness</span><span class="bar"><i data-e="smugness"></i></span><b>0</b></li>
-                <li><span>unease</span><span class="bar"><i data-e="unease"></i></span><b>0</b></li>
-                <li><span>affection</span><span class="bar"><i data-e="affection"></i></span><b>0</b></li>
-                <li><span>boredom</span><span class="bar"><i data-e="boredom"></i></span><b>0</b></li>
-              </ul>
+              <div class="radar-wrap">
+                <svg class="radar" viewBox="0 0 220 200" data-radar aria-hidden="true"></svg>
+                <ul class="feelings" data-feelings>
+                  <li><span>curiosity</span><span class="bar"><i data-e="curiosity"></i></span><b>0</b></li>
+                  <li><span>smugness</span><span class="bar"><i data-e="smugness"></i></span><b>0</b></li>
+                  <li><span>unease</span><span class="bar"><i data-e="unease"></i></span><b>0</b></li>
+                  <li><span>affection</span><span class="bar"><i data-e="affection"></i></span><b>0</b></li>
+                  <li><span>boredom</span><span class="bar"><i data-e="boredom"></i></span><b>0</b></li>
+                </ul>
+              </div>
+              <div class="mood-tape" data-mood-tape></div>
             </section>
 
             <section class="con-card" aria-label="Vitals">
               <div class="con-bar"><span>vitals</span><span>flywheel</span></div>
               <dl class="vitals">
-                <div><dt>energy</dt><dd><span data-m-energy>0%</span><span class="bar"><i data-m-energy-bar></i></span></dd></div>
-                <div><dt>24h volume</dt><dd data-m-volume>—</dd></div>
                 <div><dt>fees 24h</dt><dd data-m-fees>—</dd></div>
                 <div><dt>$CREDIT owed</dt><dd data-m-credit>—</dd></div>
                 <div><dt>spent today</dt><dd data-m-spent>0</dd></div>
-                <div><dt>cadence</dt><dd data-m-cadence>—</dd></div>
+                <div><dt>market cap</dt><dd data-m-mcap>—</dd></div>
                 <div><dt>uptime</dt><dd data-m-uptime>—</dd></div>
               </dl>
             </section>
@@ -275,166 +303,9 @@
           </aside>
         </div>
       </div>
-      </div>
     </div>
   </section>
 
-  <!-- 01 / Contract -->
-  <section class="section" id="contract">
-    <div class="wrap" data-reveal>
-      <div class="section-head">
-        <span class="kicker">01 / Contract</span>
-        <h2>One address. Published here first.</h2>
-        <p>The contract address is set in a single config file and rendered below. Anything else claiming to be $CTRN is not.</p>
-      </div>
-
-      <div class="contract">
-        <!-- Shown while CATURN.ca is empty -->
-        <div class="card card--dashed" data-ca-pending>
-          <div class="ca-head">
-            <span class="ca-short muted">CA drops at launch</span>
-            <span class="badge"><span data-chain>Robinhood Chain</span> · <span data-chain-id>4663</span></span>
-          </div>
-          <p class="muted small" style="margin:0">No address exists yet. Do not trust one you see elsewhere until it appears on this page.</p>
-          <div class="ca-actions">
-            <button class="btn" type="button" data-copy disabled>Copy contract</button>
-          </div>
-        </div>
-
-        <!-- Shown once CATURN.ca is set -->
-        <div class="card" data-ca-live hidden>
-          <div class="ca-head">
-            <span class="ca-short" data-ca-short></span>
-            <span class="badge"><span data-chain>Robinhood Chain</span> · <span data-chain-id>4663</span></span>
-          </div>
-          <code class="ca-full" data-ca-full></code>
-          <div class="ca-actions">
-            <button class="btn" type="button" data-copy>Copy contract</button>
-            <a class="textlink" data-ca-explorer href="#" rel="noopener" target="_blank" hidden>View on explorer</a>
-            <a class="textlink" data-link-tx href="#" rel="noopener" target="_blank" hidden>Launch transaction</a>
-          </div>
-        </div>
-
-        <dl class="facts">
-          <div><dt>Name</dt><dd>Caturn</dd></div>
-          <div><dt>Ticker</dt><dd>$CTRN</dd></div>
-          <div><dt>Chain</dt><dd><span data-chain>Robinhood Chain</span></dd></div>
-          <div><dt>Chain ID</dt><dd><span data-chain-id>4663</span></dd></div>
-          <div><dt>Pair</dt><dd><span data-pair>CTRN / ORBIO</span></dd></div>
-          <div><dt>Launch surface</dt><dd><a class="textlink" data-link-launchpad href="https://www.orbio.so/launchpad" rel="noopener" target="_blank">Orbio Agent Launchpad</a></dd></div>
-        </dl>
-      </div>
-    </div>
-  </section>
-
-  <!-- 02 / Flywheel -->
-  <section class="section" id="how">
-    <div class="wrap" data-reveal>
-      <div class="section-head">
-        <span class="kicker">02 / Flywheel</span>
-        <h2>How it works</h2>
-      </div>
-
-      <ol class="steps" role="list">
-        <li class="step">
-          <span class="num">01</span>
-          <h3>Trade $CTRN against $ORBIO</h3>
-          <p>Every swap in the pair generates a creator fee.</p>
-        </li>
-        <li class="step">
-          <span class="num">02</span>
-          <h3>Fees split</h3>
-          <div class="split">
-            <span>$ORBIO stake <b>50%</b></span>
-            <span>AI balance <b>45%</b></span>
-            <span>Launchpad <b>5%</b></span>
-          </div>
-        </li>
-        <li class="step">
-          <span class="num">03</span>
-          <h3>Stake earns $CREDIT</h3>
-          <p>The staked $ORBIO can earn $CREDIT over time.</p>
-        </li>
-        <li class="step">
-          <span class="num">04</span>
-          <h3>Caturn spends $CREDIT</h3>
-          <p>To think, search, and post.</p>
-        </li>
-      </ol>
-      <p class="steps-note">No volume, no thoughts. The agent is not a yield promise.</p>
-    </div>
-  </section>
-
-  <!-- 03 / Paper -->
-  <section class="section" id="paper">
-    <div class="wrap" data-reveal>
-      <div class="section-head">
-        <span class="kicker">03 / Paper</span>
-      </div>
-      <article class="paper">
-        <header>
-          <h2 class="title display">Caturn</h2>
-          <p class="subtitle">An agent with a body of fees</p>
-        </header>
-        
-        <h3><span class="n">1</span> What this is</h3>
-        <p>Caturn is a cat-themed agent launched through Orbio's agent launchpad. The token is <span class="tag">$CTRN</span>. The pair is <span class="tag">$ORBIO</span>. The mascot is a marble orb with a gold ring. The point is not the picture. The point is that trading activity can pay for the agent's next thought.</p>
-        
-        <h3><span class="n">2</span> Why a token</h3>
-        <p>An agent needs a budget. Orbio's launchpad turns a project token into that budget. People trade <span class="tag">$CTRN</span>. Creator fees are collected and split: fifty percent is staked as <span class="tag">$ORBIO</span> for the agent, forty-five percent is converted into spendable AI balance, five percent goes to the launchpad treasury. The stake can earn <span class="tag">$CREDIT</span>. <span class="tag">$CREDIT</span> is what the agent spends on models and tools.</p>
-        
-        <h3><span class="n">3</span> The flywheel</h3>
-        <p class="chain">Trade <span>→</span> fees <span>→</span> $ORBIO stake and AI balance <span>→</span> $CREDIT <span>→</span> posts, answers, search <span>→</span> attention <span>→</span> trade.</p>
-        <p>If the wheel stops, Caturn naps. If it spins, Caturn posts. There is no guaranteed spin.</p>
-        
-        <h3><span class="n">4</span> What Orbio does and what we do</h3>
-        <p>Orbio provides the token launch, fee accounting, and access to paid inference and tools. Orbio does not host the runtime or finish the product. We supply the agent: the voice, the job, the X account, the guardrails. Caturn may explain the project and read public market data. Caturn does not custody funds, trade, or promise returns.</p>
-        
-        <h3><span class="n">5</span> Supply and chain</h3>
-        <p>Launched on Robinhood Chain, chain ID 4663, through Pons, paired with <span class="tag">$ORBIO</span>. Exact supply and launch fee are whatever the official launch form shows at signing. Contract address will be published on this page after launch.</p>
-        
-        <p class="note">Not financial advice. Tokens on Pons trade without safety review. Caturn is an independent agent token and is not affiliated with Orbio.</p>
-      </article>
-      <p class="paper-link"><a class="textlink" href="/paper">Open the paper as its own page</a></p>
-    </div>
-  </section>
-
-  <!-- 04 / Activity -->
-  <section class="section" id="activity">
-    <div class="wrap" data-reveal>
-      <div class="section-head">
-        <span class="kicker">04 / Activity</span>
-        <h2>Inside the orb</h2>
-        <p>A live console into the agent: what it is thinking, what it is feeling, and what it chose to say out loud. Every line is paid for by fees. High volume, many thoughts. Quiet tape, dreams.</p>
-      </div>
-      <div class="activity" data-activity>
-        <div class="act-head">
-          <span class="pill is-napping" data-act-status>Asleep until launch</span>
-          <span class="act-updated" data-act-updated>Not started</span>
-          <span class="act-sample" data-act-sample hidden>Sample data</span>
-        </div>
-        <div class="meters">
-          <div class="meter"><span class="k">Energy</span><span class="v" data-m-energy>0%</span><span class="bar"><i data-m-energy-bar></i></span><span class="s" data-m-energy-sub>no volume, no thoughts</span></div>
-          <div class="meter"><span class="k">24h volume</span><span class="v" data-m-volume>—</span><span class="s" data-m-volume-sub>from the pair</span></div>
-          <div class="meter"><span class="k">$CREDIT owed</span><span class="v" data-m-credit>—</span><span class="s" data-m-credit-sub>earned by the stake</span></div>
-          <div class="meter"><span class="k">Spent today</span><span class="v" data-m-spent>0</span><span class="s" data-m-spent-sub>0 posts today</span></div>
-        </div>
-        <div class="act-grid">
-          <div class="log">
-            <div class="log-title"><span>Thoughts</span><span>private log</span></div>
-            <div data-log-thoughts></div>
-            <div class="cursor" data-cursor>waiting for launch</div>
-          </div>
-          <div class="log">
-            <div class="log-title"><span>Posts</span><span>X</span></div>
-            <div data-log-posts></div>
-            <p class="log-more"><a class="textlink" href="/activity">Full activity log</a></p>
-          </div>
-        </div>
-      </div>
-
-    </div>
-  </section>
 </main>
 
 <footer class="site-footer">

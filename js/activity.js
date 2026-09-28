@@ -15,6 +15,57 @@
   function ago(iso) { var s = (Date.now() - Date.parse(iso)) / 1000; if (!(s >= 0)) return ""; if (s < 90) return "just now"; if (s < 5400) return Math.round(s / 60) + " min ago"; if (s < 172800) return Math.round(s / 3600) + " h ago"; return Math.round(s / 86400) + " d ago"; }
   function uptime(iso) { if (!iso) return "—"; var s = (Date.now() - Date.parse(iso)) / 1000; if (!(s >= 0)) return "—"; var d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600); return d + "d " + h + "h"; }
 
+
+  // --- data views ---
+  function renderSpark(samples) {
+    var svg = $("[data-spark-svg]"), plot = svg.parentNode, tip = $("[data-spark-tip]"), val = $("[data-spark-val]");
+    var raw = samples.filter(function (s) { return s.vol != null; }).slice(-336), pts = [];
+    // Bucket into 2h means so a week reads as a shape, not 30-minute noise.
+    for (var b = 0; b < raw.length; b += 4) { var g = raw.slice(b, b + 4); pts.push({ t: g[g.length - 1].t, vol: g.reduce(function (a, p) { return a + p.vol; }, 0) / g.length }); }
+    if (pts.length < 2) { svg.innerHTML = ""; plot.insertAdjacentHTML("beforeend", '<div class="spark-empty">no history yet</div>'); val.textContent = ""; return; }
+    var W = 320, H = 64, max = Math.max.apply(null, pts.map(function (p) { return p.vol; })) || 1;
+    var t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+    var X = function (p) { return (p.t - t0) / (t1 - t0 || 1) * W; }, Y = function (p) { return H - 4 - (p.vol / max) * (H - 10); };
+    var d = pts.map(function (p, i) { return (i ? "L" : "M") + X(p).toFixed(1) + " " + Y(p).toFixed(1); }).join(" ");
+    svg.innerHTML = '<line class="spark-base" x1="0" y1="' + (H - 4) + '" x2="' + W + '" y2="' + (H - 4) + '"/>' +
+      '<path class="spark-area" d="' + d + " L" + W + " " + (H - 4) + " L0 " + (H - 4) + ' Z"/>' +
+      '<path class="spark-line" d="' + d + '"/>' +
+      '<line class="spark-cross" x1="0" y1="0" x2="0" y2="' + H + '"/><circle class="spark-dot" r="3" cx="0" cy="0"/>';
+    var cross = svg.querySelector(".spark-cross"), dot = svg.querySelector(".spark-dot");
+    var last = pts[pts.length - 1]; val.textContent = fmtUsd(last.vol) + " now";
+    function show(clientX) {
+      var r = plot.getBoundingClientRect(), fx = (clientX - r.left) / r.width;
+      var i = Math.round(fx * (pts.length - 1)); i = Math.max(0, Math.min(pts.length - 1, i));
+      var p = pts[i], x = X(p), y = Y(p);
+      cross.setAttribute("x1", x); cross.setAttribute("x2", x); dot.setAttribute("cx", x); dot.setAttribute("cy", y);
+      tip.hidden = false; tip.style.left = (x / W * 100) + "%"; tip.textContent = fmtUsd(p.vol) + " · " + day(p.t) + " " + hhmm(p.t);
+      plot.classList.add("is-hover");
+    }
+    plot.addEventListener("pointermove", function (ev) { show(ev.clientX); });
+    plot.addEventListener("pointerleave", function () { plot.classList.remove("is-hover"); tip.hidden = true; });
+  }
+  function renderBeat(thoughts, updatedAt) {
+    var cells = $("[data-beat-cells]"), end = updatedAt ? Date.parse(updatedAt) : Date.now();
+    var endHour = Math.floor(end / 3600e3) * 3600e3, counts = [], total = 0;
+    for (var i = 23; i >= 0; i--) counts.push({ t: endHour - i * 3600e3, n: 0 });
+    thoughts.forEach(function (t) { var h = Math.floor(Date.parse(t.at) / 3600e3) * 3600e3; var c = counts.find(function (c) { return c.t === h; }); if (c) { c.n++; total++; } });
+    cells.innerHTML = counts.map(function (c, i) { return '<i data-n="' + Math.min(4, c.n) + '"' + (i === 23 ? ' class="is-now"' : "") + ' title="' + hhmm(c.t) + ": " + c.n + '"></i>'; }).join("");
+    $("[data-beat-total]").textContent = total;
+  }
+  function renderRadar(vals, labels) {
+    var svg = $("[data-radar]"), cx = 110, cy = 100, R = 70, n = vals.length;
+    var ang = function (i) { return -Math.PI / 2 + i * 2 * Math.PI / n; };
+    var pt = function (i, r) { return [cx + Math.cos(ang(i)) * r, cy + Math.sin(ang(i)) * r]; };
+    var html = "";
+    [0.33, 0.66, 1].forEach(function (k) { html += '<polygon class="ring" points="' + vals.map(function (_, i) { return pt(i, R * k).join(","); }).join(" ") + '"/>'; });
+    vals.forEach(function (_, i) { var p = pt(i, R); html += '<line class="axis" x1="' + cx + '" y1="' + cy + '" x2="' + p[0] + '" y2="' + p[1] + '"/>'; });
+    html += '<polygon class="shape" points="' + vals.map(function (v, i) { return pt(i, R * Math.max(0.04, v)).join(","); }).join(" ") + '"/>';
+    vals.forEach(function (v, i) { var p = pt(i, R * Math.max(0.04, v)); html += '<circle class="pt" r="3" cx="' + p[0] + '" cy="' + p[1] + '"/>'; });
+    labels.forEach(function (l, i) { var p = pt(i, R + 14); var anchor = Math.abs(Math.cos(ang(i))) < 0.2 ? "middle" : Math.cos(ang(i)) > 0 ? "start" : "end";
+      html += '<text x="' + p[0] + '" y="' + (p[1] + 3) + '" text-anchor="' + anchor + '">' + l + "</text>"; });
+    svg.innerHTML = html;
+  }
+
   function buildStream(f) {
     var items = [];
     (f.events || []).forEach(function (e) { items.push({ at: e.at, kind: "sys", text: e.text }); });
@@ -69,14 +120,33 @@
       li.querySelector("i").style.width = v + "%"; li.querySelector("b").textContent = v;
     });
 
-    // Vitals
+    // Energy: orbital ring + hero number
     var e = Math.round((f.energy || 0) * 100);
-    $("[data-m-energy]").textContent = e + "%"; $("[data-m-energy-bar]").style.width = e + "%";
-    $("[data-m-volume]").textContent = fmtUsd(m.volume24hUsd);
+    $("[data-m-energy]").textContent = e + "%";
+    var ring = $("[data-orbit-fill]"); if (ring) ring.style.strokeDashoffset = (326.7 * (1 - e / 100)).toFixed(1);
+    $("[data-m-energy-sub]").textContent = m.thoughtsPerDay ? "~" + m.thoughtsPerDay + " thoughts a day at this pace" : "no volume, no thoughts";
+    $("[data-m-volume-line]").textContent = "24h volume " + fmtUsd(m.volume24hUsd);
+    $("[data-m-cadence]").textContent = m.thoughtsPerDay ? "every ~" + Math.max(1, Math.round(1440 / m.thoughtsPerDay)) + " min" : "none";
+    renderSpark(f.samples || []);
+    renderBeat(f.thoughts || [], f.updatedAt);
+
+    // Emotions: radar + list + mood tape
+    var em = st.emotions || {};
+    var keys = ["curiosity", "smugness", "unease", "affection", "boredom"];
+    root.querySelectorAll("[data-feelings] li").forEach(function (li) {
+      var k = li.querySelector("[data-e]").getAttribute("data-e"); li.setAttribute("data-k", k);
+      var v = Math.round((em[k] || 0) * 100);
+      li.querySelector("i").style.width = v + "%"; li.querySelector("b").textContent = v;
+    });
+    renderRadar(keys.map(function (k) { return em[k] || 0; }), keys);
+    var moods = (f.thoughts || []).filter(function (t) { return t.mood; }).slice(-8);
+    $("[data-mood-tape]").innerHTML = moods.map(function (t) { return "<span title=\"" + esc(hhmm(t.at)) + "\">" + esc(t.mood) + "</span>"; }).join("");
+
+    // Vitals
     $("[data-m-fees]").textContent = fmtUsd(m.fees24hUsd, 2);
     $("[data-m-credit]").textContent = fmtNum(m.creditOwed, 3) + (m.stakedOrbio != null ? " · " + fmtNum(m.stakedOrbio, 0) + " ORBIO staked" : "");
     $("[data-m-spent]").textContent = fmtNum(m.spentTodayCredit, 4) + " CREDIT";
-    $("[data-m-cadence]").textContent = m.thoughtsPerDay ? "~" + m.thoughtsPerDay + " thoughts / day" : "none";
+    $("[data-m-mcap]").textContent = fmtUsd(m.marketCapUsd) + (m.priceUsd != null ? " · $" + Number(m.priceUsd).toPrecision(3) : "");
     $("[data-m-uptime]").textContent = uptime(f.agent && f.agent.launchedAt);
 
     // Stream + posts

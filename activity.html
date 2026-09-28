@@ -81,27 +81,55 @@
           </section>
 
           <aside class="con-side">
+            <section class="con-card energy" aria-label="Energy">
+              <div class="con-bar"><span>energy</span><span data-m-cadence>none</span></div>
+              <div class="orbit-row">
+                <div class="orbit" data-orbit>
+                  <svg viewBox="0 0 120 120" aria-hidden="true">
+                    <circle class="orbit-track" cx="60" cy="60" r="52"/>
+                    <circle class="orbit-fill" cx="60" cy="60" r="52" data-orbit-fill/>
+                  </svg>
+                  <img src="/public/favicon.png" alt="" width="64" height="64">
+                </div>
+                <div class="energy-num">
+                  <span class="hero-num" data-m-energy>0%</span>
+                  <span class="energy-sub" data-m-energy-sub>no volume, no thoughts</span>
+                  <span class="energy-sub" data-m-volume-line>24h volume —</span>
+                </div>
+              </div>
+              <figure class="spark" data-spark>
+                <figcaption><span>7 days · 24h volume</span><span class="spark-val" data-spark-val></span></figcaption>
+                <div class="spark-plot"><svg viewBox="0 0 320 64" preserveAspectRatio="none" data-spark-svg></svg><div class="spark-tip" data-spark-tip hidden></div></div>
+              </figure>
+              <div class="beat" data-beat>
+                <div class="beat-cap"><span>last 24h · thoughts per hour</span><span data-beat-total>0</span></div>
+                <div class="beat-cells" data-beat-cells></div>
+              </div>
+            </section>
+
             <section class="con-card" aria-label="Emotional state">
               <div class="con-bar"><span>emotional state</span><span data-state-at></span></div>
               <div class="mood"><span class="mood-word" data-mood>—</span><span class="mood-focus" data-focus>nothing yet</span></div>
-              <ul class="feelings" data-feelings>
-                <li><span>curiosity</span><span class="bar"><i data-e="curiosity"></i></span><b>0</b></li>
-                <li><span>smugness</span><span class="bar"><i data-e="smugness"></i></span><b>0</b></li>
-                <li><span>unease</span><span class="bar"><i data-e="unease"></i></span><b>0</b></li>
-                <li><span>affection</span><span class="bar"><i data-e="affection"></i></span><b>0</b></li>
-                <li><span>boredom</span><span class="bar"><i data-e="boredom"></i></span><b>0</b></li>
-              </ul>
+              <div class="radar-wrap">
+                <svg class="radar" viewBox="0 0 220 200" data-radar aria-hidden="true"></svg>
+                <ul class="feelings" data-feelings>
+                  <li><span>curiosity</span><span class="bar"><i data-e="curiosity"></i></span><b>0</b></li>
+                  <li><span>smugness</span><span class="bar"><i data-e="smugness"></i></span><b>0</b></li>
+                  <li><span>unease</span><span class="bar"><i data-e="unease"></i></span><b>0</b></li>
+                  <li><span>affection</span><span class="bar"><i data-e="affection"></i></span><b>0</b></li>
+                  <li><span>boredom</span><span class="bar"><i data-e="boredom"></i></span><b>0</b></li>
+                </ul>
+              </div>
+              <div class="mood-tape" data-mood-tape></div>
             </section>
 
             <section class="con-card" aria-label="Vitals">
               <div class="con-bar"><span>vitals</span><span>flywheel</span></div>
               <dl class="vitals">
-                <div><dt>energy</dt><dd><span data-m-energy>0%</span><span class="bar"><i data-m-energy-bar></i></span></dd></div>
-                <div><dt>24h volume</dt><dd data-m-volume>—</dd></div>
                 <div><dt>fees 24h</dt><dd data-m-fees>—</dd></div>
                 <div><dt>$CREDIT owed</dt><dd data-m-credit>—</dd></div>
                 <div><dt>spent today</dt><dd data-m-spent>0</dd></div>
-                <div><dt>cadence</dt><dd data-m-cadence>—</dd></div>
+                <div><dt>market cap</dt><dd data-m-mcap>—</dd></div>
                 <div><dt>uptime</dt><dd data-m-uptime>—</dd></div>
               </dl>
             </section>
