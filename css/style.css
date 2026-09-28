@@ -101,8 +101,7 @@ h1, h2, h3, .display {
 /* Header */
 .site-header {
   position: sticky; top: 0; z-index: 10;
-  background: color-mix(in srgb, var(--bg) 92%, transparent);
-  backdrop-filter: saturate(1.1) blur(6px);
+  background: var(--bg);
   border-bottom: 1px solid var(--line);
 }
 .site-header .wrap { display: flex; align-items: center; justify-content: space-between; height: 64px; gap: 16px; }
@@ -249,7 +248,7 @@ h1, h2, h3, .display {
 }
 
 /* ---------- Orbit theme ---------- */
-.stars { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+.stars { position: fixed; inset: 0; z-index: 0; pointer-events: none; transform: translateZ(0); }
 .site-header, main, .site-footer { position: relative; z-index: 1; }
 
 /* Scroll rail: a thin gold orbit down the right edge; Caturn rides it. */
@@ -275,7 +274,7 @@ h1, h2, h3, .display {
   position: absolute; left: 50%; top: 0; width: 30px; height: 30px; transform: translate(-50%, -50%);
   background: url("/public/favicon.png") center / contain no-repeat;
   filter: drop-shadow(0 2px 4px rgba(28,25,21,.15));
-  transition: top .08s linear;
+  will-change: transform;
   pointer-events: none;
 }
 .rail-zzz {
@@ -297,6 +296,7 @@ h1, h2, h3, .display {
 
 /* Soft reveal */
 [data-reveal] { opacity: 0; transform: translateY(14px); transition: opacity .7s ease, transform .7s ease; }
+[data-reveal].is-in { will-change: auto; }
 [data-reveal].is-in { opacity: 1; transform: none; }
 @media (prefers-reduced-motion: reduce) { [data-reveal] { opacity: 1; transform: none; transition: none; } }
 

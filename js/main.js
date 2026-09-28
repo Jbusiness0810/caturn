@@ -96,80 +96,93 @@
   $all("[data-year]").forEach(function (el) { el.textContent = new Date().getFullYear(); });
 })();
 
-/* ---------- Orbit theme: scroll rail, drifting stars, hero parallax, nap ---------- */
+/* ---------- Orbit theme: one eased loop drives the rail, stars and hero (transforms only) ---------- */
 (function () {
   var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   var doc = document.documentElement;
   var sections = ["top", "contract", "how", "paper"].map(function (id) { return document.getElementById(id); }).filter(Boolean);
 
-  function progress() {
-    var max = doc.scrollHeight - window.innerHeight;
-    return max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0;
-  }
-
-  // Scroll rail: Caturn travels down a thin gold orbit as you read.
   var rail = document.querySelector("[data-rail]");
   var ship = rail && rail.querySelector(".rail-ship");
   var nodes = rail ? Array.prototype.slice.call(rail.querySelectorAll(".rail-node")) : [];
-  var zzz = rail && rail.querySelector(".rail-zzz");
-  function updateRail() {
-    if (!rail) return;
-    var p = progress();
-    ship.style.top = (p * 100) + "%";
-    var mid = window.scrollY + window.innerHeight * 0.4, active = 0;
-    sections.forEach(function (s, i) { if (s.offsetTop <= mid) active = i; });
-    nodes.forEach(function (n, i) { n.classList.toggle("is-active", i === active); n.classList.toggle("is-past", i < active); });
-    var atEnd = p > 0.985;
-    rail.classList.toggle("is-napping", atEnd);
-  }
-
-  // Hero mascot: gentle tilt and lift as you scroll away from it.
   var heroMascot = document.querySelector(".hero .mascot");
-  function updateHero() {
-    if (!heroMascot || reduce) return;
-    var y = Math.min(window.scrollY, 600);
-    heroMascot.style.transform = "translateY(" + (y * -0.18) + "px) rotate(" + (y * 0.02) + "deg)";
-    heroMascot.style.opacity = String(Math.max(0, 1 - y / 700));
-  }
-
-  // Stars: a faint brass constellation on a fixed canvas, parallax by depth.
   var canvas = document.querySelector("[data-stars]");
-  var ctx = canvas && canvas.getContext("2d");
-  var stars = [], dpr = 1, W = 0, H = 0;
-  function seed() {
-    W = window.innerWidth; H = window.innerHeight; dpr = Math.min(2, window.devicePixelRatio || 1);
-    canvas.width = W * dpr; canvas.height = H * dpr; canvas.style.width = W + "px"; canvas.style.height = H + "px";
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    var n = Math.round((W * H) / 22000);
-    stars = [];
-    for (var i = 0; i < n; i++) {
-      stars.push({ x: Math.random() * W, y: Math.random() * H, z: 0.3 + Math.random() * 0.7, r: 0.6 + Math.random() * 1.2, tw: Math.random() * Math.PI * 2, spark: Math.random() < 0.08 });
+  var ctx = canvas && canvas.getContext("2d", { alpha: true });
+
+  // Smoothed scroll: the visuals chase the real scroll position with a little inertia.
+  var target = window.scrollY, smooth = target, maxScroll = 1, railH = 0, active = -1, napping = false;
+  var stars = [], W = 0, H = 0, dpr = 1;
+
+  function measure() {
+    maxScroll = Math.max(1, doc.scrollHeight - window.innerHeight);
+    railH = rail ? rail.clientHeight : 0;
+    if (canvas && ctx) {
+      W = window.innerWidth; H = window.innerHeight; dpr = Math.min(1.5, window.devicePixelRatio || 1);
+      canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+      canvas.style.width = W + "px"; canvas.style.height = H + "px";
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      var n = Math.round((W * H) / 26000); stars = [];
+      for (var i = 0; i < n; i++) stars.push({ x: Math.random() * W, y: Math.random() * H, z: 0.3 + Math.random() * 0.7, r: 0.6 + Math.random() * 1.2, tw: Math.random() * 6.283, spark: Math.random() < 0.08 });
     }
   }
+
   function drawStars(t) {
-    if (!ctx) return;
     ctx.clearRect(0, 0, W, H);
-    var sy = window.scrollY;
     for (var i = 0; i < stars.length; i++) {
       var s = stars[i];
-      var y = (s.y - sy * s.z * 0.25) % H; if (y < 0) y += H;
-      var a = 0.25 + 0.2 * Math.sin(t / 900 + s.tw);
-      ctx.fillStyle = "rgba(176,138,62," + a.toFixed(3) + ")";
+      var y = (s.y - smooth * s.z * 0.25) % H; if (y < 0) y += H;
+      ctx.globalAlpha = 0.25 + 0.2 * Math.sin(t / 900 + s.tw);
+      ctx.fillStyle = "#B08A3E";
       if (s.spark) {
         var r = s.r * 3.2;
         ctx.beginPath(); ctx.moveTo(s.x, y - r); ctx.lineTo(s.x + r * .28, y); ctx.lineTo(s.x, y + r); ctx.lineTo(s.x - r * .28, y); ctx.closePath(); ctx.fill();
         ctx.beginPath(); ctx.moveTo(s.x - r, y); ctx.lineTo(s.x, y - r * .28); ctx.lineTo(s.x + r, y); ctx.lineTo(s.x, y + r * .28); ctx.closePath(); ctx.fill();
-      } else {
-        ctx.beginPath(); ctx.arc(s.x, y, s.r, 0, Math.PI * 2); ctx.fill();
-      }
+      } else { ctx.beginPath(); ctx.arc(s.x, y, s.r, 0, 6.283); ctx.fill(); }
     }
+    ctx.globalAlpha = 1;
   }
-  var raf = null;
-  function frame(t) { drawStars(t); raf = reduce ? null : requestAnimationFrame(frame); }
-  if (canvas && ctx) {
-    seed(); window.addEventListener("resize", function () { seed(); drawStars(0); });
-    if (reduce) drawStars(0); else raf = requestAnimationFrame(frame);
+
+  function updateRail() {
+    if (!rail) return;
+    var p = Math.min(1, Math.max(0, smooth / maxScroll));
+    ship.style.transform = "translate(-50%, -50%) translateY(" + (p * railH).toFixed(2) + "px)";
+    var mid = target + window.innerHeight * 0.4, a = 0;
+    for (var i = 0; i < sections.length; i++) if (sections[i].offsetTop <= mid) a = i;
+    if (a !== active) { active = a; nodes.forEach(function (n, i) { n.classList.toggle("is-active", i === a); n.classList.toggle("is-past", i < a); }); }
+    var nap = target / maxScroll > 0.985;
+    if (nap !== napping) { napping = nap; rail.classList.toggle("is-napping", nap); }
   }
+
+  function updateHero() {
+    if (!heroMascot) return;
+    var y = Math.min(smooth, 600);
+    heroMascot.style.transform = "translate3d(0," + (y * -0.18).toFixed(2) + "px,0) rotate(" + (y * 0.02).toFixed(3) + "deg)";
+    heroMascot.style.opacity = Math.max(0, 1 - y / 700).toFixed(3);
+  }
+
+  var running = false;
+  function loop(t) {
+    smooth += (target - smooth) * 0.14;
+    if (Math.abs(target - smooth) < 0.05) smooth = target;
+    if (ctx) drawStars(t);
+    updateRail(); updateHero();
+    if (!document.hidden) requestAnimationFrame(loop); else running = false;
+  }
+  function start() { if (!running) { running = true; requestAnimationFrame(loop); } }
+
+  window.addEventListener("scroll", function () { target = window.scrollY; }, { passive: true });
+  window.addEventListener("resize", measure);
+  document.addEventListener("visibilitychange", function () { if (!document.hidden) start(); });
+  window.addEventListener("load", measure);
+  measure();
+
+  if (reduce) {
+    // No inertia, no twinkle: draw once and update on scroll only.
+    if (ctx) drawStars(0);
+    if (heroMascot) heroMascot.style.transform = "none";
+    var onScroll = function () { target = smooth = window.scrollY; updateRail(); };
+    window.addEventListener("scroll", onScroll, { passive: true }); onScroll();
+  } else { start(); }
 
   // Reveal sections softly as they enter.
   var revealables = Array.prototype.slice.call(document.querySelectorAll("[data-reveal]"));
@@ -179,15 +192,6 @@
     }, { rootMargin: "0px 0px -12% 0px", threshold: 0.08 });
     revealables.forEach(function (el) { io.observe(el); });
   } else { revealables.forEach(function (el) { el.classList.add("is-in"); }); }
-
-  var ticking = false;
-  function onScroll() {
-    if (ticking) return; ticking = true;
-    requestAnimationFrame(function () { updateRail(); updateHero(); ticking = false; });
-  }
-  window.addEventListener("scroll", onScroll, { passive: true });
-  window.addEventListener("resize", onScroll);
-  updateRail(); updateHero();
 })();
 
 /* ---------- Sound: on by default, muted until the first gesture, remembered per visitor ---------- */
