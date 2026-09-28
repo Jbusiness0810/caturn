@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <title>Caturn — $CTRN</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#F6F1E8">
+  <meta name="description" content="Caturn ($CTRN): a cat-shaped agent whose body is an orb. Trading fees pay for its thoughts. Launching on Robinhood Chain via the Orbio Agent Launchpad.">
+  <meta property="og:title" content="Caturn — $CTRN">
+  <meta property="og:description" content="A cat-shaped agent whose body is an orb. Trading fees pay for its thoughts.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://caturn.lol/">
+  <meta property="og:image" content="https://caturn.lol/public/mascot.png">
+  <meta name="twitter:card" content="summary">
+  <link rel="icon" href="/public/mascot.png" type="image/png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..600&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/config.js"></script>
+</head>
+<body>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/">
+      <!-- Mascot. Drop the artwork at /public/mascot.png and it replaces the CSS orb automatically.
+           The orb + ring below is only a placeholder for when that file is missing. -->
+      <div class="mascot mascot--sm" data-mascot aria-hidden="true">
+        <div class="disc"></div>
+        <img src="/public/mascot.png" alt="" width="512" height="512" decoding="async">
+        <div class="orb">
+          <span class="ear l"></span><span class="ear r"></span>
+          <span class="body"></span>
+          <span class="eye l"></span><span class="eye r"></span>
+          <span class="ring"></span>
+        </div>
+      </div>
+      <span class="brand-name">CATURN</span>
+      <span class="brand-ticker muted">$CTRN</span>
+    </a>
+    <nav class="nav" aria-label="Primary">
+      <a href="/#how">How it works</a>
+      <a href="/#paper">Paper</a>
+      <a href="/#contract">Contract</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <!-- 00 / Agent -->
+  <section class="hero" id="top">
+    <div class="wrap">
+<!-- Mascot. Drop the artwork at /public/mascot.png and it replaces the CSS orb automatically.
+     The orb + ring below is only a placeholder for when that file is missing. -->
+<div class="mascot mascot--hero" data-mascot aria-hidden="false">
+  <div class="disc"></div>
+  <img src="/public/mascot.png" alt="Caturn, a cream marble cat with an antique-gold planetary ring" width="512" height="512" decoding="async">
+  <div class="orb">
+    <span class="ear l"></span><span class="ear r"></span>
+    <span class="body"></span>
+    <span class="eye l"></span><span class="eye r"></span>
+    <span class="ring"></span>
+  </div>
+</div>
+      <div class="hero-copy">
+        <span class="kicker">00 / Agent</span>
+        <h1>Caturn</h1>
+        <p class="lede">A cat with an orb for a body. Fees become stake. Stake becomes thought.</p>
+        <div class="hero-actions">
+          <button class="btn" type="button" data-copy>Copy contract</button>
+          <a class="textlink" data-later href="https://www.orbio.so/launchpad" rel="noopener" target="_blank">Launchpad later / orbio.fun later</a>
+        </div>
+        <span class="pill" data-status>Contract pending launch</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 01 / Contract -->
+  <section class="section" id="contract">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="kicker">01 / Contract</span>
+        <h2>One address. Published here first.</h2>
+        <p>The contract address is set in a single config file and rendered below. Anything else claiming to be $CTRN is not.</p>
+      </div>
+
+      <div class="contract">
+        <!-- Shown while CATURN.ca is empty -->
+        <div class="card card--dashed" data-ca-pending>
+          <div class="ca-head">
+            <span class="ca-short muted">CA drops at launch</span>
+            <span class="badge"><span data-chain>Robinhood Chain</span> · <span data-chain-id>4663</span></span>
+          </div>
+          <p class="muted small" style="margin:0">No address exists yet. Do not trust one you see elsewhere until it appears on this page.</p>
+          <div class="ca-actions">
+            <button class="btn" type="button" data-copy disabled>Copy contract</button>
+          </div>
+        </div>
+
+        <!-- Shown once CATURN.ca is set -->
+        <div class="card" data-ca-live hidden>
+          <div class="ca-head">
+            <span class="ca-short" data-ca-short></span>
+            <span class="badge"><span data-chain>Robinhood Chain</span> · <span data-chain-id>4663</span></span>
+          </div>
+          <code class="ca-full" data-ca-full></code>
+          <div class="ca-actions">
+            <button class="btn" type="button" data-copy>Copy contract</button>
+            <a class="textlink" data-ca-explorer href="#" rel="noopener" target="_blank" hidden>View on explorer</a>
+            <a class="textlink" data-link-tx href="#" rel="noopener" target="_blank" hidden>Launch transaction</a>
+          </div>
+        </div>
+
+        <dl class="facts">
+          <div><dt>Name</dt><dd>Caturn</dd></div>
+          <div><dt>Ticker</dt><dd>$CTRN</dd></div>
+          <div><dt>Chain</dt><dd><span data-chain>Robinhood Chain</span></dd></div>
+          <div><dt>Chain ID</dt><dd><span data-chain-id>4663</span></dd></div>
+          <div><dt>Pair</dt><dd><span data-pair>CTRN / ORBIO</span></dd></div>
+          <div><dt>Launch surface</dt><dd><a class="textlink" data-link-launchpad href="https://www.orbio.so/launchpad" rel="noopener" target="_blank">Orbio Agent Launchpad</a></dd></div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <!-- 02 / Flywheel -->
+  <section class="section" id="how">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="kicker">02 / Flywheel</span>
+        <h2>How it works</h2>
+      </div>
+
+      <ol class="steps" role="list">
+        <li class="step">
+          <span class="num">01</span>
+          <h3>Trade $CTRN against $ORBIO</h3>
+          <p>Every swap in the pair generates a creator fee.</p>
+        </li>
+        <li class="step">
+          <span class="num">02</span>
+          <h3>Fees split</h3>
+          <div class="split">
+            <span>$ORBIO stake <b>50%</b></span>
+            <span>AI balance <b>45%</b></span>
+            <span>Launchpad <b>5%</b></span>
+          </div>
+        </li>
+        <li class="step">
+          <span class="num">03</span>
+          <h3>Stake earns $CREDIT</h3>
+          <p>The staked $ORBIO can earn $CREDIT over time.</p>
+        </li>
+        <li class="step">
+          <span class="num">04</span>
+          <h3>Caturn spends $CREDIT</h3>
+          <p>To think, search, and post.</p>
+        </li>
+      </ol>
+      <p class="steps-note">No volume, no thoughts. The agent is not a yield promise.</p>
+    </div>
+  </section>
+
+  <!-- 03 / Paper -->
+  <section class="section" id="paper">
+    <div class="wrap">
+      <div class="section-head">
+        <span class="kicker">03 / Paper</span>
+      </div>
+      <article class="paper">
+        <header>
+          <h2 class="title display">Caturn</h2>
+          <p class="subtitle">An agent with a body of fees</p>
+        </header>
+        
+        <h3><span class="n">1</span> What this is</h3>
+        <p>Caturn is a cat-themed agent launched through Orbio's agent launchpad. The token is <span class="tag">$CTRN</span>. The pair is <span class="tag">$ORBIO</span>. The mascot is a marble orb with a gold ring. The point is not the picture. The point is that trading activity can pay for the agent's next thought.</p>
+        
+        <h3><span class="n">2</span> Why a token</h3>
+        <p>An agent needs a budget. Orbio's launchpad turns a project token into that budget. People trade <span class="tag">$CTRN</span>. Creator fees are collected and split: fifty percent is staked as <span class="tag">$ORBIO</span> for the agent, forty-five percent is converted into spendable AI balance, five percent goes to the launchpad treasury. The stake can earn <span class="tag">$CREDIT</span>. <span class="tag">$CREDIT</span> is what the agent spends on models and tools.</p>
+        
+        <h3><span class="n">3</span> The flywheel</h3>
+        <p class="chain">Trade <span>→</span> fees <span>→</span> $ORBIO stake and AI balance <span>→</span> $CREDIT <span>→</span> posts, answers, search <span>→</span> attention <span>→</span> trade.</p>
+        <p>If the wheel stops, Caturn naps. If it spins, Caturn posts. There is no guaranteed spin.</p>
+        
+        <h3><span class="n">4</span> What Orbio does and what we do</h3>
+        <p>Orbio provides the token launch, fee accounting, and access to paid inference and tools. Orbio does not host the runtime or finish the product. We supply the agent: the voice, the job, the X account, the guardrails. Caturn may explain the project and read public market data. Caturn does not custody funds, trade, or promise returns.</p>
+        
+        <h3><span class="n">5</span> Supply and chain</h3>
+        <p>Launched on Robinhood Chain, chain ID 4663, through Pons, paired with <span class="tag">$ORBIO</span>. Exact supply and launch fee are whatever the official launch form shows at signing. Contract address will be published on this page after launch.</p>
+        
+        <p class="note">Not financial advice. Tokens on Pons trade without safety review. Caturn is an independent agent token and is not affiliated with Orbio.</p>
+      </article>
+      <p class="paper-link"><a class="textlink" href="/paper.html">Open the paper as its own page</a></p>
+    </div>
+  </section>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <div class="row">
+      <div class="col">
+        <span class="brandline">caturn.lol</span>
+        <span>$CTRN</span>
+      </div>
+      <div class="col">
+        <a data-link-x data-keep href="#" rel="me noopener" target="_blank">X (coming soon)</a>
+        <a data-link-launchpad href="https://www.orbio.so/launchpad" rel="noopener" target="_blank">orbio.so/launchpad</a>
+        <a data-link-orbiofun href="#" rel="noopener" target="_blank" hidden>orbio.fun</a>
+      </div>
+      <div class="col">
+        <a href="/#contract">Contract</a>
+        <a href="/paper.html">Paper</a>
+      </div>
+    </div>
+    <div class="legal">
+      <p>Not financial advice. Tokens on Pons trade without safety review.</p>
+      <p>Caturn is an independent agent token. Not affiliated with Orbio.</p>
+      <p>© <span data-year></span> Caturn</p>
+    </div>
+  </div>
+</footer>
+<script src="/js/main.js"></script>
+</body>
+</html>
