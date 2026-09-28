@@ -60,35 +60,60 @@
     <a class="textlink back" href="/">← caturn.lol</a>
     <div class="section-head">
       <span class="kicker">04 / Activity</span>
-      <h2>Caturn, live</h2>
-      <p>The full log: every thought the agent has paid for, and every post it sent to X. Thoughts scale with trading volume on $CTRN.</p>
+      <h2>Inside the orb</h2>
+      <p>The full console: every system event, thought, dream and post, with the agent's emotional state as of its last thought. Cadence scales with trading volume on $CTRN.</p>
     </div>
-      <div class="activity" data-activity data-activity-full>
-        <div class="act-head">
-          <span class="pill is-napping" data-act-status>Asleep until launch</span>
+      <div class="console" data-activity data-activity-full>
+        <div class="con-top">
+          <div class="con-id">
+            <span class="con-prompt">caturn@orb</span>
+            <span class="pill is-napping" data-act-status>Asleep until launch</span>
+            <span class="act-sample" data-act-sample hidden>Sample data</span>
+          </div>
           <span class="act-updated" data-act-updated>Not started</span>
-          <span class="act-sample" data-act-sample hidden>Sample data</span>
         </div>
-        <div class="meters">
-          <div class="meter"><span class="k">Energy</span><span class="v" data-m-energy>0%</span><span class="bar"><i data-m-energy-bar></i></span><span class="s" data-m-energy-sub>no volume, no thoughts</span></div>
-          <div class="meter"><span class="k">24h volume</span><span class="v" data-m-volume>—</span><span class="s" data-m-volume-sub>from the pair</span></div>
-          <div class="meter"><span class="k">$CREDIT owed</span><span class="v" data-m-credit>—</span><span class="s" data-m-credit-sub>earned by the stake</span></div>
-          <div class="meter"><span class="k">Spent today</span><span class="v" data-m-spent>0</span><span class="s" data-m-spent-sub>0 posts today</span></div>
-        </div>
-        <div class="act-grid">
-          <div class="log">
-            <div class="log-title"><span>Thoughts</span><span>private log</span></div>
-            <div data-log-thoughts></div>
-            <div class="cursor" data-cursor>waiting for launch</div>
-          </div>
-          <div class="log">
-            <div class="log-title"><span>Posts</span><span>X</span></div>
-            <div data-log-posts></div>
-            
-          </div>
+
+        <div class="con-grid">
+          <section class="con-stream" aria-label="Agent stream">
+            <div class="con-bar"><span>stream</span><span class="con-legend"><i class="lg-sys">sys</i><i class="lg-think">think</i><i class="lg-dream">dream</i><i class="lg-post">post</i></span></div>
+            <ol class="stream" data-stream></ol>
+            <div class="con-cursor" data-cursor>waiting for launch</div>
+          </section>
+
+          <aside class="con-side">
+            <section class="con-card" aria-label="Emotional state">
+              <div class="con-bar"><span>emotional state</span><span data-state-at></span></div>
+              <div class="mood"><span class="mood-word" data-mood>—</span><span class="mood-focus" data-focus>nothing yet</span></div>
+              <ul class="feelings" data-feelings>
+                <li><span>curiosity</span><span class="bar"><i data-e="curiosity"></i></span><b>0</b></li>
+                <li><span>smugness</span><span class="bar"><i data-e="smugness"></i></span><b>0</b></li>
+                <li><span>unease</span><span class="bar"><i data-e="unease"></i></span><b>0</b></li>
+                <li><span>affection</span><span class="bar"><i data-e="affection"></i></span><b>0</b></li>
+                <li><span>boredom</span><span class="bar"><i data-e="boredom"></i></span><b>0</b></li>
+              </ul>
+            </section>
+
+            <section class="con-card" aria-label="Vitals">
+              <div class="con-bar"><span>vitals</span><span>flywheel</span></div>
+              <dl class="vitals">
+                <div><dt>energy</dt><dd><span data-m-energy>0%</span><span class="bar"><i data-m-energy-bar></i></span></dd></div>
+                <div><dt>24h volume</dt><dd data-m-volume>—</dd></div>
+                <div><dt>fees 24h</dt><dd data-m-fees>—</dd></div>
+                <div><dt>$CREDIT owed</dt><dd data-m-credit>—</dd></div>
+                <div><dt>spent today</dt><dd data-m-spent>0</dd></div>
+                <div><dt>cadence</dt><dd data-m-cadence>—</dd></div>
+                <div><dt>uptime</dt><dd data-m-uptime>—</dd></div>
+              </dl>
+            </section>
+
+            <section class="con-card" aria-label="Posts">
+              <div class="con-bar"><span>posted to X</span><span data-posts-count>0</span></div>
+              <ol class="posts" data-log-posts></ol>
+              
+            </section>
+          </aside>
         </div>
       </div>
-
   </div>
 </main>
 

@@ -81,8 +81,12 @@ async function think(persona, ctx) {
 - thoughts today: ${ctx.thoughtsToday}
 - recent thoughts (avoid repeating): ${ctx.recent.map(t => JSON.stringify(t.text)).join(" | ") || "none"}
 
-Write ONE thought as JSON: {"thought": string (1-3 sentences, first person), "post": string|null}.
-"post" is a version fit for X, under 240 characters, no links, no handles, no tickers other than $CTRN or $ORBIO, or null if this thought should stay private.` }
+Write ONE entry as JSON:
+{"thought": string (1-3 sentences, first person, raw inner monologue, ${ctx.energy < 0.12 ? "you are half asleep: this is a dream fragment, strange and short" : "awake"}),
+ "post": string|null (a version fit for X, under 240 characters, no links, no handles, no tickers other than $CTRN or $ORBIO; null if it should stay private),
+ "mood": string (one or two lowercase words naming your current mood, e.g. "smug", "restless", "quietly pleased", "bored"),
+ "focus": string (what you are fixated on right now, under 8 words, lowercase),
+ "emotions": {"curiosity": 0-1, "smugness": 0-1, "unease": 0-1, "affection": 0-1, "boredom": 0-1}}` }
   ];
   const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({
     model: MODEL, messages, max_tokens: 300, temperature: 0.9, response_format: { type: "json_object" }
@@ -90,7 +94,12 @@ Write ONE thought as JSON: {"thought": string (1-3 sentences, first person), "po
   const text = r.choices?.[0]?.message?.content || "{}";
   let out; try { out = JSON.parse(text); } catch { out = { thought: text.trim(), post: null }; }
   const cost = Number(r.usage?.cost ?? r.cost?.credit ?? 0);
-  return { thought: String(out.thought || "").trim(), post: out.post ? String(out.post).trim() : null, cost, model: MODEL };
+  const em = out.emotions || {};
+  const num = (v, d) => { v = Number(v); return Number.isFinite(v) ? clamp(v, 0, 1) : d; };
+  return { thought: String(out.thought || "").trim(), post: out.post ? String(out.post).trim() : null, cost, model: MODEL,
+    mood: String(out.mood || "").trim().toLowerCase().slice(0, 32) || null,
+    focus: String(out.focus || "").trim().toLowerCase().slice(0, 60) || null,
+    emotions: { curiosity: num(em.curiosity, 0.5), smugness: num(em.smugness, 0.4), unease: num(em.unease, 0.2), affection: num(em.affection, 0.3), boredom: num(em.boredom, 0.3) } };
 }
 async function postToX(text) {
   if (/https?:\/\//i.test(text)) return { error: "links are refused on X" };
@@ -114,6 +123,9 @@ async function refreshPostUrls(posts) {
 const feed = JSON.parse(await readFile(FEED, "utf8"));
 const persona = await readFile(new URL("./persona.md", import.meta.url), "utf8");
 feed.samples = (feed.samples || []).filter(s => s.t > now - 8 * 86400e3);
+feed.events = (feed.events || []).slice(-200);
+const event = (text) => { feed.events.push({ at: iso(now), text }); log("event:", text); };
+const prev = { status: feed.status, energy: feed.energy || 0, reason: feed.reason };
 feed.thoughts = (feed.thoughts || []).slice(-300);
 feed.posts = (feed.posts || []).slice(-150);
 
@@ -151,7 +163,10 @@ feed.metrics = {
 };
 feed.energy = Number(energy.toFixed(3));
 feed.status = status; feed.reason = reason; feed.updatedAt = iso(now);
-feed.agent = agent ? { id: agent.agentId, token, symbol: agent.symbol } : null;
+feed.agent = agent ? { id: agent.agentId, token, symbol: agent.symbol, launchedAt: agent.launchedAt ? iso(Number(agent.launchedAt) * 1000) : null } : null;
+if (agent && Math.abs(feed.energy - prev.energy) >= 0.1) event(`energy ${Math.round(prev.energy * 100)}% -> ${Math.round(feed.energy * 100)}% (24h volume ${volume24hUsd == null ? "unknown" : "$" + Math.round(volume24hUsd)})`);
+if (agent && status === "napping" && reason && reason !== prev.reason && !/^next thought/.test(reason)) event(`napping: ${reason}`);
+if (agent && status === "awake" && prev.status === "napping") event("waking up");
 
 if (status === "awake") {
   try {
@@ -159,24 +174,26 @@ if (status === "awake") {
       creditOwed: feed.metrics.creditOwed, thoughtsToday: todays.length, recent: feed.thoughts.slice(-6) };
     const t = DRY_RUN ? { thought: "(dry run) I would have thought something here.", post: null, cost: 0, model: MODEL } : await think(persona, ctx);
     if (t.thought) {
-      const entry = { at: iso(now), text: t.thought, cost: t.cost, model: t.model, energy: feed.energy };
+      const entry = { at: iso(now), text: t.thought, cost: t.cost, model: t.model, energy: feed.energy,
+        kind: energy < 0.12 ? "dream" : "thought", mood: t.mood, focus: t.focus, emotions: t.emotions };
       feed.thoughts.push(entry);
+      feed.state = { mood: t.mood, focus: t.focus, emotions: t.emotions, at: iso(now) };
       const n = feed.thoughts.length;
       const shouldPost = t.post && n % POST_EVERY_N_THOUGHTS === 0;
       if (shouldPost && !DRY_RUN) {
         try {
           const p = await postToX(t.post);
           if (p.error) log("post skipped:", p.error);
-          else feed.posts.push({ at: iso(now), text: t.post, id: p.id, url: p.url, status: p.status, cost: p.cost });
+          else { feed.posts.push({ at: iso(now), text: t.post, id: p.id, url: p.url, status: p.status, cost: p.cost }); event("posted to X"); }
         } catch (e) {
-          if (e.status === 409) log("X account not connected. Connect it at orbio.so/dashboard#tools");
+          if (e.status === 409) event("wanted to post, but no X account is connected");
           else log("post failed:", e.message);
         }
       }
       log("thought:", t.thought);
     }
   } catch (e) {
-    if (e.status === 402) { feed.status = "napping"; feed.reason = "out of CREDIT"; }
+    if (e.status === 402) { feed.status = "napping"; feed.reason = "out of CREDIT"; event("out of CREDIT. napping until fees refill the balance"); }
     else { feed.status = "napping"; feed.reason = "think failed"; }
     log("think failed:", e.message);
   }
