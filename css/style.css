@@ -318,3 +318,5 @@ h1, h2, h3, .display {
 @media (prefers-reduced-motion: reduce) { .sound.is-on .sound-bars i { animation: none; height: 7px; } }
 .site-header .right { display: flex; align-items: center; gap: clamp(12px, 2vw, 24px); }
 @media (max-width: 480px) { .sound .sound-label { display: none; } .sound { padding: 8px 10px; } }
+.sound.is-armed { border-color: var(--gold); }
+.sound.is-armed .sound-bars i { height: 5px; opacity: .6; }

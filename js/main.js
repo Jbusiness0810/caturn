@@ -190,31 +190,56 @@
   updateRail(); updateHero();
 })();
 
-/* ---------- Sound: opt-in background track with a header toggle ---------- */
+/* ---------- Sound: on by default, muted until the first gesture, remembered per visitor ---------- */
 (function () {
   var btn = document.querySelector("[data-sound]");
   var audio = document.querySelector("[data-audio]");
   if (!btn || !audio) return;
   var KEY = "caturn:sound";
+  var label = btn.querySelector(".sound-label");
+  var GESTURES = ["pointerdown", "keydown", "touchend"];
   audio.volume = 0.35;
-  function render(on) {
-    btn.classList.toggle("is-on", on);
-    btn.setAttribute("aria-pressed", String(on));
-    btn.querySelector(".sound-label").textContent = on ? "Sound on" : "Sound off";
+
+  function pref() { try { return localStorage.getItem(KEY); } catch (e) { return null; } }
+  function save(v) { try { localStorage.setItem(KEY, v); } catch (e) {} }
+  function render(state) { // "on" | "off" | "armed"
+    btn.classList.toggle("is-on", state === "on");
+    btn.classList.toggle("is-armed", state === "armed");
+    btn.setAttribute("aria-pressed", String(state === "on"));
+    label.textContent = state === "on" ? "Sound on" : state === "armed" ? "Tap for sound" : "Sound off";
   }
-  function start() {
+  function disarm() { GESTURES.forEach(function (ev) { window.removeEventListener(ev, onGesture, true); }); }
+  function arm() { GESTURES.forEach(function (ev) { window.addEventListener(ev, onGesture, { capture: true, passive: true }); }); }
+  function onGesture() { disarm(); unmute(); }
+
+  function unmute() {
+    audio.muted = false;
+    var p = audio.paused ? audio.play() : Promise.resolve();
+    (p && p.then ? p : Promise.resolve()).then(function () { render("on"); }, function () { render("armed"); arm(); });
+  }
+  function off() { audio.pause(); audio.muted = true; disarm(); render("off"); save("0"); }
+  function on(fromUser) {
+    if (fromUser) save("1");
+    // Autoplay with sound is blocked until the page has a user gesture; muted autoplay is allowed.
+    // Start muted now so the track is already rolling, then unmute on the first tap or click anywhere.
+    audio.muted = true;
     var p = audio.play();
-    if (p && p.then) p.then(function () { render(true); try { localStorage.setItem(KEY, "1"); } catch (e) {} },
-                              function () { render(false); });
-    else render(true);
+    (p && p.then ? p : Promise.resolve()).then(function () {
+      if (fromUser) unmute(); else { render("armed"); arm(); }
+    }, function () { render("armed"); arm(); });
   }
-  function stop() { audio.pause(); render(false); try { localStorage.setItem(KEY, "0"); } catch (e) {} }
-  btn.addEventListener("click", function () { audio.paused ? start() : stop(); });
-  render(false);
-  // If the visitor turned sound on before, resume at the first interaction (autoplay is blocked until then).
-  var want = false; try { want = localStorage.getItem(KEY) === "1"; } catch (e) {}
-  if (want) {
-    var once = function () { start(); ["pointerdown", "keydown", "touchstart"].forEach(function (ev) { window.removeEventListener(ev, once); }); };
-    ["pointerdown", "keydown", "touchstart"].forEach(function (ev) { window.addEventListener(ev, once, { once: true, passive: true }); });
-  }
+
+  btn.addEventListener("click", function (e) {
+    e.stopPropagation();
+    if (btn.classList.contains("is-on")) off(); else on(true);
+  });
+
+  // Default is on. Only a visitor who switched it off stays off.
+  if (pref() === "0") render("off"); else on(false);
+
+  // Pause when the tab is hidden, resume when it returns (only if sound is on).
+  document.addEventListener("visibilitychange", function () {
+    if (!btn.classList.contains("is-on")) return;
+    if (document.hidden) audio.pause(); else audio.play().catch(function () {});
+  });
 })();
