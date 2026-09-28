@@ -2,8 +2,8 @@
 
 Static landing page for Caturn ($CTRN). Plain HTML, one CSS file, a little JS. No build step.
 
-## Deploy
-Cloudflare Pages or Vercel: point at the repo root, no build command, output directory `/`.
+## Deploy (Vercel)
+Import the repo. Framework preset: Other. No build command, no output directory. `vercel.json` turns on clean URLs so `/paper` serves `paper.html`, and keeps `js/config.js` uncached so a launch-day edit shows up immediately. Add `caturn.lol` under Project Settings > Domains.
 
 ## Launch day
 Edit `js/config.js` and set `ca` (and optionally `launchTx`, `orbioFun`, `x`, `explorer`).
