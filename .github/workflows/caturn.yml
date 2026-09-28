@@ -2,7 +2,12 @@ name: Caturn tick
 on:
   schedule:
     - cron: "*/30 * * * *"   # every 30 minutes (GitHub may delay scheduled runs)
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      say:
+        description: "Send this text as a one-off test post to X (leave empty for a normal tick)"
+        required: false
+        default: ""
 permissions:
   contents: write
 concurrency: { group: caturn-tick, cancel-in-progress: false }
@@ -22,6 +27,7 @@ jobs:
           CATURN_DAILY_CAP: ${{ vars.CATURN_DAILY_CAP }}
           CATURN_FULL_VOLUME_USD: ${{ vars.CATURN_FULL_VOLUME_USD }}
           CATURN_POST_EVERY: ${{ vars.CATURN_POST_EVERY }}
+          CATURN_SAY: ${{ github.event.inputs.say }}
         run: node agent/run.mjs
       - name: Publish feed
         run: |

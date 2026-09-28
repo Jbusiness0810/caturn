@@ -119,6 +119,14 @@ async function refreshPostUrls(posts) {
   }
 }
 
+// ---------- 3b. Test post: CATURN_SAY="text" posts once and exits, touching nothing else ----------
+if (env.CATURN_SAY) {
+  if (!API_KEY) { console.error("CATURN_SAY needs ORBIO_API_KEY"); process.exit(1); }
+  try { const p = await postToX(env.CATURN_SAY); log("test post:", JSON.stringify(p)); }
+  catch (e) { log("test post failed:", e.status === 409 ? "X account not connected at orbio.so/dashboard#tools" : e.message); process.exit(1); }
+  process.exit(0);
+}
+
 // ---------- 4. Tick ----------
 const feed = JSON.parse(await readFile(FEED, "utf8"));
 const persona = await readFile(new URL("./persona.md", import.meta.url), "utf8");
