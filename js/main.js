@@ -83,7 +83,7 @@
   }
   link("[data-link-launchpad]", C.launchpad);
   link("[data-link-orbiofun]", C.orbioFun, "orbio.fun");
-  link("[data-link-x]", C.x, "X");
+  link("[data-link-x]", C.x, "@caturn_rh");
   link("[data-link-tx]", C.launchTx);
 
   // Secondary hero text: "later" wording flips when links exist

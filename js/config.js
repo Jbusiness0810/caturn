@@ -10,7 +10,7 @@ window.CATURN = {
   launchTx: "",
   orbioFun: "",
   launchpad: "https://www.orbio.so/launchpad",
-  x: "",
+  x: "https://x.com/caturn_rh",
   // Optional. Base URL of a block explorer for Robinhood Chain, e.g. "https://explorer.example/address/".
   // The raw address is appended. Leave empty to hide the explorer link.
   explorer: ""
