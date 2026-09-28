@@ -202,7 +202,16 @@
   var KEY = "caturn:sound";
   var label = btn.querySelector(".sound-label");
   var GESTURES = ["pointerdown", "keydown", "touchend"];
-  audio.volume = 0.35;
+  var VOL = 0.22;
+  audio.volume = 0;
+  var fadeTimer = null;
+  function fadeIn() {
+    clearInterval(fadeTimer); audio.volume = 0;
+    fadeTimer = setInterval(function () {
+      audio.volume = Math.min(VOL, audio.volume + VOL / 40);
+      if (audio.volume >= VOL) clearInterval(fadeTimer);
+    }, 50);
+  }
 
   function pref() { try { return localStorage.getItem(KEY); } catch (e) { return null; } }
   function save(v) { try { localStorage.setItem(KEY, v); } catch (e) {} }
@@ -217,11 +226,11 @@
   function onGesture() { disarm(); unmute(); }
 
   function unmute() {
-    audio.muted = false;
+    audio.muted = false; fadeIn();
     var p = audio.paused ? audio.play() : Promise.resolve();
     (p && p.then ? p : Promise.resolve()).then(function () { render("on"); }, function () { render("armed"); arm(); });
   }
-  function off() { audio.pause(); audio.muted = true; disarm(); render("off"); save("0"); }
+  function off() { clearInterval(fadeTimer); audio.pause(); audio.muted = true; disarm(); render("off"); save("0"); }
   function on(fromUser) {
     if (fromUser) save("1");
     // Autoplay with sound is blocked until the page has a user gesture; muted autoplay is allowed.
