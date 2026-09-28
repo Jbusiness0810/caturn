@@ -52,20 +52,6 @@
     cells.innerHTML = counts.map(function (c, i) { return '<i data-n="' + Math.min(4, c.n) + '"' + (i === 23 ? ' class="is-now"' : "") + ' title="' + hhmm(c.t) + ": " + c.n + '"></i>'; }).join("");
     $("[data-beat-total]").textContent = total;
   }
-  function renderRadar(vals, labels) {
-    var svg = $("[data-radar]"), cx = 110, cy = 100, R = 70, n = vals.length;
-    var ang = function (i) { return -Math.PI / 2 + i * 2 * Math.PI / n; };
-    var pt = function (i, r) { return [cx + Math.cos(ang(i)) * r, cy + Math.sin(ang(i)) * r]; };
-    var html = "";
-    [0.33, 0.66, 1].forEach(function (k) { html += '<polygon class="ring" points="' + vals.map(function (_, i) { return pt(i, R * k).join(","); }).join(" ") + '"/>'; });
-    vals.forEach(function (_, i) { var p = pt(i, R); html += '<line class="axis" x1="' + cx + '" y1="' + cy + '" x2="' + p[0] + '" y2="' + p[1] + '"/>'; });
-    html += '<polygon class="shape" points="' + vals.map(function (v, i) { return pt(i, R * Math.max(0.04, v)).join(","); }).join(" ") + '"/>';
-    vals.forEach(function (v, i) { var p = pt(i, R * Math.max(0.04, v)); html += '<circle class="pt" r="3" cx="' + p[0] + '" cy="' + p[1] + '"/>'; });
-    labels.forEach(function (l, i) { var p = pt(i, R + 14); var anchor = Math.abs(Math.cos(ang(i))) < 0.2 ? "middle" : Math.cos(ang(i)) > 0 ? "start" : "end";
-      html += '<text x="' + p[0] + '" y="' + (p[1] + 3) + '" text-anchor="' + anchor + '">' + l + "</text>"; });
-    svg.innerHTML = html;
-  }
-
   function buildStream(f) {
     var items = [];
     (f.events || []).forEach(function (e) { items.push({ at: e.at, kind: "sys", text: e.text }); });
@@ -130,15 +116,23 @@
     renderSpark(f.samples || []);
     renderBeat(f.thoughts || [], f.updatedAt);
 
-    // Emotions: radar + list + mood tape
+    // Emotions: five arc gauges with history, plus temperament
     var em = st.emotions || {};
     var keys = ["curiosity", "smugness", "unease", "affection", "boredom"];
-    root.querySelectorAll("[data-feelings] li").forEach(function (li) {
-      var k = li.querySelector("[data-e]").getAttribute("data-e"); li.setAttribute("data-k", k);
-      var v = Math.round((em[k] || 0) * 100);
-      li.querySelector("i").style.width = v + "%"; li.querySelector("b").textContent = v;
+    var hist = (f.thoughts || []).filter(function (t) { return t.emotions; }).slice(-24);
+    var hasState = !!st.emotions;
+    keys.forEach(function (k) {
+      var g = root.querySelector('[data-g="' + k + '"]'), v = hasState ? Math.round((em[k] || 0) * 100) : null;
+      g.classList.toggle("is-empty", v == null);
+      g.querySelector(".g-fill").style.strokeDashoffset = (100.6 * (1 - (v || 0) / 100)).toFixed(1);
+      g.querySelector("b").textContent = v == null ? "—" : v;
+      var sp = g.querySelector(".g-spark"), vals = hist.map(function (t) { return t.emotions[k] || 0; });
+      sp.innerHTML = vals.length > 1 ? '<line x1="0" y1="15" x2="80" y2="15"/><path d="' + vals.map(function (x, i) { return (i ? "L" : "M") + (i / (vals.length - 1) * 80).toFixed(1) + " " + (14 - x * 12).toFixed(1); }).join(" ") + '"/>' : "";
     });
-    renderRadar(keys.map(function (k) { return em[k] || 0; }), keys);
+    var warm = hasState ? ((em.affection || 0) + (em.curiosity || 0) - (em.unease || 0) - (em.boredom || 0)) / 2 : 0; // -1..1
+    var tp = $("[data-temper]"); tp.classList.toggle("is-empty", !hasState);
+    $("[data-temper-dot]").style.left = (50 + warm * 45) + "%";
+    $("[data-temper-word]").textContent = !hasState ? "—" : warm > 0.35 ? "warm" : warm > 0.1 ? "mild" : warm > -0.1 ? "even" : warm > -0.35 ? "cool" : "cold";
     var moods = (f.thoughts || []).filter(function (t) { return t.mood; }).slice(-8);
     $("[data-mood-tape]").innerHTML = moods.map(function (t) { return "<span title=\"" + esc(hhmm(t.at)) + "\">" + esc(t.mood) + "</span>"; }).join("");
 

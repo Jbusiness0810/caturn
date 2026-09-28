@@ -461,15 +461,32 @@ h1, h2, h3, .display {
 .beat-cells i.is-now { outline: 1px solid var(--gold-deep); outline-offset: 1px; }
 .beat-cells i:hover::after { content: attr(title); position: absolute; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--white); font-size: 10px; padding: 3px 6px; border-radius: 5px; white-space: nowrap; z-index: 2; }
 
-.radar-wrap { display: grid; gap: 4px; padding: 0 16px 8px; }
-.radar { width: 100%; max-width: 240px; height: auto; margin: 4px auto 0; overflow: visible; }
-.radar .ring { fill: none; stroke: var(--line); stroke-width: 1; }
-.radar .axis { stroke: var(--line); stroke-width: 1; }
-.radar .shape { fill: var(--gold); fill-opacity: .18; stroke: var(--gold); stroke-width: 2; stroke-linejoin: round; transition: d .8s ease; }
-.radar .pt { fill: var(--bg-raised); stroke: var(--gold); stroke-width: 2; }
-.radar text { font-family: ui-monospace, Menlo, monospace; font-size: 9px; letter-spacing: .08em; fill: var(--ink-soft); text-transform: uppercase; }
 .feelings { padding: 6px 0 8px; }
 .mood-tape { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 16px 16px; border-top: 1px solid var(--line); }
 .mood-tape span { font-size: 11px; color: var(--ink-soft); border: 1px solid var(--line); border-radius: 999px; padding: 3px 9px; }
 .mood-tape span:last-child { color: var(--gold-deep); border-color: var(--gold); }
 .mood-tape:empty { display: none; }
+
+/* Emotion gauges: small multiples of semicircular arcs with a history sparkline each */
+.gauges { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; padding: 6px 12px 4px; }
+.gauge { margin: 0; display: grid; justify-items: center; gap: 2px; position: relative; }
+.gauge > svg:first-child { width: 100%; max-width: 84px; height: auto; overflow: visible; }
+.g-track { fill: none; stroke: var(--line); stroke-width: 5; stroke-linecap: round; }
+.g-fill { fill: none; stroke: var(--gold); stroke-width: 5; stroke-linecap: round; stroke-dasharray: 100.6; stroke-dashoffset: 100.6; transition: stroke-dashoffset 1s cubic-bezier(.2,.7,.2,1); }
+.gauge.is-empty .g-fill { opacity: 0; }
+.gauge b { position: absolute; top: 34%; font-family: var(--font-body); font-weight: 500; font-size: 15px; color: var(--ink); line-height: 1; }
+.gauge figcaption { font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-soft); }
+.g-spark { width: 100%; max-width: 64px; height: 16px; margin-top: 2px; }
+.g-spark path { fill: none; stroke: var(--gold); stroke-width: 1.5; vector-effect: non-scaling-stroke; opacity: .7; }
+.g-spark line { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+@media (max-width: 400px) { .gauge b { font-size: 13px; } .gauge figcaption { font-size: 8.5px; letter-spacing: .06em; } }
+
+.temper { padding: 10px 16px 14px; display: grid; gap: 8px; }
+.temper-cap { display: flex; justify-content: space-between; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); }
+.temper-cap span:last-child { color: var(--ink); text-transform: none; letter-spacing: .04em; }
+.temper-line { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-soft); }
+.temper-track { position: relative; height: 14px; }
+.temper-track::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--line); }
+.temper-mid { position: absolute; left: 50%; top: 2px; bottom: 2px; width: 1px; background: var(--line); }
+.temper-dot { position: absolute; top: 50%; left: 50%; width: 10px; height: 10px; border-radius: 50%; background: var(--gold); border: 2px solid var(--bg-raised); box-shadow: 0 0 0 1px var(--gold); transform: translate(-50%, -50%); transition: left .9s cubic-bezier(.2,.7,.2,1); }
+.temper.is-empty .temper-dot { background: var(--line); box-shadow: 0 0 0 1px var(--line); }
