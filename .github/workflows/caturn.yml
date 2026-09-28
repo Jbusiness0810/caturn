@@ -1,0 +1,31 @@
+name: Caturn tick
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # every 30 minutes (GitHub may delay scheduled runs)
+  workflow_dispatch: {}
+permissions:
+  contents: write
+concurrency: { group: caturn-tick, cancel-in-progress: false }
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: master }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: Think
+        env:
+          ORBIO_API_KEY: ${{ secrets.ORBIO_API_KEY }}
+          CATURN_AGENT_ID: ${{ vars.CATURN_AGENT_ID }}
+          CATURN_MODEL: ${{ vars.CATURN_MODEL }}
+          CATURN_DAILY_CAP: ${{ vars.CATURN_DAILY_CAP }}
+          CATURN_FULL_VOLUME_USD: ${{ vars.CATURN_FULL_VOLUME_USD }}
+          CATURN_POST_EVERY: ${{ vars.CATURN_POST_EVERY }}
+        run: node agent/run.mjs
+      - name: Publish feed
+        run: |
+          git config user.name "caturn-bot"
+          git config user.email "caturn-bot@users.noreply.github.com"
+          git add data/feed.json
+          git diff --cached --quiet || (git commit -m "caturn: tick" && git push origin HEAD:master)

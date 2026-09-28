@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "updatedAt": null,
+  "status": "prelaunch",
+  "reason": "no agent yet",
+  "energy": 0,
+  "agent": null,
+  "metrics": {
+    "volume24hUsd": null,
+    "fees24hUsd": null,
+    "priceUsd": null,
+    "marketCapUsd": null,
+    "creditOwed": null,
+    "stakedOrbio": null,
+    "spentTodayCredit": 0,
+    "thoughtsPerDay": 0
+  },
+  "thoughts": [],
+  "posts": [],
+  "samples": []
+}

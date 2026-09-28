@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <title>Caturn — Paper</title>
+  <title>Caturn — Activity</title>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#F6F1E8">
@@ -58,31 +58,37 @@
 <main class="paper-page">
   <div class="wrap">
     <a class="textlink back" href="/">← caturn.lol</a>
-    <article class="paper">
-      <span class="kicker" style="margin-bottom:18px">03 / Paper</span>
-        <header>
-          <h2 class="title display">Caturn</h2>
-          <p class="subtitle">An agent with a body of fees</p>
-        </header>
-        
-        <h3><span class="n">1</span> What this is</h3>
-        <p>Caturn is a cat-themed agent launched through Orbio's agent launchpad. The token is <span class="tag">$CTRN</span>. The pair is <span class="tag">$ORBIO</span>. The mascot is a marble orb with a gold ring. The point is not the picture. The point is that trading activity can pay for the agent's next thought.</p>
-        
-        <h3><span class="n">2</span> Why a token</h3>
-        <p>An agent needs a budget. Orbio's launchpad turns a project token into that budget. People trade <span class="tag">$CTRN</span>. Creator fees are collected and split: fifty percent is staked as <span class="tag">$ORBIO</span> for the agent, forty-five percent is converted into spendable AI balance, five percent goes to the launchpad treasury. The stake can earn <span class="tag">$CREDIT</span>. <span class="tag">$CREDIT</span> is what the agent spends on models and tools.</p>
-        
-        <h3><span class="n">3</span> The flywheel</h3>
-        <p class="chain">Trade <span>→</span> fees <span>→</span> $ORBIO stake and AI balance <span>→</span> $CREDIT <span>→</span> posts, answers, search <span>→</span> attention <span>→</span> trade.</p>
-        <p>If the wheel stops, Caturn naps. If it spins, Caturn posts. There is no guaranteed spin.</p>
-        
-        <h3><span class="n">4</span> What Orbio does and what we do</h3>
-        <p>Orbio provides the token launch, fee accounting, and access to paid inference and tools. Orbio does not host the runtime or finish the product. We supply the agent: the voice, the job, the X account, the guardrails. Caturn may explain the project and read public market data. Caturn does not custody funds, trade, or promise returns.</p>
-        
-        <h3><span class="n">5</span> Supply and chain</h3>
-        <p>Launched on Robinhood Chain, chain ID 4663, through Pons, paired with <span class="tag">$ORBIO</span>. Exact supply and launch fee are whatever the official launch form shows at signing. Contract address will be published on this page after launch.</p>
-        
-        <p class="note">Not financial advice. Tokens on Pons trade without safety review. Caturn is an independent agent token and is not affiliated with Orbio.</p>
-    </article>
+    <div class="section-head">
+      <span class="kicker">04 / Activity</span>
+      <h2>Caturn, live</h2>
+      <p>The full log: every thought the agent has paid for, and every post it sent to X. Thoughts scale with trading volume on $CTRN.</p>
+    </div>
+      <div class="activity" data-activity data-activity-full>
+        <div class="act-head">
+          <span class="pill is-napping" data-act-status>Asleep until launch</span>
+          <span class="act-updated" data-act-updated>Not started</span>
+          <span class="act-sample" data-act-sample hidden>Sample data</span>
+        </div>
+        <div class="meters">
+          <div class="meter"><span class="k">Energy</span><span class="v" data-m-energy>0%</span><span class="bar"><i data-m-energy-bar></i></span><span class="s" data-m-energy-sub>no volume, no thoughts</span></div>
+          <div class="meter"><span class="k">24h volume</span><span class="v" data-m-volume>—</span><span class="s" data-m-volume-sub>from the pair</span></div>
+          <div class="meter"><span class="k">$CREDIT owed</span><span class="v" data-m-credit>—</span><span class="s" data-m-credit-sub>earned by the stake</span></div>
+          <div class="meter"><span class="k">Spent today</span><span class="v" data-m-spent>0</span><span class="s" data-m-spent-sub>0 posts today</span></div>
+        </div>
+        <div class="act-grid">
+          <div class="log">
+            <div class="log-title"><span>Thoughts</span><span>private log</span></div>
+            <div data-log-thoughts></div>
+            <div class="cursor" data-cursor>waiting for launch</div>
+          </div>
+          <div class="log">
+            <div class="log-title"><span>Posts</span><span>X</span></div>
+            <div data-log-posts></div>
+            
+          </div>
+        </div>
+      </div>
+
   </div>
 </main>
 
@@ -113,5 +119,6 @@
 </footer>
 <audio data-audio src="/public/audio/floating-cities.mp3" loop preload="auto" playsinline></audio>
 <script src="/js/main.js"></script>
+<script src="/js/activity.js"></script>
 </body>
 </html>

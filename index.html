@@ -26,9 +26,10 @@
 <aside class="rail" data-rail aria-hidden="true">
   <div class="rail-track">
     <a class="rail-node" href="#top" data-label="00" style="top:0%"></a>
-    <a class="rail-node" href="#contract" data-label="01" style="top:33.3%"></a>
-    <a class="rail-node" href="#how" data-label="02" style="top:66.6%"></a>
-    <a class="rail-node" href="#paper" data-label="03" style="top:100%"></a>
+    <a class="rail-node" href="#contract" data-label="01" style="top:25%"></a>
+    <a class="rail-node" href="#how" data-label="02" style="top:50%"></a>
+    <a class="rail-node" href="#paper" data-label="03" style="top:75%"></a>
+    <a class="rail-node" href="#activity" data-label="04" style="top:100%"></a>
     <span class="rail-ship"></span>
     <span class="rail-zzz">zzz</span>
   </div>
@@ -53,9 +54,10 @@
     </a>
     <div class="right">
       <nav class="nav" aria-label="Primary">
-        <a href="/#how">How it works</a>
+        <a href="/#how" data-short="How">How it works</a>
         <a href="/#paper">Paper</a>
-        <a href="/#contract">Contract</a>
+        <a href="/#contract" data-short="CA">Contract</a>
+        <a href="/#activity" data-short="Live">Activity</a>
       </nav>
       <button class="sound" type="button" data-sound aria-pressed="false" title="Floating Cities by Kevin MacLeod, CC BY 4.0">
         <span class="sound-bars" aria-hidden="true"><i></i><i></i><i></i></span>
@@ -213,6 +215,43 @@
       <p class="paper-link"><a class="textlink" href="/paper">Open the paper as its own page</a></p>
     </div>
   </section>
+
+  <!-- 04 / Activity -->
+  <section class="section" id="activity">
+    <div class="wrap" data-reveal>
+      <div class="section-head">
+        <span class="kicker">04 / Activity</span>
+        <h2>What Caturn is thinking</h2>
+        <p>Every thought is paid for by fees. When volume is high, Caturn thinks often and posts some of it. When it is quiet, Caturn naps.</p>
+      </div>
+      <div class="activity" data-activity>
+        <div class="act-head">
+          <span class="pill is-napping" data-act-status>Asleep until launch</span>
+          <span class="act-updated" data-act-updated>Not started</span>
+          <span class="act-sample" data-act-sample hidden>Sample data</span>
+        </div>
+        <div class="meters">
+          <div class="meter"><span class="k">Energy</span><span class="v" data-m-energy>0%</span><span class="bar"><i data-m-energy-bar></i></span><span class="s" data-m-energy-sub>no volume, no thoughts</span></div>
+          <div class="meter"><span class="k">24h volume</span><span class="v" data-m-volume>—</span><span class="s" data-m-volume-sub>from the pair</span></div>
+          <div class="meter"><span class="k">$CREDIT owed</span><span class="v" data-m-credit>—</span><span class="s" data-m-credit-sub>earned by the stake</span></div>
+          <div class="meter"><span class="k">Spent today</span><span class="v" data-m-spent>0</span><span class="s" data-m-spent-sub>0 posts today</span></div>
+        </div>
+        <div class="act-grid">
+          <div class="log">
+            <div class="log-title"><span>Thoughts</span><span>private log</span></div>
+            <div data-log-thoughts></div>
+            <div class="cursor" data-cursor>waiting for launch</div>
+          </div>
+          <div class="log">
+            <div class="log-title"><span>Posts</span><span>X</span></div>
+            <div data-log-posts></div>
+            <p class="log-more"><a class="textlink" href="/activity">Full activity log</a></p>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
 </main>
 
 <footer class="site-footer">
@@ -228,7 +267,7 @@
         <a data-link-orbiofun href="#" rel="noopener" target="_blank" hidden>orbio.fun</a>
       </div>
       <div class="col">
-        <a href="/#contract">Contract</a>
+        <a href="/#contract" data-short="CA">Contract</a>
         <a href="/paper">Paper</a>
       </div>
     </div>
@@ -242,5 +281,6 @@
 </footer>
 <audio data-audio src="/public/audio/floating-cities.mp3" loop preload="auto" playsinline></audio>
 <script src="/js/main.js"></script>
+<script src="/js/activity.js"></script>
 </body>
 </html>

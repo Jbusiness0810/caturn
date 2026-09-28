@@ -16,3 +16,7 @@ The contract card, copy button, status pill and footer links update from that on
 `js/main.js` drives the orbit theme: a brass star field with scroll parallax, a rail on the right where Caturn rides down the page and naps at the bottom, soft section reveals, and a hero parallax. All of it respects `prefers-reduced-motion`.
 
 Background music is on by default. It starts muted on load (the only autoplay browsers allow), unmutes on the visitor's first tap or click, and stays off for anyone who switches it off. Track: "Floating Cities" by Kevin MacLeod, CC BY 4.0, credited in the footer and in `public/audio/LICENSE.txt`.
+
+## Activity dashboard and the agent
+Section 04 on the index and `/activity` render `data/feed.json`: status, energy, volume, CREDIT, the thought log and X posts. Add `?demo` to either URL to preview with `data/feed.sample.json`.
+The feed is written by the runtime in `agent/` on a GitHub Actions cron. See `agent/README.md` for the one-time setup (Orbio API key, agent id, X account connected in the Orbio dashboard).

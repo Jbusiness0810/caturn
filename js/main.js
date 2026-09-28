@@ -100,7 +100,7 @@
 (function () {
   var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   var doc = document.documentElement;
-  var sections = ["top", "contract", "how", "paper"].map(function (id) { return document.getElementById(id); }).filter(Boolean);
+  var sections = ["top", "contract", "how", "paper", "activity"].map(function (id) { return document.getElementById(id); }).filter(Boolean);
 
   var rail = document.querySelector("[data-rail]");
   var ship = rail && rail.querySelector(".rail-ship");
