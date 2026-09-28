@@ -202,7 +202,7 @@
   var KEY = "caturn:sound";
   var label = btn.querySelector(".sound-label");
   var GESTURES = ["pointerdown", "keydown", "touchend"];
-  var VOL = 0.22;
+  var VOL = 0.12;
   audio.volume = 0;
   var fadeTimer = null;
   function fadeIn() {
