@@ -10,4 +10,4 @@ Edit `js/config.js` and set `ca` (and optionally `launchTx`, `orbioFun`, `x`, `e
 The contract card, copy button, status pill and footer links update from that one object.
 
 ## Mascot
-Drop the artwork at `public/mascot.png`. Until then a CSS orb placeholder renders in its place.
+`public/mascot.png` (1024px, transparent) and `public/favicon.png` (192px) are cut from `art/mascot-original.png`. If `mascot.png` is ever missing, a CSS orb placeholder renders in its place.
