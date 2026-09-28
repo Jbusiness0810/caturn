@@ -15,4 +15,4 @@ The contract card, copy button, status pill and footer links update from that on
 ## Theme and sound
 `js/main.js` drives the orbit theme: a brass star field with scroll parallax, a rail on the right where Caturn rides down the page and naps at the bottom, soft section reveals, and a hero parallax. All of it respects `prefers-reduced-motion`.
 
-Background music is on by default. It starts muted on load (the only autoplay browsers allow), unmutes on the visitor's first tap or click, and stays off for anyone who switches it off. Track: "Voltaic" by Kevin MacLeod, CC BY 4.0, credited in the footer and in `public/audio/LICENSE.txt`.
+Background music is on by default. It starts muted on load (the only autoplay browsers allow), unmutes on the visitor's first tap or click, and stays off for anyone who switches it off. Track: "Floating Cities" by Kevin MacLeod, CC BY 4.0, credited in the footer and in `public/audio/LICENSE.txt`.
