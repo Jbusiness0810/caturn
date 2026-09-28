@@ -21,6 +21,7 @@
   <script src="/js/config.js"></script>
 </head>
 <body>
+<canvas class="stars" data-stars aria-hidden="true"></canvas>
 <header class="site-header">
   <div class="wrap">
     <a class="brand" href="/">
@@ -39,11 +40,17 @@
       <span class="brand-name">CATURN</span>
       <span class="brand-ticker muted">$CTRN</span>
     </a>
-    <nav class="nav" aria-label="Primary">
-      <a href="/#how">How it works</a>
-      <a href="/#paper">Paper</a>
-      <a href="/#contract">Contract</a>
-    </nav>
+    <div class="right">
+      <nav class="nav" aria-label="Primary">
+        <a href="/#how">How it works</a>
+        <a href="/#paper">Paper</a>
+        <a href="/#contract">Contract</a>
+      </nav>
+      <button class="sound" type="button" data-sound aria-pressed="false" title="Space Jazz by Kevin MacLeod, CC BY 4.0">
+        <span class="sound-bars" aria-hidden="true"><i></i><i></i><i></i></span>
+        <span class="sound-label">Sound off</span>
+      </button>
+    </div>
   </div>
 </header>
 
@@ -98,10 +105,12 @@
     <div class="legal">
       <p>Not financial advice. Tokens on Pons trade without safety review.</p>
       <p>Caturn is an independent agent token. Not affiliated with Orbio.</p>
+      <p>Music: <a href="https://incompetech.filmmusic.io/song/8328-space-jazz" rel="noopener" target="_blank">Space Jazz</a> by Kevin MacLeod (incompetech.com), <a href="https://creativecommons.org/licenses/by/4.0/" rel="noopener" target="_blank">CC BY 4.0</a>.</p>
       <p>© <span data-year></span> Caturn</p>
     </div>
   </div>
 </footer>
+<audio data-audio src="/public/audio/space-jazz.mp3" loop preload="none"></audio>
 <script src="/js/main.js"></script>
 </body>
 </html>

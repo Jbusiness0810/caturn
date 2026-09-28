@@ -112,7 +112,7 @@ h1, h2, h3, .display {
 .nav { display: flex; gap: clamp(14px, 3vw, 28px); font-size: 13px; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-soft); }
 .nav a:hover { color: var(--ink); }
 .nav a { white-space: nowrap; }
-@media (max-width: 480px) { .nav { gap: 12px; font-size: 11px; } .brand { gap: 8px; } .brand-name { font-size: 15px; letter-spacing: .08em; } .brand-ticker { display: none; } }
+@media (max-width: 560px) { .site-header .wrap { padding-left: 16px; padding-right: 16px; gap: 10px; } .nav { gap: 9px; font-size: 10px; letter-spacing: .04em; } .brand { gap: 6px; } .brand-name { font-size: 14px; letter-spacing: .06em; } .brand-ticker { display: none; } .site-header .right { gap: 10px; } }
 
 /* Mascot */
 .mascot { position: relative; width: var(--size, 200px); height: var(--size, 200px); flex: 0 0 auto; }
@@ -247,3 +247,74 @@ h1, h2, h3, .display {
   .hero .mascot { animation: drift 9s ease-in-out infinite; }
   @keyframes drift { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
 }
+
+/* ---------- Orbit theme ---------- */
+.stars { position: fixed; inset: 0; z-index: 0; pointer-events: none; }
+.site-header, main, .site-footer { position: relative; z-index: 1; }
+
+/* Scroll rail: a thin gold orbit down the right edge; Caturn rides it. */
+.rail { position: fixed; right: clamp(14px, 2.4vw, 34px); top: 50%; transform: translateY(-50%); height: min(46vh, 420px); width: 24px; z-index: 5; display: none; }
+@media (min-width: 900px) { .rail { display: block; } }
+.rail::before { content: ""; position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--gold); opacity: .45; }
+.rail-track { position: absolute; inset: 0; }
+.rail-node {
+  position: absolute; left: 50%; transform: translate(-50%, -50%);
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--bg); border: 1px solid var(--gold);
+  transition: background .25s ease, transform .25s ease;
+}
+.rail-node::after {
+  content: attr(data-label); position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
+  font-size: 10px; letter-spacing: .18em; color: var(--gold-deep); opacity: 0; white-space: nowrap;
+  transition: opacity .25s ease;
+}
+.rail-node:hover::after, .rail-node.is-active::after { opacity: 1; }
+.rail-node.is-past { background: var(--gold); }
+.rail-node.is-active { background: var(--gold); transform: translate(-50%, -50%) scale(1.5); }
+.rail-ship {
+  position: absolute; left: 50%; top: 0; width: 30px; height: 30px; transform: translate(-50%, -50%);
+  background: url("/public/favicon.png") center / contain no-repeat;
+  filter: drop-shadow(0 2px 4px rgba(28,25,21,.15));
+  transition: top .08s linear;
+  pointer-events: none;
+}
+.rail-zzz {
+  position: absolute; left: 50%; bottom: -34px; transform: translateX(-50%);
+  font-family: var(--font-display); font-style: italic; font-size: 13px; color: var(--gold-deep);
+  opacity: 0; transition: opacity .4s ease; white-space: nowrap;
+}
+.rail.is-napping .rail-zzz { opacity: 1; }
+@media (prefers-reduced-motion: no-preference) {
+  .rail.is-napping .rail-zzz { animation: zzz 2.4s ease-in-out infinite; }
+  @keyframes zzz { 0%, 100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, -4px); } }
+}
+
+/* Hero parallax handled inline by JS; keep the float animation on the inner disc instead. */
+@media (prefers-reduced-motion: no-preference) {
+  .hero .mascot { animation: none; will-change: transform, opacity; }
+  .hero .mascot img, .hero .mascot .orb { animation: drift 9s ease-in-out infinite; }
+}
+
+/* Soft reveal */
+[data-reveal] { opacity: 0; transform: translateY(14px); transition: opacity .7s ease, transform .7s ease; }
+[data-reveal].is-in { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) { [data-reveal] { opacity: 1; transform: none; transition: none; } }
+
+/* Sound toggle */
+.sound {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: transparent; border: 1px solid var(--line); border-radius: 999px;
+  padding: 6px 12px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft);
+  transition: border-color .18s ease, color .18s ease;
+}
+.sound:hover { border-color: var(--gold); color: var(--ink); }
+.sound.is-on { border-color: var(--gold); color: var(--gold-deep); }
+.sound-bars { display: inline-flex; align-items: flex-end; gap: 2px; height: 10px; }
+.sound-bars i { display: block; width: 2px; height: 3px; background: currentColor; border-radius: 1px; }
+.sound.is-on .sound-bars i { animation: bars 1s ease-in-out infinite; }
+.sound.is-on .sound-bars i:nth-child(2) { animation-delay: .15s; }
+.sound.is-on .sound-bars i:nth-child(3) { animation-delay: .3s; }
+@keyframes bars { 0%, 100% { height: 3px; } 50% { height: 10px; } }
+@media (prefers-reduced-motion: reduce) { .sound.is-on .sound-bars i { animation: none; height: 7px; } }
+.site-header .right { display: flex; align-items: center; gap: clamp(12px, 2vw, 24px); }
+@media (max-width: 480px) { .sound .sound-label { display: none; } .sound { padding: 8px 10px; } }

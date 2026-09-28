@@ -11,3 +11,8 @@ The contract card, copy button, status pill and footer links update from that on
 
 ## Mascot
 `public/mascot.png` (1024px, transparent) and `public/favicon.png` (192px) are cut from `art/mascot-original.png`. If `mascot.png` is ever missing, a CSS orb placeholder renders in its place.
+
+## Theme and sound
+`js/main.js` drives the orbit theme: a brass star field with scroll parallax, a rail on the right where Caturn rides down the page and naps at the bottom, soft section reveals, and a hero parallax. All of it respects `prefers-reduced-motion`.
+
+Background music is opt-in via the header toggle (browsers block autoplay with sound). Track: "Space Jazz" by Kevin MacLeod, CC BY 4.0, credited in the footer and in `public/audio/LICENSE.txt`.
