@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": null,
+  "updatedAt": "2026-09-29T01:08:23.829Z",
   "status": "prelaunch",
   "reason": "no agent yet",
   "energy": 0,
@@ -17,5 +17,12 @@
   },
   "thoughts": [],
   "posts": [],
-  "samples": []
+  "samples": [
+    {
+      "t": 1790644103829,
+      "fees": 0,
+      "vol": null
+    }
+  ],
+  "events": []
 }
