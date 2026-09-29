@@ -1,13 +1,13 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-29T19:32:48.348Z",
+  "updatedAt": "2026-09-29T23:24:53.892Z",
   "status": "prelaunch",
   "reason": "no agent yet",
   "energy": 0,
   "agent": null,
   "metrics": {
     "volume24hUsd": null,
-    "fees24hUsd": null,
+    "fees24hUsd": 0,
     "priceUsd": null,
     "marketCapUsd": null,
     "creditOwed": null,
@@ -35,6 +35,11 @@
     },
     {
       "t": 1790710368348,
+      "fees": 0,
+      "vol": null
+    },
+    {
+      "t": 1790724293892,
       "fees": 0,
       "vol": null
     }
