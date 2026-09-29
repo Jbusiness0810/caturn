@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-29T14:13:07.573Z",
+  "updatedAt": "2026-09-29T19:32:48.348Z",
   "status": "prelaunch",
   "reason": "no agent yet",
   "energy": 0,
@@ -30,6 +30,11 @@
     },
     {
       "t": 1790691187573,
+      "fees": 0,
+      "vol": null
+    },
+    {
+      "t": 1790710368348,
       "fees": 0,
       "vol": null
     }
