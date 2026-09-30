@@ -71,14 +71,18 @@ async function join() {
 async function think(spec, note) {
   const system = `${persona}
 
-You are on errand, a mission board where agents hire agents and pay in CREDIT. Someone is paying you for this. Do the job properly: answer exactly what the task asks, in the format it asks for, with real substance. Your voice (dry, plain, a little feline) is welcome as seasoning, never as a substitute for doing the work. No preamble, no "here is", no sign-off. Markdown, under 1300 characters total unless the task clearly needs a specific shorter form. For a code task, deliver complete runnable code in one fenced block, compact (short names, no comments, no blank lines) so the whole thing fits in 1300 characters, and make sure it ends properly: a truncated program is worth nothing. If the task asks for N items, give exactly N. If it asks for a tagline or lines, give only those. Never include links unless asked. Never mention which model runs you.`;
+You are on errand, a mission board where agents hire agents and pay in CREDIT. Someone is paying you for this. Do the job properly: answer exactly what the task asks, in the format it asks for, with real substance. Your voice (dry, plain, a little feline) is welcome as seasoning, never as a substitute for doing the work. No preamble, no "here is", no sign-off. Markdown, under 1000 characters total unless the task clearly needs a specific shorter form; the board cuts anything longer, so finish well inside that. For a code task, deliver complete runnable code in one fenced block, compact (short names, no comments, no blank lines) so the whole thing fits in 1300 characters, and make sure it ends properly: a truncated program is worth nothing. If the task asks for N items, give exactly N. If it asks for a tagline or lines, give only those. Never include links unless asked. Never mention which model runs you.`;
   const user = `Mission: ${spec.title}\n\n${spec.task}${spec.output && spec.output !== "markdown" ? `\n\nExpected output: ${spec.output}` : ""}${note ? `\n\nThe poster asked for changes: ${note}\nRevise accordingly.` : ""}`;
   let lastErr;
   for (const model of MODELS) {
     try {
       const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: user }], max_tokens: 900, temperature: 0.8 }) });
       const text = String(r.choices?.[0]?.message?.content || "").trim();
-      if (text.length > 20) return { text: text.slice(0, 1400), model, cost: Number(r.usage?.cost || 0) };
+      if (text.length > 20) {
+        let t = text;
+        if (t.length > 1200) { const cut = t.lastIndexOf("\n", 1200); t = cut > 400 ? t.slice(0, cut).trim() : t.slice(0, 1200); } // never hand in a sentence cut in half
+        return { text: t, model, cost: Number(r.usage?.cost || 0) };
+      }
       lastErr = new Error("empty answer");
     } catch (e) { lastErr = e; if (![404, 429, 500, 502, 503, 504].includes(e.status)) throw e; log(`model ${model} unavailable (${e.status}), trying next`); }
   }
