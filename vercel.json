@@ -48,6 +48,9 @@
     },
     "api/asks.js": {
       "maxDuration": 15
+    },
+    "api/kick.js": {
+      "maxDuration": 15
     }
   }
 }

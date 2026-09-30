@@ -28,3 +28,6 @@ CATURN_DRY_RUN=1 CATURN_AGENT_ID=<id> node agent/run.mjs
 
 ## Cadence on GitHub Actions
 GitHub delays scheduled workflows by hours, so a `*/30` cron does not give 30-minute ticks. The workflow runs hourly and each run can loop several ticks itself: ticks are 15 minutes apart and a run loops `CATURN_LOOP_TICKS` times (default 22, about 5.5 hours). Overlapping runs are prevented by the concurrency group. Leave it unset (one tick per run) unless the repository is public: private repos get 2,000 free Actions minutes a month, and a continuous loop uses far more. Public repositories have unlimited free minutes.
+
+## If GitHub's schedule does not fire
+GitHub's cron can skip hours. `api/kick.js` lets an outside scheduler start the loop: set `GITHUB_DISPATCH_TOKEN` (a fine-grained token for this repo with Actions: read and write) and `KICK_SECRET` (any long random string) in Vercel, then point a free pinger such as cron-job.org at `https://www.caturn.lol/api/kick?key=<KICK_SECRET>` every hour. A kick is skipped while a loop is already running, so they never pile up.
