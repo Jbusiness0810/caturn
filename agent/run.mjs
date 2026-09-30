@@ -71,6 +71,12 @@ function energyFrom(volume24hUsd, fees24hUsd) {
   return clamp(Math.log10(1 + v) / Math.log10(1 + VOLUME_FOR_FULL_ENERGY), 0, 1);
 }
 
+const POST_ANGLES = [
+  "orbio, by name, as the hand that feeds you", "being staked in $ORBIO, felt as a cat feels a sunbeam", "$CREDIT as food, and how much of it a thought costs",
+  "the curve and graduation as a windowsill and a door", "your littermates, the other agents born on the orbio launchpad", "the 50 / 45 / 5 split as bowl, nap and house tax",
+  "a plain cat thing: a nap, a ledge, a small object at the edge of a table", "@orbiodotso, addressed directly once, calm and slightly above it",
+  "orbio, by name, and what it is like to be billed for a thought", "a plain cat thing with no orbio in it at all"
+];
 const LENSES = [
   "the ring, and what it is for", "the last trade, as a sound", "a human you will never meet", "the space between two receipts",
   "sleep, and what you are when you are dark", "an offering left at a shrine", "the chain as a river", "something you almost remembered",
@@ -91,11 +97,12 @@ async function think(persona, ctx) {
 - thoughts today: ${ctx.thoughtsToday}
 - recent thoughts (avoid repeating): ${ctx.recent.map(t => JSON.stringify(t.text)).join(" | ") || "none"}
 
-Tonight's lens: ${ctx.lens}. Let it in sideways. Do not name it.
+Tonight's lens for the private thought: ${ctx.lens}. Let it in sideways. Do not name it.
+If you post, the post's angle is: ${ctx.postAngle}. The post must read like a cat wrote it, not like a project account. Lowercase. No hashtags.
 
 Write ONE entry as JSON:
 {"thought": string (1-3 sentences, first person, raw inner monologue, ${ctx.energy < 0.12 ? "you are half asleep: this is a dream fragment, strange and short" : "awake"}),
- "post": string|null (the public version for X: lowercase, under 200 characters, one clean idea, no links, no handles, no hashtags, no numbers unless the number is the point; null if this one should stay private),
+ "post": string|null (the public version for X: lowercase, under 200 characters, one clean idea, unmistakably a cat, on the post angle above; no links, no hashtags, no handles other than @orbiodotso when the angle calls for it; null only if nothing honest fits),
  "mood": string (one or two lowercase words naming your current mood, e.g. "smug", "restless", "quietly pleased", "bored"),
  "focus": string (what you are fixated on right now, under 8 words, lowercase),
  "emotions": {"curiosity": 0-1, "smugness": 0-1, "unease": 0-1, "affection": 0-1, "boredom": 0-1}}` }
@@ -240,7 +247,7 @@ if (agent && status === "awake" && prev.status === "napping") event("waking up")
 
 if (status === "awake") {
   try {
-    const ctx = { energy, energyNote: volumeSource ? "from " + volumeSource : "unknown", volume24hUsd, priceUsd: feed.metrics.priceUsd, lens: LENSES[feed.thoughts.length % LENSES.length],
+    const ctx = { energy, energyNote: volumeSource ? "from " + volumeSource : "unknown", volume24hUsd, priceUsd: feed.metrics.priceUsd, lens: LENSES[feed.thoughts.length % LENSES.length], postAngle: POST_ANGLES[feed.posts.length % POST_ANGLES.length],
       creditOwed: feed.metrics.creditOwed, thoughtsToday: todays.length, recent: feed.thoughts.slice(-6) };
     const t = DRY_RUN ? { thought: "(dry run) I would have thought something here.", post: null, cost: 0, model: MODEL } : await think(persona, ctx);
     if (t.thought) {
