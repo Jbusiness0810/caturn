@@ -82,7 +82,7 @@
     });
   }
   link("[data-link-launchpad]", C.launchpad);
-  link("[data-link-orbiofun]", C.orbioFun, "Trade $CTRN");
+  link("[data-link-orbiofun]", C.orbioFun);
   link("[data-link-x]", C.x, "@caturn_rh");
   link("[data-link-tx]", C.launchTx);
 

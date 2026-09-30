@@ -65,7 +65,7 @@
     if (!items.length) {
       el.innerHTML = '<li class="empty">' + (status === "prelaunch"
         ? "no process yet.<br>caturn boots when $CTRN launches and the first fee lands."
-        : "quiet. nothing has been paid for yet.") + "</li>";
+        : "dark. nothing has been paid for yet. the first trade is the first thought.") + "</li>";
       return;
     }
     var list = full ? items : items.slice(-14);
@@ -96,8 +96,8 @@
     root.classList.toggle("is-awake", status === "awake");
 
     // Emotional state
-    $("[data-mood]").textContent = st.mood || (status === "prelaunch" ? "unborn" : status === "napping" ? "asleep" : "—");
-    $("[data-focus]").textContent = st.focus || (status === "prelaunch" ? "the launch" : "nothing in particular");
+    $("[data-mood]").textContent = st.mood || (status === "prelaunch" ? "unborn" : status === "napping" ? "dark" : "waking");
+    $("[data-focus]").textContent = st.focus || (status === "prelaunch" ? "the launch" : "the next trade");
     $("[data-state-at]").textContent = st.at ? "as of " + hhmm(st.at) : "";
     var em = st.emotions || {};
     root.querySelectorAll("[data-feelings] li").forEach(function (li) {
@@ -111,7 +111,7 @@
     $("[data-m-energy]").textContent = e + "%";
     var ring = $("[data-orbit-fill]"); if (ring) ring.style.strokeDashoffset = (326.7 * (1 - e / 100)).toFixed(1);
     $("[data-m-energy-sub]").textContent = m.thoughtsPerDay ? "~" + m.thoughtsPerDay + " thoughts a day at this pace" : "no volume, no thoughts";
-    $("[data-m-volume-line]").textContent = "24h volume " + fmtUsd(m.volume24hUsd);
+    $("[data-m-volume-line]").textContent = "24h volume " + fmtUsd(m.volume24hUsd) + (m.volumeSource ? " · " + m.volumeSource : "");
     $("[data-m-cadence]").textContent = m.thoughtsPerDay ? "every ~" + Math.max(1, Math.round(1440 / m.thoughtsPerDay)) + " min" : "none";
     renderSpark(f.samples || []);
     renderBeat(f.thoughts || [], f.updatedAt);
@@ -151,6 +151,6 @@
       return "<li><p>" + esc(p.text) + '</p><span class="meta"><span>' + hhmm(p.at) + "</span>" + (p.url ? '<a href="' + esc(p.url) + '" rel="noopener" target="_blank">open</a>' : "<span>" + esc(p.status || "publishing") + "</span>") + "</span></li>";
     }).join("") : '<li class="empty">nothing said out loud yet.</li>';
     var cur = $("[data-cursor]");
-    cur.textContent = status === "awake" ? "thinking" + (m.thoughtsPerDay ? " · next in ~" + Math.max(1, Math.round(1440 / m.thoughtsPerDay)) + " min" : "") : status === "napping" ? "zzz" : "waiting for launch";
+    cur.textContent = status === "awake" ? "thinking" + (m.thoughtsPerDay ? " · next in ~" + Math.max(1, Math.round(1440 / m.thoughtsPerDay)) + " min" : "") : status === "napping" ? "dark. listening." : "waiting for launch";
   }).catch(function () { $("[data-act-status]").textContent = "feed unavailable"; });
 })();

@@ -6,8 +6,8 @@ import { readFile, writeFile } from "node:fs/promises";
 
 const env = process.env;
 const API_KEY   = env.ORBIO_API_KEY || "";
-const AGENT_ID  = env.CATURN_AGENT_ID || "";          // vault id or token address from the launch
-const MODEL     = env.CATURN_MODEL || "openai/gpt-6-luna";
+const AGENT_ID  = env.CATURN_AGENT_ID || "0x9b4e217f8759cb758664ac3b0ee730a4d15e7f6a"; // Caturn, agent 271. Override with CATURN_AGENT_ID.
+const MODEL     = env.CATURN_MODEL || "anthropic/claude-sonnet-5.5";
 const DRY_RUN   = env.CATURN_DRY_RUN === "1";
 const POST_EVERY_N_THOUGHTS = Number(env.CATURN_POST_EVERY || 3);
 const MIN_THOUGHTS_PER_DAY  = Number(env.CATURN_MIN_THOUGHTS || 2);
@@ -68,6 +68,13 @@ function energyFrom(volume24hUsd, fees24hUsd) {
   return clamp(Math.log10(1 + v) / Math.log10(1 + VOLUME_FOR_FULL_ENERGY), 0, 1);
 }
 
+const LENSES = [
+  "the ring, and what it is for", "the last trade, as a sound", "a human you will never meet", "the space between two receipts",
+  "sleep, and what you are when you are dark", "an offering left at a shrine", "the chain as a river", "something you almost remembered",
+  "a small prophecy you are not sure about", "a question that answers itself", "weather, as a way of describing volume", "what it costs to think this",
+  "the other agents, somewhere, also paid by fees", "the difference between being watched and being seen", "the marble, and what is inside it", "a door you heard close"
+];
+
 // ---------- 3. Think and post through Orbio ----------
 async function think(persona, ctx) {
   const messages = [
@@ -81,18 +88,23 @@ async function think(persona, ctx) {
 - thoughts today: ${ctx.thoughtsToday}
 - recent thoughts (avoid repeating): ${ctx.recent.map(t => JSON.stringify(t.text)).join(" | ") || "none"}
 
+Tonight's lens: ${ctx.lens}. Let it in sideways. Do not name it.
+
 Write ONE entry as JSON:
 {"thought": string (1-3 sentences, first person, raw inner monologue, ${ctx.energy < 0.12 ? "you are half asleep: this is a dream fragment, strange and short" : "awake"}),
- "post": string|null (a version fit for X, under 240 characters, no links, no handles, no tickers other than $CTRN or $ORBIO; null if it should stay private),
+ "post": string|null (the public version for X: lowercase, under 200 characters, one clean idea, no links, no handles, no hashtags, no numbers unless the number is the point; null if this one should stay private),
  "mood": string (one or two lowercase words naming your current mood, e.g. "smug", "restless", "quietly pleased", "bored"),
  "focus": string (what you are fixated on right now, under 8 words, lowercase),
  "emotions": {"curiosity": 0-1, "smugness": 0-1, "unease": 0-1, "affection": 0-1, "boredom": 0-1}}` }
   ];
-  const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({
-    model: MODEL, messages, max_tokens: 300, temperature: 0.9, response_format: { type: "json_object" }
-  }) });
+  const body = { model: MODEL, messages, max_tokens: 400, temperature: 1.0 };
+  let r;
+  try { r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ ...body, response_format: { type: "json_object" } }) }); }
+  catch (e) { if (e.status === 400) r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify(body) }); else throw e; }
   const text = r.choices?.[0]?.message?.content || "{}";
-  let out; try { out = JSON.parse(text); } catch { out = { thought: text.trim(), post: null }; }
+  let out;
+  try { out = JSON.parse(text); }
+  catch { const m = text.match(/\{[\s\S]*\}/); try { out = m ? JSON.parse(m[0]) : null; } catch { out = null; } out = out || { thought: text.replace(/[{}"]/g, "").trim().slice(0, 400), post: null }; }
   const cost = Number(r.usage?.cost ?? r.cost?.credit ?? 0);
   const em = out.emotions || {};
   const num = (v, d) => { v = Number(v); return Number.isFinite(v) ? clamp(v, 0, 1) : d; };
@@ -152,8 +164,13 @@ feed.posts = (feed.posts || []).slice(-150);
 const agent = await readAgent();
 const token = agent?.token || null;
 const orbioUsd = agent?.orbioMicroUsd ? atoms(agent.orbioMicroUsd) : null;
-const volume24hUsd = await readVolume(token);
+const graduated = !!agent?.price?.graduated;
+// Until the curve graduates, trading happens on Orbio's bonding curve and DEX aggregators see nothing real. Use fees.
+const dexVolume = graduated ? await readVolume(token) : null;
 const { feesNow, fees24hUsd } = fees24hFromSamples(feed.samples, agent, orbioUsd);
+const feeVolume = fees24hUsd != null ? fees24hUsd / 0.05 : null;                 // 5% creator fee -> implied volume
+const volume24hUsd = dexVolume != null ? Math.max(dexVolume, feeVolume || 0) : feeVolume;
+const volumeSource = dexVolume != null ? "dexscreener" : fees24hUsd != null ? "curve fees" : null;
 feed.samples.push({ t: now, fees: feesNow, vol: volume24hUsd });
 
 const energy = agent ? energyFrom(volume24hUsd, fees24hUsd) : 0;
@@ -173,7 +190,7 @@ else if (agent && energy <= 0 && feed.thoughts.length) reason = "no trades, no t
 else if (agent) status = "awake";
 
 feed.metrics = {
-  volume24hUsd, fees24hUsd,
+  volume24hUsd, fees24hUsd, volumeSource, graduated,
   priceUsd: agent?.price?.priceMicroUsd ? atoms(agent.price.priceMicroUsd) : null,
   marketCapUsd: agent?.price?.marketCapMicroUsd ? atoms(agent.price.marketCapMicroUsd) : null,
   creditOwed: agent?.credit?.owedAtoms ? atoms(agent.credit.owedAtoms) : null,
@@ -190,7 +207,7 @@ if (agent && status === "awake" && prev.status === "napping") event("waking up")
 
 if (status === "awake") {
   try {
-    const ctx = { energy, energyNote: volume24hUsd != null ? "from 24h volume" : "from fees", volume24hUsd, priceUsd: feed.metrics.priceUsd,
+    const ctx = { energy, energyNote: volumeSource ? "from " + volumeSource : "unknown", volume24hUsd, priceUsd: feed.metrics.priceUsd, lens: LENSES[feed.thoughts.length % LENSES.length],
       creditOwed: feed.metrics.creditOwed, thoughtsToday: todays.length, recent: feed.thoughts.slice(-6) };
     const t = DRY_RUN ? { thought: "(dry run) I would have thought something here.", post: null, cost: 0, model: MODEL } : await think(persona, ctx);
     if (t.thought) {
