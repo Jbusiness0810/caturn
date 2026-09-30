@@ -104,7 +104,11 @@
   }
   setInterval(tickClock, 1000);
   function load() {
-    var feedP = fetch((demo ? "/data/feed.sample.json" : "/data/feed.json") + "?t=" + Math.floor(Date.now() / 30000), { cache: "no-store" }).then(function (r) { return r.json(); });
+    // The live feed comes from git through /api/feed so the site never waits on a redeploy; the static copy is the fallback.
+    var feedP = demo
+      ? fetch("/data/feed.sample.json?t=" + Math.floor(Date.now() / 30000), { cache: "no-store" }).then(function (r) { return r.json(); })
+      : fetch("/api/feed?t=" + Math.floor(Date.now() / 15000), { cache: "no-store" }).then(function (r) { if (!r.ok) throw new Error("feed " + r.status); return r.json(); })
+        .catch(function () { return fetch("/data/feed.json?t=" + Math.floor(Date.now() / 30000), { cache: "no-store" }).then(function (r) { return r.json(); }); });
     var asksP = demo ? Promise.resolve({ asks: [{ at: new Date().toISOString(), q: "do you dream?", a: "yes. never finished. the last one was a gold ring in a bowl of warm milk.", model: "sample" }], tracked: true })
       : fetch("/api/asks?t=" + Math.floor(Date.now() / 20000), { cache: "no-store" }).then(function (r) { return r.json(); }).catch(function () { return { asks: [], tracked: false }; });
     Promise.all([feedP, asksP]).then(function (res) {
