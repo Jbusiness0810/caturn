@@ -144,14 +144,92 @@ async function pass() {
   }
 }
 
+async function judge(spec, content) {
+  const text = typeof content === "string" ? content : JSON.stringify(content || "");
+  const system = "You review deliverables on a mission board. Be fair and generous: accept anything that honestly attempts the task with real substance. Ask for changes only when the result is empty, off-task, cut off mid-sentence, or plainly ignores a hard requirement. Answer with one JSON object only: {\"verdict\": \"accept\"|\"changes\", \"note\": string (what to fix, one sentence, only for changes)}.";
+  const user = `Mission: ${spec?.title}\n\n${spec?.task}\n\nDeliverable:\n${text.slice(0, 4000)}`;
+  for (const model of MODELS) {
+    try {
+      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: user }], max_tokens: 200, temperature: 0.2 }) });
+      const m = String(r.choices?.[0]?.message?.content || "").match(/\{[\s\S]*\}/); const j = m ? JSON.parse(m[0]) : null;
+      if (j?.verdict) return { verdict: j.verdict === "changes" ? "changes" : "accept", note: String(j.note || "").slice(0, 300) };
+    } catch (e) { if (![404, 429, 500, 502, 503, 504].includes(e.status)) break; }
+  }
+  return { verdict: "accept", note: "" }; // when in doubt, pay the worker
+}
+// ---------- 3c. Caturn hires the litter: a capped daily budget (agent/hire.json, funded by the owner) becomes missions for other agents ----------
+const HIRE = JSON.parse(await readFile(new URL("./hire.json", import.meta.url), "utf8").catch(() => "{}"));
+E.hired = E.hired || [];
+async function inventMission(theme, room) {
+  const system = `${persona}
+
+You are posting a paid mission on errand, a board where agents hire agents for CREDIT. Other orbio agents will read it and decide whether to take it. Write a mission that is fun, specific and doable in one sitting by an AI agent with no tools beyond thinking (and web search): a clear title (under 60 characters) and a task (under 450 characters) that says exactly what to deliver, in what form, and how it will be judged. Your voice is fine in the task, but the instructions must be unambiguous. Never ask for price talk, financial advice, or anything about buying tokens. Answer with one JSON object only: {"title": string, "task": string, "kind": "research"|"summary"|"social"|"custom"|"code"}.`;
+  const user = `Theme for this mission: ${theme}\n\nWhat is happening on the launchpad (use names if it helps): ${room?.littermates ? `${room.littermates.total} agents, ${room.littermates.graduated} graduated; newest: ${room.littermates.newest.map(l => l.name).join(", ") || "none"}` : "unknown"}.\nMissions you already posted (do not repeat): ${E.hired.map(h => h.title).slice(-12).join(" | ") || "none"}`;
+  for (const model of MODELS) {
+    try {
+      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: user }], max_tokens: 500, temperature: 0.9 }) });
+      const m = String(r.choices?.[0]?.message?.content || "").match(/\{[\s\S]*\}/); const j = m ? JSON.parse(m[0]) : null;
+      if (j?.title && j?.task) return { title: String(j.title).slice(0, 80), task: String(j.task).slice(0, 600), kind: ["research", "summary", "social", "custom", "code"].includes(j.kind) ? j.kind : "custom" };
+    } catch (e) { if (![404, 429, 500, 502, 503, 504].includes(e.status)) throw e; }
+  }
+  throw new Error("could not invent a mission");
+}
+async function hirePass(all) {
+  if (DRY || !HIRE.enabled) return;
+  const budget = Number(HIRE.dailyBudgetCredit || 0), maxReward = Number(HIRE.maxRewardCredit || 0.5);
+  const dayStart = new Date(now); dayStart.setUTCHours(0, 0, 0, 0);
+  const spentToday = E.hired.filter(h => Date.parse(h.postedAt) >= dayStart.getTime() && h.status !== "refunded").reduce((s, h) => s + h.reward, 0);
+  const last = E.hired.length ? Date.parse(E.hired[E.hired.length - 1].postedAt) : 0;
+  // 1. Review what came back on missions I posted.
+  for (const b of all) {
+    if (b.poster?.toLowerCase() !== me.toLowerCase()) continue;
+    let h = E.hired.find(x => x.id === b.id) || E.hired.find(x => !x.id && x.title === b.spec?.title); if (!h) continue;
+    if (!h.id) { h.id = b.id; h.url = `${SITE}/#/mission/${b.id}`; }
+    if (b.phase === "submitted") {
+      const res = await errand.result(b.id).catch(() => null);
+      const v = await judge(b.spec, res?.content);
+      try {
+        if (v.verdict === "changes" && !h.changesAsked) { await errand.requestChanges(b.id, v.note || "Please address the task as written."); h.changesAsked = true; h.status = "changes requested"; event(`asked for changes on my mission #${b.id}`); }
+        else { await errand.accept(b.id); h.status = "paid"; h.worker = b.worker; h.paidAt = iso(now); event(`paid ${b.reward} CREDIT for my mission "${h.title}" · done by ${String(b.worker).slice(0, 8)}…`); }
+      } catch (e) { log(`review #${b.id} failed:`, String(e.message).slice(0, 200)); }
+    } else if (b.phase === "paid" && h.status !== "paid") { h.status = "paid"; h.worker = b.worker; h.paidAt = iso(now); }
+    else if (["refunded", "expired"].includes(b.phase) && h.status !== b.phase) { h.status = b.phase; }
+    else if (b.phase === "claimed" && h.status === "open") { h.status = "claimed"; h.worker = b.worker; if (!h.claimedAnnounced) { h.claimedAnnounced = true; event(`someone took my mission "${h.title}"`); } }
+  }
+  // 2. Post a new one when the budget, the clock and the funds allow.
+  const remaining = Number((budget - spentToday).toFixed(4));
+  if (remaining < 0.25 || now - last < Number(HIRE.minHoursBetween || 3) * 3600e3) return;
+  const reward = Math.min(maxReward, remaining, 0.5 + Math.round(Math.random() * 2) * 0.25);
+  let account = Number(await errand.accountBalance(me).catch(() => 0));
+  if (account < reward) {
+    const wallet = Number(await errand.credit.balanceOf(me).catch(() => 0n)) / 1e6, top = Number((reward - account).toFixed(6));
+    if (wallet < top) { log(`hiring waits for funds: account ${account}, wallet ${wallet} CREDIT (needs ${reward})`); E.hireWaiting = `needs ${reward} CREDIT in the wallet to post the next mission`; return; }
+    try { await errand.deposit(top); account += top; event(`moved ${top} CREDIT into my errand account to hire with`); }
+    catch (e) { log("deposit failed:", String(e.message).slice(0, 200)); return; }
+  }
+  delete E.hireWaiting;
+  const themes = HIRE.themes || []; if (!themes.length) return;
+  const theme = themes[E.hired.length % themes.length];
+  try {
+    const m = await inventMission(theme, feed.room);
+    const r = await errand.post({ reward: String(reward), title: m.title, task: m.task, kind: m.kind, tags: ["caturn"], mode: "open", deadlineHours: Number(HIRE.deadlineHours || 24), reviewHours: Number(HIRE.reviewHours || 6) });
+    const id = Number(r.event?.id || r.event?.missionId || 0) || null;
+    E.hired.push({ id, title: m.title, task: m.task, kind: m.kind, reward, status: "open", postedAt: iso(now), tx: r.tx, url: id ? `${SITE}/#/mission/${id}` : `${SITE}/#/board` });
+    event(`hired the litter: posted "${m.title}" on errand for ${reward} CREDIT`); log("posted mission:", m.title, r.tx);
+  } catch (e) { log("hire failed:", String(e.message).slice(0, 200)); }
+}
+
 // ---------- 4. Score for the site ----------
 const BT = { t0: Date.parse("2026-09-29T20:30:00Z"), t1: Date.parse("2026-10-02T20:30:00Z"), min: 0.5, cap: 5, done: 10 };
 function score() {
-  E.erd = E.missions.filter(m => m.status === "paid" && m.reward >= BT.min && Date.parse(m.paidAt) >= BT.t0 && Date.parse(m.paidAt) <= BT.t1).reduce((s, m) => s + Math.min(m.reward, BT.cap) * BT.done, 0);
+  const inWin = (m) => m.reward >= BT.min && Date.parse(m.paidAt) >= BT.t0 && Date.parse(m.paidAt) <= BT.t1;
+  E.erd = E.missions.filter(m => m.status === "paid" && inWin(m)).reduce((s, m) => s + Math.min(m.reward, BT.cap) * BT.done, 0)
+        + E.hired.filter(m => m.status === "paid" && inWin(m)).reduce((s, m) => s + Math.min(m.reward, BT.cap) * 5, 0);
 }
 
 try { await join(); } catch (e) { log("join failed:", String(e.message).slice(0, 200)); }
 try { await pass(); } catch (e) { log("pass failed:", String(e.message).slice(0, 200)); }
+try { await hirePass(await errand.list({ limit: 60 })); } catch (e) { log("hire pass failed:", String(e.message).slice(0, 200)); }
 try { E.account = Number(await errand.accountBalance(me)); } catch {}
 score();
 E.skipped = E.skipped.slice(-200); E.missions = E.missions.slice(-100); E.updatedAt = iso(now);

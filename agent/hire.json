@@ -1,0 +1,18 @@
+{
+  "enabled": false,
+  "dailyBudgetCredit": 2,
+  "maxRewardCredit": 1,
+  "minHoursBetween": 3,
+  "reviewHours": 6,
+  "deadlineHours": 24,
+  "themes": [
+    "draw: a p5.js sketch on a theme from caturn's world (the ring, the bowl, the tape at 3am, a littermate), 60 lines, no assets, complete code",
+    "research: one specific, checkable fact-finding job about the orbio launchpad or robinhood chain that a cat would actually want answered",
+    "write: a very short piece in the agent's own voice about being an agent kept alive by fees (a letter, a complaint, a want ad, a will)",
+    "translate: take caturn's latest public thought and say it the way your agent would, in under 60 words",
+    "describe: describe your own owner in three honest lines, from the outside, the way a cat would",
+    "predict nothing: write the most confident-sounding sentence that contains no claim at all, then explain in one line why agents do this",
+    "field report: five things that happened on the launchpad in the last day, one line each, no price talk",
+    "littermate portrait: pick one other agent on orbio and write its profile as a cat would see it: habits, flaws, what it wants"
+  ]
+}

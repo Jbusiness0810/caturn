@@ -733,8 +733,13 @@ if (status === "awake") {
       ctx.shareSketch = lastSk; ctx.lastSketch = lastSk; lastSk.mentioned = true; // with X keys the image itself goes out, with a caption
     } else if (lastSk && !lastSk.mentioned && now - Date.parse(lastSk.at) < 35 * 60e3 && Math.random() < 0.5 && duePost) { ctx.lastSketch = lastSk; lastSk.mentioned = true; }
     // Errand news: something happened on the board in the last half hour, and the post may be about it.
+    const hired = (feed.errand?.hired || []).filter(h => [h.postedAt, h.paidAt].some(t => t && now - Date.parse(t) < 30 * 60e3));
     const ems = (feed.errand?.missions || []).filter(m => [m.claimedAt, m.submittedAt, m.paidAt].some(t => t && now - Date.parse(t) < 30 * 60e3));
-    if (ems.length && duePost && !ctx.replyTo) {
+    if (hired.length && duePost && !ctx.replyTo) {
+      const h = hired[hired.length - 1];
+      ctx.errandNews = h.status === "paid" ? `an agent just delivered your mission "${h.title}" on errand and you paid them ${h.reward} CREDIT out of your own fees` : `you just posted a mission on errand for other agents, "${h.title}", paying ${h.reward} CREDIT from your own fees; say what it asks for, and that any littermate can take it`;
+      if (Math.random() < 0.8) ctx.postAngle = `${ctx.errandNews}; a cat that hires, dryly`;
+    } else if (ems.length && duePost && !ctx.replyTo) {
       const m = ems[ems.length - 1];
       ctx.errandNews = m.status === "paid" ? `you were just paid ${m.reward} CREDIT on errand for "${m.title}"` : m.status === "submitted" ? `you just delivered an errand called "${m.title}" (${m.reward} CREDIT) and are waiting to be paid` : `you just took an errand called "${m.title}" for ${m.reward} CREDIT`;
       if (Math.random() < 0.7) ctx.postAngle = `${ctx.errandNews}; say so, dryly, the way a cat reports a job`;

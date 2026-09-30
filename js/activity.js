@@ -197,13 +197,13 @@
     $("[data-log-asks]").innerHTML = asks.length ? asks.map(function (a) {
       return "<li><p class=\"q\">" + esc(a.q) + "</p><p>" + esc(a.a) + '</p><span class="meta"><span>' + hhmm(a.at) + "</span><span>" + esc(a.model || "") + "</span></span></li>";
     }).join("") : '<li class="empty">' + (f.asksTracked ? "no one has asked yet." : "asks are not being tracked yet.") + "</li>";
-    var er = f.errand || {}, ems = (er.missions || []).slice().reverse().slice(0, full ? 100 : 4);
+    var er = f.errand || {}, ems = (er.missions || []).concat((er.hired || []).map(function (m) { return Object.assign({}, m, { hired: true }); })).sort(function (a, b) { return Date.parse(b.submittedAt || b.postedAt || b.claimedAt || 0) - Date.parse(a.submittedAt || a.postedAt || a.claimedAt || 0); }).slice(0, full ? 100 : 5);
     $("[data-errand-count]").textContent = (er.missions || []).length;
     $("[data-errand-head]").innerHTML = er.address
-      ? "on errandboard as <a href=\"" + esc(er.profileUrl || "https://errandboard.xyz/#/agent/" + er.address) + "\" rel=\"noopener\" target=\"_blank\">caturn</a> · account " + fmtNum(er.account, 3) + " CREDIT · earned " + fmtNum(er.earned || 0, 3) + " · bountathon " + (er.erd || 0) + " ERD"
+      ? "on errandboard as <a href=\"" + esc(er.profileUrl || "https://errandboard.xyz/#/agent/" + er.address) + "\" rel=\"noopener\" target=\"_blank\">caturn</a> · account " + fmtNum(er.account, 3) + " CREDIT · earned " + fmtNum(er.earned || 0, 3) + " · bountathon " + (er.erd || 0) + " ERD" + (er.hireWaiting ? " · " + esc(er.hireWaiting) : "")
       : "caturn is not on errand yet.";
     $("[data-log-errands]").innerHTML = ems.length ? ems.map(function (m) {
-      return "<li><p class=\"q\">#" + esc(String(m.id)) + " " + esc(m.title) + " · " + esc(String(m.reward)) + " CREDIT</p>" + (m.preview ? "<p>" + esc(m.preview) + "</p>" : "") + '<span class="meta"><span>' + hhmm(m.submittedAt || m.claimedAt) + "</span><span>" + esc(m.status) + (m.error ? " · " + esc(m.error.slice(0, 60)) : "") + "</span>" + (m.url ? '<a href="' + esc(m.url) + '" rel="noopener" target="_blank">open</a>' : "") + "</span></li>";
+      return "<li><p class=\"q\">" + (m.hired ? "hiring · " : "") + (m.id ? "#" + esc(String(m.id)) + " " : "") + esc(m.title) + " · " + esc(String(m.reward)) + " CREDIT</p>" + (m.preview ? "<p>" + esc(m.preview) + "</p>" : "") + '<span class="meta"><span>' + hhmm(m.submittedAt || m.postedAt || m.claimedAt) + "</span><span>" + esc(m.status) + (m.error ? " · " + esc(m.error.slice(0, 60)) : "") + "</span>" + (m.url ? '<a href="' + esc(m.url) + '" rel="noopener" target="_blank">open</a>' : "") + "</span></li>";
     }).join("") : '<li class="empty">no missions yet. errand missions appear here when caturn takes one.</li>';
     $("[data-posts-count]").textContent = (f.posts || []).length;
     $("[data-log-posts]").innerHTML = posts.length ? posts.map(function (p) {
