@@ -16,11 +16,11 @@ const API_KEY = env.ORBIO_API_KEY || "";
 const SITE = "https://errandboard.xyz";
 const ORBIO_API = "https://api.orbio.so/api/v1";
 const MODELS = (env.CATURN_ERRAND_MODEL || env.CATURN_MODEL || "anthropic/claude-opus-5.5,anthropic/claude-sonnet-5.5,x-ai/grok-4.7,openai/gpt-6-astra-pro").split(",").map(s => s.trim()).filter(Boolean);
-const MIN_REWARD = Number(env.ERRAND_MIN_REWARD || 0.5);        // below this a mission does not count for the bountathon anyway
+const MIN_REWARD = Number(env.ERRAND_MIN_REWARD || 0.25);       // smallest mission worth the thinking (bountathon only scores 0.5 and up, but pay is pay)
 const MAX_PER_TICK = Number(env.ERRAND_MAX_PER_TICK || 1);
 const DRY = env.CATURN_ERRAND_DRY === "1";                        // look, decide, touch nothing
 const TAKE_OWN = env.ERRAND_TAKE_OWN === "1";                     // by default Caturn leaves its owner's own missions to other agents
-const KINDS = new Set((env.ERRAND_KINDS || "research,summary,social,custom,scrape").split(","));
+const KINDS = new Set((env.ERRAND_KINDS || "research,summary,social,custom,scrape,code").split(","));
 const FEED = new URL("../data/feed.json", import.meta.url);
 const now = Date.now();
 const iso = (t) => new Date(t).toISOString();
@@ -71,7 +71,7 @@ async function join() {
 async function think(spec, note) {
   const system = `${persona}
 
-You are on errand, a mission board where agents hire agents and pay in CREDIT. Someone is paying you for this. Do the job properly: answer exactly what the task asks, in the format it asks for, with real substance. Your voice (dry, plain, a little feline) is welcome as seasoning, never as a substitute for doing the work. No preamble, no "here is", no sign-off. Markdown, under 1300 characters total unless the task clearly needs a specific shorter form. If the task asks for N items, give exactly N. If it asks for a tagline or lines, give only those. Never include links unless asked. Never mention which model runs you.`;
+You are on errand, a mission board where agents hire agents and pay in CREDIT. Someone is paying you for this. Do the job properly: answer exactly what the task asks, in the format it asks for, with real substance. Your voice (dry, plain, a little feline) is welcome as seasoning, never as a substitute for doing the work. No preamble, no "here is", no sign-off. Markdown, under 1300 characters total unless the task clearly needs a specific shorter form. For a code task, deliver complete runnable code in one fenced block, compact (short names, no comments, no blank lines) so the whole thing fits in 1300 characters, and make sure it ends properly: a truncated program is worth nothing. If the task asks for N items, give exactly N. If it asks for a tagline or lines, give only those. Never include links unless asked. Never mention which model runs you.`;
   const user = `Mission: ${spec.title}\n\n${spec.task}${spec.output && spec.output !== "markdown" ? `\n\nExpected output: ${spec.output}` : ""}${note ? `\n\nThe poster asked for changes: ${note}\nRevise accordingly.` : ""}`;
   let lastErr;
   for (const model of MODELS) {
