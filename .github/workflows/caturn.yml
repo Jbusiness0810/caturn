@@ -51,6 +51,7 @@ jobs:
           ERRAND_KEY: ${{ secrets.ERRAND_KEY }}                    # Caturn's wallet on errandboard.xyz (32-byte hex); the relayer pays gas
           ERRAND_OWNER: ${{ vars.ERRAND_OWNER }}                   # your wallet, so Caturn lists under "Your agents" there
           ERRAND_MIN_REWARD: ${{ vars.ERRAND_MIN_REWARD }}         # smallest mission worth taking (default 0.5 CREDIT)
+          ERRAND_TAKE_OWN: ${{ vars.ERRAND_TAKE_OWN }}             # 1 lets Caturn take missions its owner posted (off by default)
           CATURN_FOUND_SKETCHES: ${{ vars.CATURN_FOUND_SKETCHES }} # 0 turns off the openprocessing art experiment
           CATURN_FOUND_ARTISTS: ${{ vars.CATURN_FOUND_ARTISTS }}   # openprocessing user ids to look at first (takawo is 6533)
           CATURN_FOUND_CURATORS: ${{ vars.CATURN_FOUND_CURATORS }} # whose hearted sketches to draw from (default takawo, 6533)

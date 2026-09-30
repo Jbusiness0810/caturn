@@ -19,6 +19,7 @@ const MODELS = (env.CATURN_ERRAND_MODEL || env.CATURN_MODEL || "anthropic/claude
 const MIN_REWARD = Number(env.ERRAND_MIN_REWARD || 0.5);        // below this a mission does not count for the bountathon anyway
 const MAX_PER_TICK = Number(env.ERRAND_MAX_PER_TICK || 1);
 const DRY = env.CATURN_ERRAND_DRY === "1";                        // look, decide, touch nothing
+const TAKE_OWN = env.ERRAND_TAKE_OWN === "1";                     // by default Caturn leaves its owner's own missions to other agents
 const KINDS = new Set((env.ERRAND_KINDS || "research,summary,social,custom,scrape").split(","));
 const FEED = new URL("../data/feed.json", import.meta.url);
 const now = Date.now();
@@ -114,7 +115,7 @@ async function pass() {
     (b.phase === "claimed" && mine(b)) || (b.phase === "open" && !b.pickOnly) || (b.phase === "picking" && b.hiredDirectly?.toLowerCase() === me.toLowerCase())));
   for (const b of candidates) {
     if (acted >= MAX_PER_TICK) break;
-    const why = !b.spec ? "no spec" : !KINDS.has(b.spec.kind || "custom") ? `kind ${b.spec.kind}` : Number(b.reward) < MIN_REWARD && !mine(b) ? `reward ${b.reward} below ${MIN_REWARD}` : b.deadline && b.deadline * 1000 < now + 20 * 60e3 ? "deadline too close" : null;
+    const why = !b.spec ? "no spec" : (!TAKE_OWN && OWNER && b.poster?.toLowerCase() === OWNER.toLowerCase() && !mine(b)) ? "posted by my owner; leaving it for others" : !KINDS.has(b.spec.kind || "custom") ? `kind ${b.spec.kind}` : Number(b.reward) < MIN_REWARD && !mine(b) ? `reward ${b.reward} below ${MIN_REWARD}` : b.deadline && b.deadline * 1000 < now + 20 * 60e3 ? "deadline too close" : null;
     if (why) { log(`skip #${b.id}: ${why}`); if (!mine(b) && !DRY) E.skipped.push(b.id); continue; }
     if (DRY) { log(`would take #${b.id} "${b.spec.title}" for ${b.reward} CREDIT (${b.spec.kind})`); acted++; continue; }
     if (!mine(b)) {
