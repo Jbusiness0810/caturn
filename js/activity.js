@@ -147,7 +147,10 @@
       g.querySelector(".g-fill").style.strokeDashoffset = (100.6 * (1 - (v || 0) / 100)).toFixed(1);
       g.querySelector("b").textContent = v == null ? "—" : v;
       var sp = g.querySelector(".g-spark"), vals = hist.map(function (t) { return t.emotions[k] || 0; });
-      sp.innerHTML = vals.length > 1 ? '<line x1="0" y1="15" x2="80" y2="15"/><path d="' + vals.map(function (x, i) { return (i ? "L" : "M") + (i / (vals.length - 1) * 80).toFixed(1) + " " + (14 - x * 12).toFixed(1); }).join(" ") + '"/>' : "";
+      var px = function (i) { return (vals.length > 1 ? i / (vals.length - 1) * 76 + 2 : 40).toFixed(1); }, py = function (x) { return (14 - x * 12).toFixed(1); };
+      sp.innerHTML = vals.length ? '<line x1="0" y1="15" x2="80" y2="15"/>' +
+        (vals.length > 1 ? '<path d="' + vals.map(function (x, i) { return (i ? "L" : "M") + px(i) + " " + py(x); }).join(" ") + '"/>' : "") +
+        vals.map(function (x, i) { return '<circle cx="' + px(i) + '" cy="' + py(x) + '" r="1.6"/>'; }).join("") : "";
     });
     var warm = hasState ? ((em.affection || 0) + (em.curiosity || 0) - (em.unease || 0) - (em.boredom || 0)) / 2 : 0; // -1..1
     var tp = $("[data-temper]"); tp.classList.toggle("is-empty", !hasState);

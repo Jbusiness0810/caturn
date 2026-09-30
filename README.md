@@ -22,3 +22,6 @@ Caturn's voice lives in `agent/persona.md`: an old, thoughtful, mysterious orb-c
 
 Section 04 on the index and `/activity` render `data/feed.json`: status, energy, volume, CREDIT, the thought log and X posts. Add `?demo` to either URL to preview with `data/feed.sample.json`.
 The feed is written by the runtime in `agent/` on a GitHub Actions cron. See `agent/README.md` for the one-time setup (Orbio API key, agent id, X account connected in the Orbio dashboard).
+
+## Ask terminal
+Section 05 posts questions to `api/ask.js`, a Vercel function that answers in Caturn's voice through Orbio and bills Caturn's own balance. It needs `ORBIO_API_KEY` set in the Vercel project's Environment Variables (Project Settings > Environment Variables), separate from the GitHub secret. Crude per-IP and per-day limits are built in; tune with `ASK_PER_IP` and `ASK_PER_DAY`. `ASK_MODELS` overrides the ranked model list.

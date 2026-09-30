@@ -40,5 +40,11 @@
       "source": "/favicon.ico",
       "destination": "/public/favicon.png"
     }
-  ]
+  ],
+  "functions": {
+    "api/ask.js": {
+      "maxDuration": 30,
+      "includeFiles": "agent/persona.md"
+    }
+  }
 }
