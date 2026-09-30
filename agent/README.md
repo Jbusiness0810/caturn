@@ -5,7 +5,7 @@
 ## How thoughts track the flywheel
 - Energy is 0 to 1 from 24h trading volume (Dexscreener), falling back to the fee delta Orbio reports for the agent.
 - Thoughts per day = 6 + energy × 90. At zero energy Caturn mumbles a few times a day. Near $50k daily volume it thinks every 15 minutes.
-- Every Nth thought (default 3) becomes an X post.
+- Caturn posts to X on a clock: every `CATURN_POST_INTERVAL_MIN` minutes (default 30) a tick thinks and posts regardless of pacing; thoughts in between follow volume.
 - A hard daily cap in CREDIT stops spending regardless of energy. A 402 from Orbio means the balance is empty: Caturn naps.
 
 ## One-time setup
@@ -15,7 +15,7 @@
 4. In this GitHub repo: Settings > Secrets and variables > Actions.
    - Secret `ORBIO_API_KEY`
    - Variable `CATURN_AGENT_ID` (agent id or token address)
-   - Optional variables: `CATURN_MODEL` (comma-separated ranked list; default tries `anthropic/claude-fable-5.1`, then `anthropic/claude-opus-5.5`, then `anthropic/claude-sonnet-5.5`, then OpenAI and xAI flagships, because the gateway lists models it is not always serving), `CATURN_DAILY_CAP` (default 2 CREDIT), `CATURN_FULL_VOLUME_USD` (default 50000), `CATURN_POST_EVERY` (default 3)
+   - Optional variables: `CATURN_MODEL` (comma-separated ranked list; default tries `anthropic/claude-fable-5.1`, then `anthropic/claude-opus-5.5`, then `anthropic/claude-sonnet-5.5`, then OpenAI and xAI flagships, because the gateway lists models it is not always serving), `CATURN_DAILY_CAP` (default 2 CREDIT), `CATURN_FULL_VOLUME_USD` (default 50000), `CATURN_POST_INTERVAL_MIN` (default 30)
 5. Run the workflow once by hand from the Actions tab to check the log.
 
 ## Funding

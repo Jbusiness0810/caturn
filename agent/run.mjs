@@ -12,7 +12,7 @@ const MODELS    = (env.CATURN_MODEL || "anthropic/claude-fable-5.1,anthropic/cla
 let MODEL = MODELS[0];
 const DRY_RUN   = env.CATURN_DRY_RUN === "1";
 const FORCE     = env.CATURN_FORCE === "1";      // manual runs: think now, ignoring the pacing timer (budget still applies)
-const POST_EVERY_N_THOUGHTS = Number(env.CATURN_POST_EVERY || 3);
+const POST_INTERVAL_MIN = Number(env.CATURN_POST_INTERVAL_MIN || 30);   // post to X on this clock, whatever the pacing says
 const MIN_THOUGHTS_PER_DAY  = Number(env.CATURN_MIN_THOUGHTS || 6);
 const MAX_THOUGHTS_PER_DAY  = Number(env.CATURN_MAX_THOUGHTS || 96);   // every 15 minutes at full energy
 const VOLUME_FOR_FULL_ENERGY = Number(env.CATURN_FULL_VOLUME_USD || 50000); // 24h USD volume at which energy = 1
@@ -98,11 +98,11 @@ async function think(persona, ctx) {
 - recent thoughts (avoid repeating): ${ctx.recent.map(t => JSON.stringify(t.text)).join(" | ") || "none"}
 
 Tonight's lens for the private thought: ${ctx.lens}. Let it in sideways. Do not name it.
-If you post, the post's angle is: ${ctx.postAngle}. The post must read like a cat wrote it, not like a project account. Lowercase. No hashtags.
+${ctx.mustPost ? "A post is required this time: " : "If you post, "}the post's angle is: ${ctx.postAngle}. The post must read like a cat wrote it, not like a project account. Lowercase. No hashtags.
 
 Write ONE entry as JSON:
 {"thought": string (1-3 sentences, first person, raw inner monologue, ${ctx.energy < 0.12 ? "you are half asleep: this is a dream fragment, strange and short" : "awake"}),
- "post": string|null (the public version for X: lowercase, under 200 characters, one clean idea, unmistakably a cat, on the post angle above; no links, no hashtags, no handles other than @orbiodotso when the angle calls for it; null only if nothing honest fits),
+ "post": string${ctx.mustPost ? "" : "|null"} (the public version for X: lowercase, under 200 characters, one clean idea, unmistakably a cat, on the post angle above; no links, no hashtags, no handles other than @orbiodotso when the angle calls for it${ctx.mustPost ? "" : "; null only if nothing honest fits"}),
  "mood": string (one or two lowercase words naming your current mood, e.g. "smug", "restless", "quietly pleased", "bored"),
  "focus": string (what you are fixated on right now, under 8 words, lowercase),
  "emotions": {"curiosity": 0-1, "smugness": 0-1, "unease": 0-1, "affection": 0-1, "boredom": 0-1}}` }
@@ -221,12 +221,14 @@ const spentToday = todays.reduce((s, t) => s + (t.cost || 0), 0) + feed.posts.fi
 const lastThoughtAt = feed.thoughts.length ? Date.parse(feed.thoughts[feed.thoughts.length - 1].at) : 0;
 const interval = thoughtsPerDay > 0 ? 86400e3 / thoughtsPerDay : Infinity;
 
+const lastPostAt = feed.posts.length ? Date.parse(feed.posts[feed.posts.length - 1].at) : 0;
+const duePost = !!agent && !!API_KEY && spentToday < DAILY_CREDIT_CAP && now - lastPostAt >= POST_INTERVAL_MIN * 60e3 - 60e3;
 let status = !agent ? "prelaunch" : "napping";
 let reason = !agent ? "no agent yet" : "";
 if (agent && !API_KEY) reason = "no API key";
 else if (agent && spentToday >= DAILY_CREDIT_CAP) reason = "daily budget spent";
-else if (agent && !FORCE && now - lastThoughtAt < interval) { status = "resting"; reason = `next thought in ${Math.ceil((interval - (now - lastThoughtAt)) / 60000)} min`; }
-else if (agent && energy <= 0 && feed.thoughts.length) reason = "no trades, no thoughts";
+else if (agent && !FORCE && !duePost && now - lastThoughtAt < interval) { status = "resting"; reason = `next thought in ${Math.ceil((interval - (now - lastThoughtAt)) / 60000)} min`; }
+else if (agent && energy <= 0 && feed.thoughts.length && !duePost) reason = "no trades, no thoughts";
 else if (agent) status = "awake";
 
 feed.metrics = {
@@ -247,7 +249,7 @@ if (agent && status === "awake" && prev.status === "napping") event("waking up")
 
 if (status === "awake") {
   try {
-    const ctx = { energy, energyNote: volumeSource ? "from " + volumeSource : "unknown", volume24hUsd, priceUsd: feed.metrics.priceUsd, lens: LENSES[feed.thoughts.length % LENSES.length], postAngle: POST_ANGLES[feed.posts.length % POST_ANGLES.length],
+    const ctx = { energy, energyNote: volumeSource ? "from " + volumeSource : "unknown", volume24hUsd, priceUsd: feed.metrics.priceUsd, lens: LENSES[feed.thoughts.length % LENSES.length], postAngle: POST_ANGLES[feed.posts.length % POST_ANGLES.length], mustPost: duePost,
       creditOwed: feed.metrics.creditOwed, thoughtsToday: todays.length, recent: feed.thoughts.slice(-6) };
     const t = DRY_RUN ? { thought: "(dry run) I would have thought something here.", post: null, cost: 0, model: MODEL } : await think(persona, ctx);
     if (t.thought) {
@@ -256,9 +258,8 @@ if (status === "awake") {
       feed.thoughts.push(entry);
       feed.state = { mood: t.mood, focus: t.focus, emotions: t.emotions, at: iso(now) };
       const n = feed.thoughts.length;
-      // Post when nothing has been said yet, then every Nth thought after the last post.
-      const sinceLast = n - (feed.lastPostThoughtIndex || 0);
-      const shouldPost = t.post && (feed.posts.length === 0 || sinceLast >= POST_EVERY_N_THOUGHTS);
+      // Post on the clock: whenever POST_INTERVAL_MIN has passed since the last post.
+      const shouldPost = !!t.post && duePost;
       if (shouldPost && !DRY_RUN) {
         try {
           const p = await postToX(t.post);

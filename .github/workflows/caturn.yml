@@ -33,7 +33,7 @@ jobs:
           CATURN_MODEL: ${{ vars.CATURN_MODEL }}
           CATURN_DAILY_CAP: ${{ vars.CATURN_DAILY_CAP }}
           CATURN_FULL_VOLUME_USD: ${{ vars.CATURN_FULL_VOLUME_USD }}
-          CATURN_POST_EVERY: ${{ vars.CATURN_POST_EVERY }}
+          CATURN_POST_INTERVAL_MIN: ${{ vars.CATURN_POST_INTERVAL_MIN }}
           CATURN_SAY: ${{ github.event.inputs.say }}
           CATURN_CHECK: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
           FORCE_FIRST: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
