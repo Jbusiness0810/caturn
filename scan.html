@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <title>Caturn — Scan</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#F6F1E8">
+  <meta name="description" content="Paste any Robinhood Chain token, graduated or still on the Pons curve, and get a rug-likelihood read: contract powers, holder concentration, liquidity, launchpad facts.">
+  <meta property="og:title" content="Scan a token — Caturn">
+  <meta property="og:description" content="A rug-likelihood read on any Robinhood Chain token, from the chain itself. Read by a cat.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://caturn.lol/scan">
+  <meta property="og:image" content="https://caturn.lol/public/mascot.png">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:site" content="@caturn_rh">
+  <link rel="icon" href="/public/favicon.png" type="image/png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..600&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/config.js"></script>
+</head>
+<body>
+<canvas class="stars" data-stars aria-hidden="true"></canvas>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/">
+      <div class="mascot mascot--sm" data-mascot aria-hidden="true">
+        <div class="disc"></div>
+        <img src="/public/favicon.png" alt="" width="512" height="512" decoding="async">
+        <div class="orb"><span class="ear l"></span><span class="ear r"></span><span class="body"></span><span class="eye l"></span><span class="eye r"></span><span class="ring"></span></div>
+      </div>
+      <span class="wordmark">Caturn</span>
+    </a>
+    <div class="right">
+      <nav class="nav" aria-label="Primary">
+        <a href="/#how" data-short="How">How it works</a>
+        <a href="/activity" data-short="Live">Activity</a>
+        <a href="/sky" data-short="Sky">Sky</a>
+        <a href="/scan" data-short="Scan" aria-current="page">Scan</a>
+        <a href="/#ask" data-short="Ask">Ask</a>
+      </nav>
+    </div>
+  </div>
+</header>
+
+<main class="scan-main">
+  <div class="wrap">
+    <section class="scan-hero">
+      <p class="eyebrow">06 · Scan</p>
+      <h1>Is it a rug?</h1>
+      <p class="lede">Paste any token on Robinhood Chain, graduated or still on the Pons curve. I read the contract, every transfer since launch, the pool and the launchpad, and give you a rug-likelihood score. It is a read, not advice. A cat has never told anyone what to buy.</p>
+      <form class="scan-form" data-scan-form>
+        <input type="text" name="token" placeholder="0x… token contract address" autocomplete="off" spellcheck="false" data-scan-input aria-label="Token address">
+        <button type="submit" class="btn" data-scan-btn>Scan</button>
+      </form>
+      <p class="scan-hint">Try <a class="textlink" href="#" data-try="0x9b4e217f8759cb758664ac3b0ee730a4d15e7f6a">$CTRN</a> or <a class="textlink" href="#" data-try="0xeb2ecf641a1f04b8df37c24eabca8f5a47cfaacb">$ERRAND</a>. Orbio launchpad and Dexscreener links work too.</p>
+    </section>
+
+    <section class="scan-result" data-scan-result hidden>
+      <div class="scan-head">
+        <div class="scan-score">
+          <svg viewBox="0 0 120 120" class="dial" aria-hidden="true"><circle class="track" cx="60" cy="60" r="50"></circle><circle class="fill" cx="60" cy="60" r="50" data-dial></circle></svg>
+          <div class="scan-num"><b data-scan-risk>0</b><span>rug likelihood</span></div>
+        </div>
+        <div class="scan-title">
+          <h2><span data-scan-name>…</span> <span class="sym" data-scan-sym></span></h2>
+          <p class="grade" data-scan-grade></p>
+          <p class="verdict" data-scan-verdict hidden></p>
+          <p class="scan-links" data-scan-links></p>
+        </div>
+      </div>
+      <div class="scan-grid">
+        <div class="scan-checks">
+          <div class="con-bar"><span>checks</span><span data-scan-count></span></div>
+          <ol data-scan-checks></ol>
+        </div>
+        <div class="scan-facts">
+          <div class="con-bar"><span>facts</span><span data-scan-at></span></div>
+          <dl data-scan-facts></dl>
+          <div class="con-bar"><span>largest holders</span><span></span></div>
+          <ol class="holders" data-scan-holders></ol>
+        </div>
+      </div>
+      <p class="scan-foot">Heuristics from public chain data. Scores can be wrong in both directions. Not financial advice, not a promise, not a recommendation. Scans are cached for five minutes.</p>
+    </section>
+    <p class="scan-error" data-scan-error hidden></p>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap"><p>Reads: Robinhood Chain RPC, Dexscreener, Orbio's public protocol data. Nothing here is financial advice.</p></div>
+</footer>
+<script src="/js/main.js"></script>
+<script src="/js/scan.js"></script>
+</body>
+</html>

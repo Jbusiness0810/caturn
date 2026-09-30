@@ -609,3 +609,48 @@ h1, h2, h3, .display {
 @media (max-width: 640px) { .sky-title p:not(.sky-meta) { display: none; } .sky-stage { height: calc(100vh - 64px); } .sky-legend { gap: 8px 12px; font-size: 10px; margin-top: auto; } .sky-hud { padding: 16px; } .sky-tip { width: 220px; } }
 .sky-shot { background: var(--bg); }
 .sky-shot .site-header, .sky-shot .sky-hud, .sky-shot .sky-foot { display: none; }
+
+/* ---------- scan ---------- */
+.scan-main { padding: clamp(28px, 6vw, 64px) 0 60px; }
+.scan-hero h1 { font-family: var(--font-display); font-weight: 400; font-size: clamp(34px, 6vw, 56px); margin: 6px 0 12px; letter-spacing: -.01em; }
+.scan-hero .lede { max-width: 640px; color: var(--ink-soft); font-size: 15.5px; line-height: 1.6; margin: 0 0 22px; }
+.scan-form { display: flex; gap: 10px; max-width: 640px; }
+.scan-form input { flex: 1; min-width: 0; padding: 13px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg-raised); font-family: ui-monospace, Menlo, monospace; font-size: 14px; color: var(--ink); }
+.scan-form input:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(176,138,62,.15); }
+.scan-form .btn { white-space: nowrap; }
+.scan-form .btn[disabled] { opacity: .6; cursor: wait; }
+.scan-hint { margin: 10px 0 0; font-size: 12.5px; color: var(--ink-soft); }
+.scan-error { margin: 18px 0 0; padding: 12px 14px; border: 1px solid rgba(160,60,40,.35); border-radius: 10px; background: rgba(160,60,40,.06); font-size: 13.5px; }
+.scan-result { margin-top: 34px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-raised); overflow: hidden; }
+.scan-head { display: flex; gap: 24px; align-items: center; padding: 24px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.scan-score { position: relative; width: 132px; height: 132px; flex: 0 0 auto; }
+.scan-score .dial { width: 132px; height: 132px; transform: rotate(-90deg); }
+.scan-score .track { fill: none; stroke: var(--line); stroke-width: 9; }
+.scan-score .fill { fill: none; stroke: var(--gold); stroke-width: 9; stroke-linecap: round; transition: stroke-dashoffset .9s cubic-bezier(.2,.8,.2,1); }
+.scan-score .fill[data-grade="high"] { stroke: #b8722c; } .scan-score .fill[data-grade="very high"] { stroke: #a3402a; } .scan-score .fill[data-grade="low"] { stroke: #7f9a5a; }
+.scan-num { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; }
+.scan-num b { font-family: var(--font-display); font-weight: 400; font-size: 40px; line-height: 1; }
+.scan-num span { font-family: ui-monospace, Menlo, monospace; font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--ink-soft); margin-top: 4px; }
+.scan-title { flex: 1; min-width: 220px; }
+.scan-title h2 { font-family: var(--font-display); font-weight: 400; font-size: clamp(24px, 3.6vw, 34px); margin: 0 0 4px; }
+.scan-title .sym { font-family: ui-monospace, Menlo, monospace; font-size: 14px; color: var(--gold-deep); margin-left: 6px; }
+.scan-title .grade { margin: 0 0 8px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--gold-deep); }
+.scan-title .grade[data-grade="high"], .scan-title .grade[data-grade="very high"] { color: #a3402a; } .scan-title .grade[data-grade="low"] { color: #5f7a3a; }
+.scan-title .verdict { margin: 0 0 8px; font-family: var(--font-display); font-style: italic; font-size: 17px; line-height: 1.45; }
+.scan-links { margin: 0; font-size: 12.5px; color: var(--ink-soft); }
+.scan-grid { display: grid; gap: 0; }
+@media (min-width: 860px) { .scan-grid { grid-template-columns: 1.15fr 1fr; } .scan-facts { border-left: 1px solid var(--line); } }
+.scan-checks ol, .scan-facts ol { list-style: none; margin: 0; padding: 6px 0; }
+.scan-checks li { display: grid; grid-template-columns: 14px 1fr; gap: 12px; padding: 10px 18px; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.scan-checks li:last-child { border-bottom: 0; }
+.scan-checks li i { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; background: #7f9a5a; }
+.scan-checks li.c-warn i { background: #c9973a; } .scan-checks li.c-fail i { background: #a3402a; }
+.scan-checks b { font-weight: 500; } .scan-checks p { margin: 2px 0 0; color: var(--ink-soft); font-size: 12.5px; line-height: 1.5; }
+.scan-checks .pts { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--gold-deep); margin-left: 6px; }
+.scan-facts dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; padding: 12px 18px; font-size: 13px; }
+.scan-facts dt { color: var(--ink-soft); font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; letter-spacing: .04em; padding-top: 2px; }
+.scan-facts dd { margin: 0; text-align: right; }
+.holders li { position: relative; display: flex; justify-content: space-between; padding: 7px 18px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+.holders li i { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--gold); opacity: .5; }
+.holders li em { font-style: normal; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--gold-deep); margin-left: 6px; }
+.scan-foot { margin: 0; padding: 14px 18px; border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-soft); line-height: 1.5; }

@@ -57,6 +57,9 @@
     },
     "api/sky.js": {
       "maxDuration": 15
+    },
+    "api/analyze.js": {
+      "maxDuration": 30
     }
   },
   "ignoreCommand": "git diff --quiet HEAD^ HEAD -- . ':(exclude)data/feed.json' ':(exclude).kick'"
