@@ -68,7 +68,8 @@ jobs:
           REL=sketches; REPO="$GITHUB_REPOSITORY"
           gh release view "$REL" -R "$REPO" >/dev/null 2>&1 || gh release create "$REL" -R "$REPO" -t "Caturn sketches" -n "Generative sketches drawn by the agent, and the live feed. Rolling." || true
           for i in $(seq 1 "$n"); do
-            git pull -q --rebase origin master || true
+            git checkout -q -- data/feed.json 2>/dev/null || true   # the live copy comes from the release below; a dirty tree would block the pull
+            git pull -q --rebase origin master || echo "pull failed; running on the code this loop started with"
             rm -f /tmp/feed.json; gh release download "$REL" -R "$REPO" -p feed.json -O /tmp/feed.json 2>/dev/null && node -e 'JSON.parse(require("fs").readFileSync("/tmp/feed.json","utf8"))' && cp /tmp/feed.json data/feed.json || echo "no live feed on the release yet; starting from the repo copy"
             if [ "$i" -eq 1 ]; then export CATURN_FORCE="$FORCE_FIRST"; else export CATURN_FORCE=""; fi
             node agent/run.mjs
