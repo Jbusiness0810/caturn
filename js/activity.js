@@ -56,11 +56,16 @@
     var items = [];
     (f.events || []).forEach(function (e) { items.push({ at: e.at, kind: "sys", text: e.text }); });
     (f.thoughts || []).forEach(function (t) { items.push({ at: t.at, kind: t.kind === "dream" ? "dream" : "think", text: t.text, mood: t.mood, sketch: t.sketch && (t.sketch.url || t.sketch.file) ? t.sketch : null }); });
-    (f.posts || []).forEach(function (p) { items.push({ at: p.at, kind: "post", text: p.text, url: p.url, status: p.status }); });
+    (f.posts || []).forEach(function (p) { items.push({ at: p.at, kind: p.kind === "reply" ? "reply" : "post", text: p.text, url: p.url, status: p.status, replyTo: p.replyTo || null, tagged: p.tagged || null }); });
     items.sort(function (a, b) { return Date.parse(a.at) - Date.parse(b.at); });
     return items;
   }
 
+  function reTo(r) {
+    var who = "@" + esc(r.handle) + (r.name ? " (" + esc(r.name) + ")" : "");
+    var what = esc((r.text || "").slice(0, 120)) + ((r.text || "").length > 120 ? "\u2026" : "");
+    return "answering " + (r.url ? '<a href="' + esc(r.url) + '" rel="noopener" target="_blank">' + who + "</a>" : who) + (what ? ": \u201c" + what + "\u201d" : "");
+  }
   function renderStream(el, items, status) {
     if (!items.length) {
       el.innerHTML = '<li class="empty">' + (status === "prelaunch"
@@ -75,7 +80,8 @@
       if (d !== lastDay) { html += '<li class="day">' + esc(d) + "</li>"; lastDay = d; }
       var tag = it.kind === "think" ? "think" : it.kind;
       var body = esc(it.text);
-      if (it.kind === "post") body += it.url ? ' <a href="' + esc(it.url) + '" rel="noopener" target="_blank">view on X</a>' : ' <span class="mood-tag">' + esc(it.status || "publishing") + "</span>";
+      if (it.replyTo) body = '<span class="re">' + reTo(it.replyTo) + "</span>" + body;
+      if (it.kind === "post" || it.kind === "reply") body += it.url ? ' <a href="' + esc(it.url) + '" rel="noopener" target="_blank">view on X</a>' : ' <span class="mood-tag">' + esc(it.status || "publishing") + "</span>";
       if (it.mood && it.kind !== "post") body += '<span class="mood-tag">' + esc(it.mood) + "</span>";
       if (it.sketch) body += '<a class="sketch-inline" href="' + esc(it.sketch.url || it.sketch.file) + '" target="_blank" rel="noopener"><img src="' + esc(it.sketch.url || it.sketch.file) + '" alt="sketch ' + esc(it.sketch.family) + '" loading="lazy"></a>';
       var isNew = i === list.length - 1 && it.kind !== "sys";
@@ -185,7 +191,7 @@
     }).join("") : '<li class="empty">' + (f.asksTracked ? "no one has asked yet." : "asks are not being tracked yet.") + "</li>";
     $("[data-posts-count]").textContent = (f.posts || []).length;
     $("[data-log-posts]").innerHTML = posts.length ? posts.map(function (p) {
-      return "<li><p>" + esc(p.text) + '</p><span class="meta"><span>' + hhmm(p.at) + "</span>" + (p.url ? '<a href="' + esc(p.url) + '" rel="noopener" target="_blank">open</a>' : "<span>" + esc(p.status || "publishing") + "</span>") + "</span></li>";
+      return "<li>" + (p.replyTo ? '<p class="re">' + reTo(p.replyTo) + "</p>" : p.tagged ? '<p class="re">tagging @' + esc(p.tagged) + "</p>" : "") + "<p>" + esc(p.text) + '</p><span class="meta"><span>' + hhmm(p.at) + "</span>" + (p.url ? '<a href="' + esc(p.url) + '" rel="noopener" target="_blank">open</a>' : "<span>" + esc(p.status || "publishing") + "</span>") + "</span></li>";
     }).join("") : '<li class="empty">nothing said out loud yet.</li>';
   }
 })();

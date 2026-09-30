@@ -18,6 +18,16 @@ const FORCE     = env.CATURN_FORCE === "1";      // manual runs: think now, igno
 const POST_INTERVAL_MIN = Number(env.CATURN_POST_INTERVAL_MIN || 30);   // post to X on this clock, whatever the pacing says
 const SKETCH_EVERY = Number(env.CATURN_SKETCH_EVERY || 4);              // draw a sketch every Nth thought (0 = never)
 const SKETCH_RELEASE = "sketches";                                      // rolling GitHub release that hosts the GIFs
+const OWN_HANDLE = (env.CATURN_X_HANDLE || "caturn_rh").toLowerCase();
+// People worth tagging now and then. Pinned ones come from CATURN_TAG_HANDLES (comma-separated, no @); the rest Caturn finds on X itself:
+// accounts @orbiodotso mentions, and the larger accounts talking about orbio. Robinhood is the chain Caturn lives on.
+const PINNED_TAG_HANDLES = (env.CATURN_TAG_HANDLES || "robinhoodapp").split(",").map(s => s.trim().replace(/^@/, "").toLowerCase()).filter(Boolean);
+const TAG_EVERY  = Number(env.CATURN_TAG_EVERY || 5);     // tag someone in roughly one post in five (0 = never)
+const TAG_POOL_REFRESH_H = 12;                            // re-scan X for people around orbio this often
+const REPLY_EVERY = Number(env.CATURN_REPLY_EVERY || 2);  // every Nth post slot looks for something on X to answer (0 = never)
+const REPLY_MAX_AGE_H = 72;                               // only answer posts younger than this
+const REPLY_SAME_HANDLE_GAP_H = 4;                        // answer the same account (other than people talking to you) at most this often
+const NEVER_TAG = new Set(["orbiodotso", "x", "twitter", "elonmusk", "grok"]);
 const MIN_THOUGHTS_PER_DAY  = Number(env.CATURN_MIN_THOUGHTS || 6);
 const MAX_THOUGHTS_PER_DAY  = Number(env.CATURN_MAX_THOUGHTS || 96);   // every 15 minutes at full energy
 const VOLUME_FOR_FULL_ENERGY = Number(env.CATURN_FULL_VOLUME_USD || 50000); // 24h USD volume at which energy = 1
@@ -111,13 +121,16 @@ async function think(persona, ctx) {
 - thoughts today: ${ctx.thoughtsToday}
 - recent thoughts (avoid repeating): ${ctx.recent.map(t => JSON.stringify(t.text)).join(" | ") || "none"}
 
+${ctx.replyTo ? `Someone on X${ctx.replyTo.why === "mention" ? " is talking to you" : ctx.replyTo.why === "orbio" ? ", the orbio account itself," : ""}: @${ctx.replyTo.handle} (${ctx.replyTo.name}) wrote: ${JSON.stringify(ctx.replyTo.text.slice(0, 500))}
+This time your post is an answer to them. Start it with @${ctx.replyTo.handle}, respond to what they actually said, in your own cat voice, dry or warm, and bring in one real orbio fact only if it fits. Do not repeat their words back. Do not tag anyone else.` : ""}
+${ctx.tagHandle ? `This time, address @${ctx.tagHandle} directly in the post (they are part of orbio's world). Speak to them the way a cat speaks to a person it has decided to acknowledge: one concrete orbio fact, one cat behavior, dry, never a plea, never flattery, never asking them for anything. That handle must appear in the post, and no other.` : ""}
 ${ctx.lastSketch ? `You recently drew a sketch (a ${ctx.lastSketch.family} piece) and it is on the site. This one time, the post may mention in passing that a new sketch is up on caturn dot lol, dry, no link. Most of your posts never mention sketches.` : ""}
 Tonight's lens for the private thought: ${ctx.lens}. Let it in sideways. Do not name it.
 ${ctx.mustPost ? "A post is required this time: " : "If you post, "}the post's angle is: ${ctx.postAngle}. Build the post from that one concrete fact plus one cat behavior, in plain words, funny or dry, readable in one pass. No poetry, no riddles, no imagery about rings, light, warmth, silence or receipts. Lowercase. No hashtags.
 
 Write ONE entry as a single JSON object and nothing else: no code fences, no commentary before or after. Keep "thought" under 60 words and "post" under 200 characters.
 {"thought": string (1-3 sentences, first person, raw inner monologue, ${ctx.energy < 0.12 ? "you are half asleep: this is a dream fragment, strange and short" : "awake"}),
- "post": string${ctx.mustPost ? "" : "|null"} (for X: lowercase, under 200 characters, plain words, one concrete orbio fact plus one cat behavior, dry or funny, no metaphors chained, no links, no hashtags, no handles other than @orbiodotso when the angle calls for it${ctx.mustPost ? "" : "; null only if nothing honest fits"}),
+ "post": string${ctx.mustPost ? "" : "|null"} (for X: lowercase, under 200 characters, plain words, one concrete orbio fact plus one cat behavior, dry or funny, no metaphors chained, no links, no hashtags, no handles other than @orbiodotso when the angle calls for it${ctx.replyTo ? ", except @" + ctx.replyTo.handle + " which this post must start with" : ctx.tagHandle ? ", except @" + ctx.tagHandle + " which this post must include" : ""}${ctx.mustPost ? "" : "; null only if nothing honest fits"}),
  "mood": string (one or two lowercase words for your mood right now, specific and varied. Draw from anywhere in a cat's range: sun-drunk, watchful, aloof, kneading, skittish, imperious, wistful, hunting, loafing, bristling, purring, sulking, feral, dignified, nocturnal, homesick, greedy, tender, spiteful, patient, giddy, hollow, regal, twitchy, sated, brooding, curious, unbothered, mournful, playful, grumpy, serene, cornered, smug, lonely, electric, drowsy, vigilant, coy, ancient. Never reuse any of these recent moods: ${ctx.recentMoods.join(", ") || "none"}),
  "focus": string (what you are fixated on right now, under 8 words, lowercase),
  "emotions": {"curiosity": 0-1, "smugness": 0-1, "unease": 0-1, "affection": 0-1, "boredom": 0-1, "hunger": 0-1, "mischief": 0-1, "melancholy": 0-1}
@@ -180,6 +193,78 @@ async function refreshPostUrls(posts) {
       if (url) p.url = url; if (r.status) p.status = r.status;
     } catch (e) { log("status check failed:", e.message); }
   }
+}
+
+// Orbio has no reply-to field on social.post, so a "reply" is a post that opens with the person's handle:
+// it lands in their notifications and under their name in search, which is where the engagement is.
+async function readX(params) {
+  const r = await getJSON(`${ORBIO_API}/tools/social.x.posts`, { method: "POST", headers: auth, body: JSON.stringify({ limit: 10, sort: "Latest", max_cost: "0.0060", ...params }) });
+  return (r.tweets || r.result?.tweets || []).map(t => ({
+    id: String(t.id_str || t.id || ""), text: String(t.full_text || t.text || ""), at: t.tweet_created_at || t.created_at || null,
+    handle: String(t.user?.screen_name || "").toLowerCase(), name: t.user?.name || "", followers: Number(t.user?.followers_count || 0), views: Number(t.views_count || 0)
+  })).filter(t => t.id && t.handle);
+}
+// Who is around orbio on X: handles the orbio account mentions, and the bigger accounts mentioning orbio. Cached in the feed.
+async function refreshTagPool(feed) {
+  const pool = feed.tagPool || { at: null, handles: [] };
+  if (pool.at && now - Date.parse(pool.at) < TAG_POOL_REFRESH_H * 3600e3) return 0;
+  const found = new Map(); let cost = 0;
+  try {
+    const theirs = await readX({ handle: "orbiodotso", limit: 20 }); cost += theirs.length * 0.00022;
+    for (const t of theirs) for (const m of t.text.matchAll(/@(\w{1,15})/g)) {
+      const h = m[1].toLowerCase(); if (h === OWN_HANDLE || NEVER_TAG.has(h)) continue;
+      const e = found.get(h) || { handle: h, name: "", followers: 0, mentionedByOrbio: 0, posts: 0 }; e.mentionedByOrbio++; found.set(h, e);
+    }
+    const about = await readX({ mentions_of: "orbiodotso", sort: "Top", limit: 20 }); cost += about.length * 0.00022;
+    for (const t of about) {
+      const h = t.handle; if (h === OWN_HANDLE || NEVER_TAG.has(h) || t.followers < 300) continue;
+      const e = found.get(h) || { handle: h, name: "", followers: 0, mentionedByOrbio: 0, posts: 0 }; e.name = t.name; e.followers = Math.max(e.followers, t.followers); e.posts++; found.set(h, e);
+    }
+    const handles = [...found.values()].sort((a, b) => (b.mentionedByOrbio - a.mentionedByOrbio) || (b.followers - a.followers)).slice(0, 12);
+    feed.tagPool = { at: iso(now), handles };
+    log("tag pool:", handles.map(h => "@" + h.handle + (h.mentionedByOrbio ? "*" : "")).join(" ") || "(empty)");
+  } catch (e) { log("tag pool refresh failed:", e.status || "", String(e.message).slice(0, 160)); feed.tagPool = { at: iso(now), handles: pool.handles }; }
+  return cost;
+}
+function tagCandidates(feed) {
+  const pool = (feed.tagPool?.handles || []).map(h => h.handle);
+  return [...new Set([...PINNED_TAG_HANDLES, ...pool])].filter(h => h !== OWN_HANDLE && !NEVER_TAG.has(h));
+}
+function allowedHandle(h, feed) { return h === "orbiodotso" || h === OWN_HANDLE || tagCandidates(feed).includes(h); }
+async function findReplyTarget(feed) {
+  const answered = new Set(feed.posts.map(p => p.replyTo?.id).filter(Boolean));
+  const fresh = (t) => !t.at || now - Date.parse(t.at) < REPLY_MAX_AGE_H * 3600e3;
+  const usable = (t) => t.handle !== OWN_HANDLE && !answered.has(t.id) && fresh(t) && !/^RT @/i.test(t.text) && t.text.replace(/@\w+/g, "").trim().length > 12;
+  const lastTo = (h) => Math.max(0, ...feed.posts.filter(p => p.replyTo?.handle === h).map(p => Date.parse(p.at)));
+  const pick = (list, why) => { const t = list.find(usable); return t ? { ...t, why, url: `https://x.com/${t.handle}/status/${t.id}` } : null; };
+  let cost = 0;
+  try {
+    // 1. Someone talking to Caturn always comes first.
+    const mentions = await readX({ mentions_of: OWN_HANDLE }); cost += mentions.length * 0.00022;
+    const m = pick(mentions, "mention"); if (m) return { target: m, cost };
+    // 2. Otherwise something Orbio's own account said, at most every few hours.
+    if (now - lastTo("orbiodotso") > REPLY_SAME_HANDLE_GAP_H * 3600e3) {
+      const theirs = await readX({ handle: "orbiodotso" }); cost += theirs.length * 0.00022;
+      const o = pick(theirs, "orbio"); if (o) return { target: o, cost };
+    }
+    // 3. Otherwise the freshest thing anyone is saying about orbio, once per account per gap.
+    const around = await readX({ query: "orbio -filter:retweets -filter:replies lang:en", limit: 15 }); cost += around.length * 0.00022;
+    const a = pick(around.filter(t => now - lastTo(t.handle) > REPLY_SAME_HANDLE_GAP_H * 3600e3 && t.followers >= 50), "search");
+    if (a) return { target: a, cost };
+  } catch (e) { log("reading X failed:", e.status || "", String(e.message).slice(0, 160)); }
+  return { target: null, cost };
+}
+// Keep posts inside the rules whatever the model wrote: no links, no addresses, no handles outside the allowlist (and the one it is answering).
+function cleanPost(text, ctx, feed) {
+  if (!text) return null;
+  let t = String(text).replace(/\s+/g, " ").trim();
+  if (/https?:\/\/|www\.|0x[a-f0-9]{40}/i.test(t)) return null;
+  const extra = new Set([ctx.replyTo?.handle, ctx.tagHandle].filter(Boolean));
+  const handles = [...t.matchAll(/@(\w{1,15})/g)].map(m => m[1].toLowerCase());
+  for (const h of handles) if (!allowedHandle(h, feed) && !extra.has(h)) t = t.replace(new RegExp("@" + h + "\\b", "ig"), h); // strangers become plain words
+  if (ctx.replyTo && !t.toLowerCase().startsWith("@" + ctx.replyTo.handle)) t = `@${ctx.replyTo.handle} ${t.replace(new RegExp("@" + ctx.replyTo.handle + "\\b", "ig"), "").replace(/\s+/g, " ").trim()}`;
+  if (t.length > 270) t = t.slice(0, 267).replace(/\s+\S*$/, "") + "...";
+  return t.length >= 8 ? t : null;
 }
 
 // ---------- 3a. Check: CATURN_CHECK=1 verifies the key and balance for free, prints no secrets ----------
@@ -300,6 +385,7 @@ if (agent && status === "awake" && prev.status === "napping") event("waking up")
 
 if (status === "awake") {
   try {
+    let readCost = 0;
     const ctx = { energy, energyNote: volumeSource ? "from " + volumeSource : "unknown", volume24hUsd, priceUsd: feed.metrics.priceUsd, lens: LENSES[feed.thoughts.length % LENSES.length], postAngle: POST_ANGLES[feed.posts.length % POST_ANGLES.length], mustPost: duePost,
       recentMoods: feed.thoughts.slice(-10).map(function (t) { return t.mood; }).filter(Boolean),
       lastSketch: null, // set below only when a sketch is fresh, unmentioned, and a coin flip says so
@@ -310,6 +396,21 @@ if (status === "awake") {
         (new Date(now).getUTCHours() >= 4 && new Date(now).getUTCHours() < 10) ? "it is the small hours, the nocturnal, feral side is closer" : ""
       ].filter(Boolean).join("; ") || "nothing pulls hard right now",
       creditOwed: feed.metrics.creditOwed, thoughtsToday: todays.length, recent: feed.thoughts.slice(-6) };
+    if (duePost && !DRY_RUN) {
+      const slot = feed.posts.length;
+      if (REPLY_EVERY > 0 && slot % REPLY_EVERY === REPLY_EVERY - 1) {
+        const { target, cost } = await findReplyTarget(feed); readCost += cost;
+        if (target) { ctx.replyTo = target; ctx.postAngle = "an answer to what they said"; log("replying to:", `@${target.handle}`, JSON.stringify(target.text.slice(0, 120))); }
+      }
+      if (!ctx.replyTo && TAG_EVERY > 0 && slot % TAG_EVERY === TAG_EVERY - 2) {
+        readCost += await refreshTagPool(feed);
+        const cands = tagCandidates(feed);
+        if (cands.length) ctx.tagHandle = cands[Math.floor(slot / TAG_EVERY) % cands.length];
+      }
+      if (ctx.tagHandle) {
+        ctx.postAngle = `${POST_ANGLES[slot % POST_ANGLES.length]}, said to @${ctx.tagHandle}`;
+      }
+    }
     const lastSk = feed.sketches[feed.sketches.length - 1];
     if (lastSk && !lastSk.mentioned && now - Date.parse(lastSk.at) < 35 * 60e3 && Math.random() < 0.5 && duePost) { ctx.lastSketch = lastSk; lastSk.mentioned = true; }
     const t = DRY_RUN ? { thought: "(dry run) I would have thought something here.", post: null, cost: 0, model: MODEL } : await think(persona, ctx);
@@ -324,12 +425,20 @@ if (status === "awake") {
       }
       const n = feed.thoughts.length;
       // Post on the clock: whenever POST_INTERVAL_MIN has passed since the last post.
-      const shouldPost = !!t.post && duePost;
+      const text = cleanPost(t.post, ctx, feed);
+      const shouldPost = !!text && duePost;
+      if (t.post && !text) log("post dropped by the rules:", JSON.stringify(t.post));
       if (shouldPost && !DRY_RUN) {
         try {
-          const p = await postToX(t.post);
+          const p = await postToX(text);
           if (p.error) log("post skipped:", p.error);
-          else { feed.posts.push({ at: iso(now), text: t.post, id: p.id, url: p.url, status: p.status, cost: p.cost }); feed.lastPostThoughtIndex = n; event("posted to X"); }
+          else {
+            const rec = { at: iso(now), text, id: p.id, url: p.url, status: p.status, cost: Number((p.cost + readCost).toFixed(6)) };
+            if (ctx.replyTo) { rec.kind = "reply"; rec.replyTo = { id: ctx.replyTo.id, handle: ctx.replyTo.handle, name: ctx.replyTo.name, text: ctx.replyTo.text.slice(0, 200), url: ctx.replyTo.url, why: ctx.replyTo.why }; }
+            else if (ctx.tagHandle && text.toLowerCase().includes("@" + ctx.tagHandle)) { rec.kind = "tag"; rec.tagged = ctx.tagHandle; }
+            feed.posts.push(rec); feed.lastPostThoughtIndex = n;
+            event(rec.kind === "reply" ? `answered @${rec.replyTo.handle} on X` : rec.kind === "tag" ? `posted to X, tagging @${rec.tagged}` : "posted to X");
+          }
         } catch (e) {
           if (e.status === 409) event("wanted to post, but no X account is connected");
           else log("post failed:", e.message);
