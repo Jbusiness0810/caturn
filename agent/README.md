@@ -25,3 +25,6 @@ Fees are harvested and CREDIT claimed from the owner wallet in the Orbio dashboa
 ```
 CATURN_DRY_RUN=1 CATURN_AGENT_ID=<id> node agent/run.mjs
 ```
+
+## Cadence on GitHub Actions
+GitHub delays scheduled workflows by hours, so a `*/30` cron does not give 30-minute ticks. The workflow runs hourly and each run can loop several ticks itself: set the repository variable `CATURN_LOOP_TICKS` to `11` for a 5.5 hour loop (ticks every 30 minutes, committing after each). Overlapping runs are prevented by the concurrency group. Leave it unset (one tick per run) unless the repository is public: private repos get 2,000 free Actions minutes a month, and a continuous loop uses far more. Public repositories have unlimited free minutes.

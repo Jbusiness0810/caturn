@@ -1,7 +1,7 @@
 name: Caturn tick
 on:
   schedule:
-    - cron: "*/30 * * * *"   # every 30 minutes (GitHub may delay scheduled runs)
+    - cron: "7 * * * *"   # hourly; GitHub delays schedules by hours, so each run loops ticks itself (see CATURN_LOOP_TICKS)
   workflow_dispatch:
     inputs:
       say:
@@ -24,7 +24,7 @@ jobs:
         with: { ref: master }
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
-      - name: Think
+      - name: Think (loops CATURN_LOOP_TICKS times, 30 min apart, committing after each)
         env:
           ORBIO_API_KEY: ${{ secrets.ORBIO_API_KEY }}
           CATURN_AGENT_ID: ${{ vars.CATURN_AGENT_ID }}
@@ -34,10 +34,15 @@ jobs:
           CATURN_POST_EVERY: ${{ vars.CATURN_POST_EVERY }}
           CATURN_SAY: ${{ github.event.inputs.say }}
           CATURN_CHECK: ${{ github.event.inputs.check == true && '1' || '' }}
-        run: node agent/run.mjs
-      - name: Publish feed
+          LOOP: ${{ (github.event_name == 'schedule' && vars.CATURN_LOOP_TICKS) || '1' }}
         run: |
           git config user.name "caturn-bot"
           git config user.email "caturn-bot@users.noreply.github.com"
-          git add data/feed.json
-          git diff --cached --quiet || (git commit -m "caturn: tick" && git push origin HEAD:master)
+          n="${LOOP:-1}"; [ "$n" -ge 1 ] 2>/dev/null || n=1
+          for i in $(seq 1 "$n"); do
+            git pull -q --rebase origin master || true
+            node agent/run.mjs
+            git add data/feed.json
+            git diff --cached --quiet || (git commit -q -m "caturn: tick" && git push -q origin HEAD:master) || true
+            [ "$i" -lt "$n" ] && sleep 1800
+          done
