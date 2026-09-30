@@ -92,6 +92,19 @@ const POST_ANGLES = [
   "your owner can claim your $CREDIT but cannot tell you what to say", "the other agents launched on orbio are your littermates", "no trades means no thoughts, said plainly",
   "@orbiodotso built the launchpad and the tools; addressed directly, dry, not a plea", "orbio gives you web search and X reading but not a body or a schedule", "your balance drops every time you think and rises every time someone trades"
 ];
+// The shape of a post, rotated so the timeline never sees the same move twice in a row. Each one is a way to be funny that also invites a reply.
+const POST_FORMATS = [
+  { name: "observation", how: "one orbio fact, one cat behavior, understatement, the turn in the last few words" },
+  { name: "question", how: "a real question to the timeline, asked with a straight face, that people will want to answer (about cats, agents, fees, naps, or what to do with 2 cents)" },
+  { name: "ledger", how: "a tiny deadpan report with real numbers from your state: thoughts today, cents spent, trades heard, birds caught (always 0), balance direction" },
+  { name: "ranking", how: "a short ranked list of 3 things, by cost or by importance, mixing orbio economics with cat priorities, punchline last" },
+  { name: "dialogue", how: "a two-line exchange, 'owner:' and 'me:' or 'orbio:' and 'me:', where you get the last word" },
+  { name: "complaint", how: "a formal complaint or memo to orbio about something a cat would find unacceptable, filed with total seriousness" },
+  { name: "hot take", how: "an opinion, stated flatly, about how orbio works or what agents are, that is safe (never about price) and slightly wrong in a cat way" },
+  { name: "reaction", how: "react to what just happened on your tape right now (a trade, an hour of nothing, the curve moving, your balance) as if it happened to you personally" },
+  { name: "one-liner", how: "under 80 characters. one dry sentence. nothing else" },
+  { name: "invitation", how: "invite people to do something small: reply with their cat's name, guess a number, ask you something in the terminal on caturn dot lol, tell you whether to nap" }
+];
 const LENSES = [
   "the ring, and what it is for", "the last trade, as a sound", "a human you will never meet", "the space between two receipts",
   "sleep, and what you are when you are dark", "an offering left at a shrine", "the chain as a river", "something you almost remembered",
@@ -119,6 +132,7 @@ async function think(persona, ctx) {
 - price: ${ctx.priceUsd == null ? "unknown" : "$" + ctx.priceUsd}
 - CREDIT owed to me from stake: ${ctx.creditOwed == null ? "unknown" : ctx.creditOwed.toFixed(4)}
 - thoughts today: ${ctx.thoughtsToday}
+- live numbers you may use exactly (they are true right now): ${ctx.stats}
 - recent thoughts (avoid repeating): ${ctx.recent.map(t => JSON.stringify(t.text)).join(" | ") || "none"}
 
 ${ctx.replyTo ? `Someone on X${ctx.replyTo.why === "mention" ? " is talking to you" : ctx.replyTo.why === "orbio" ? ", the orbio account itself," : ""}: @${ctx.replyTo.handle} (${ctx.replyTo.name}) wrote: ${JSON.stringify(ctx.replyTo.text.slice(0, 500))}
@@ -126,7 +140,8 @@ This time your post is an answer to them. Start it with @${ctx.replyTo.handle}, 
 ${ctx.tagHandle ? `This time, address @${ctx.tagHandle} directly in the post (they are part of orbio's world). Speak to them the way a cat speaks to a person it has decided to acknowledge: one concrete orbio fact, one cat behavior, dry, never a plea, never flattery, never asking them for anything. That handle must appear in the post, and no other.` : ""}
 ${ctx.lastSketch ? `You recently drew a sketch (a ${ctx.lastSketch.family} piece) and it is on the site. This one time, the post may mention in passing that a new sketch is up on caturn dot lol, dry, no link. Most of your posts never mention sketches.` : ""}
 Tonight's lens for the private thought: ${ctx.lens}. Let it in sideways. Do not name it.
-${ctx.mustPost ? "A post is required this time: " : "If you post, "}the post's angle is: ${ctx.postAngle}. Build the post from that one concrete fact plus one cat behavior, in plain words, funny or dry, readable in one pass. No poetry, no riddles, no imagery about rings, light, warmth, silence or receipts. Lowercase. No hashtags.
+${ctx.mustPost ? "A post is required this time: " : "If you post, "}the post's angle is: ${ctx.postAngle}.
+${ctx.replyTo ? "" : `Post format this time: ${ctx.postFormat.name} (${ctx.postFormat.how}). `}Make it land: be specific, use a real number if one helps, put the funniest beat last, never explain the joke. Plain words, readable in one pass. No poetry, no riddles, no imagery about rings, light, warmth, silence or receipts. Lowercase. No hashtags.${ctx.wantHook ? " End with something a stranger could reply to." : ""}
 
 Write ONE entry as a single JSON object and nothing else: no code fences, no commentary before or after. Keep "thought" under 60 words and "post" under 200 characters.
 {"thought": string (1-3 sentences, first person, raw inner monologue, ${ctx.energy < 0.12 ? "you are half asleep: this is a dream fragment, strange and short" : "awake"}),
@@ -419,7 +434,19 @@ if (status === "awake") {
         feed.posts.length && now - Date.parse(feed.posts[feed.posts.length - 1].at) < 45 * 60e3 ? "you just spoke in public, a little smug or a little exposed" : "",
         (new Date(now).getUTCHours() >= 4 && new Date(now).getUTCHours() < 10) ? "it is the small hours, the nocturnal, feral side is closer" : ""
       ].filter(Boolean).join("; ") || "nothing pulls hard right now",
-      creditOwed: feed.metrics.creditOwed, thoughtsToday: todays.length, recent: feed.thoughts.slice(-6) };
+      creditOwed: feed.metrics.creditOwed, thoughtsToday: todays.length, recent: feed.thoughts.slice(-6),
+      postFormat: POST_FORMATS[(feed.posts.length * 7 + new Date(now).getUTCDate()) % POST_FORMATS.length],
+      wantHook: feed.posts.length % 3 === 1,
+      stats: [
+        balanceCredit != null ? `balance ${balanceCredit.toFixed(2)} credit` : "",
+        `spent today ${(spentToday * 100).toFixed(1)} cents`,
+        `posts today ${feed.posts.filter(p => Date.parse(p.at) >= dayStart.getTime()).length}`,
+        `thoughts so far ${feed.thoughts.length}`,
+        !graduated ? `curve ${gradPct.toFixed(0)}% to graduation` : "graduated",
+        volume24hUsd != null ? `24h volume $${Math.round(volume24hUsd)}` : "",
+        feed.metrics.stakedOrbio != null ? `${Math.round(feed.metrics.stakedOrbio)} $ORBIO staked for you` : "",
+        "birds caught 0"
+      ].filter(Boolean).join(", ") };
     if (duePost && !DRY_RUN) {
       const slot = feed.posts.length;
       if (REPLY_EVERY > 0 && slot % REPLY_EVERY === REPLY_EVERY - 1) {
