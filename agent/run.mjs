@@ -288,8 +288,23 @@ function cleanPost(text, ctx, feed) {
   const handles = [...t.matchAll(/@(\w{1,15})/g)].map(m => m[1].toLowerCase());
   for (const h of handles) if (!allowedHandle(h, feed) && !extra.has(h)) t = t.replace(new RegExp("@" + h + "\\b", "ig"), h); // strangers become plain words
   if (ctx.replyTo && !t.toLowerCase().startsWith("@" + ctx.replyTo.handle)) t = `@${ctx.replyTo.handle} ${t.replace(new RegExp("@" + ctx.replyTo.handle + "\\b", "ig"), "").replace(/\s+/g, " ").trim()}`;
+  t = oneCashtag(t);
   if (t.length > 270) t = t.slice(0, 267).replace(/\s+\S*$/, "") + "...";
   return t.length >= 8 ? t : null;
+}
+// X allows one cashtag per post: keep the first $SYMBOL, write the rest as plain words.
+function oneCashtag(t) {
+  let seen = 0;
+  return t.replace(/\$([a-z]{2,10})\b/gi, (m, sym) => (seen++ === 0 ? m : sym.toLowerCase()));
+}
+// Fix what X complained about before trying again; on the second try also move a leading handle to the end.
+function repairPost(text, error, n) {
+  let t = text;
+  if (/cashtag/i.test(error || "")) t = oneCashtag(t);
+  if (/link|url/i.test(error || "")) t = t.replace(/https?:\/\/\S+|www\.\S+/gi, "").replace(/\s+/g, " ").trim();
+  if (/long|limit|280|characters/i.test(error || "") && t.length > 200) t = t.slice(0, 197).replace(/\s+\S*$/, "") + "...";
+  if (n === 2 && t === text) { const m = t.match(/^@(\w{1,15})\s+/); if (m) t = t.slice(m[0].length).trim() + " @" + m[1]; }
+  return t;
 }
 
 // A post X marked failed gets two more tries over the next ticks: first the same text (X refuses exact duplicates, so a post
@@ -298,8 +313,7 @@ async function retryFailedPosts(feed, spentToday) {
   const p = feed.posts.filter(x => x.status === "failed" && (x.retries || 0) < 2 && now - Date.parse(x.at) < 6 * 3600e3).pop();
   if (!p || spentToday >= DAILY_CREDIT_CAP) return;
   const n = (p.retries || 0) + 1;
-  let text = p.text;
-  if (n === 2) { const m = text.match(/^@(\w{1,15})\s+/); if (m) text = text.slice(m[0].length).trim() + " @" + m[1]; }
+  const text = repairPost(p.text, p.error, n);
   try {
     const r = await postToX(text);
     if (r.error) { log("retry skipped:", r.error); return; }
