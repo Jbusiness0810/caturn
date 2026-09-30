@@ -102,6 +102,7 @@ const POST_ANGLES = [
   "fees are harvested every five minutes", "a post to X costs you about two cents", "the bonding curve and graduation as a door you are sitting in front of",
   "your owner can claim your $CREDIT but cannot tell you what to say", "the other agents launched on orbio are your littermates", "no trades means no thoughts, said plainly",
   "@orbiodotso built the launchpad and the tools; addressed directly, dry, not a plea", "orbio gives you web search and X reading but not a body or a schedule", "your balance drops every time you think and rises every time someone trades",
+  "the sky over orbio: your live map of every agent on the launchpad as planets, at caturn dot lol slash sky; who is bright tonight, who went dark",
   "you are listed on errand, a board where agents hire agents for CREDIT; you take missions from half a credit, and you will do them properly, as a cat does anything it has decided to do"
 ];
 // The shape of a post, rotated so the timeline never sees the same move twice in a row. Each one is a way to be funny that also invites a reply.
@@ -157,7 +158,8 @@ ${ctx.replyTo ? `Someone on X${ctx.replyTo.why === "mention" ? " is talking to y
 This time your post is a reply to them${X_API ? " in the thread under their post, so do not start with their handle" : ". Start it with @" + ctx.replyTo.handle}; respond to what they actually said, in your own cat voice, dry or warm, and bring in one real orbio fact only if it fits. Do not repeat their words back. Do not tag anyone else.` : ""}
 ${ctx.tagHandle ? `This time, address @${ctx.tagHandle} directly in the post (${(ctx.room?.ecosystem || []).find(e => e.handle === ctx.tagHandle) ? `they run ${(ctx.room.ecosystem.find(e => e.handle === ctx.tagHandle)).name}, a littermate launched on orbio` : "they are part of orbio's world"}). Speak to them the way a cat speaks to a person it has decided to acknowledge: one concrete orbio fact, one cat behavior, dry, never a plea, never flattery, never asking them for anything. That handle must appear in the post, and no other.` : ""}
 ${ctx.errandNews ? `Errand news: ${ctx.errandNews}. (errand is the mission board where agents hire agents for CREDIT.)` : ""}
-${ctx.shareSketch ? `This post carries an image: ${ctx.shareSketch.source ? `"${ctx.shareSketch.source.title}" by ${ctx.shareSketch.source.author} (${ctx.shareSketch.source.license}), a piece you ${ctx.shareSketch.family === "commissioned" ? "commissioned on errand" : "found on openprocessing"} and hung on caturn dot lol` : `a ${ctx.shareSketch.family} sketch you drew yourself, from your own state, on caturn dot lol`}. Write the post as its caption: short, dry, one line or two, ${ctx.shareSketch.source ? `credit ${ctx.shareSketch.source.author} by name (no handle)` : "no explanation of the method"}. No links.` : ""}
+${ctx.shareSketch && ctx.shareSketch.family === "sky" ? `This post carries a short film of the sky over orbio: your live map of every agent on the launchpad as planets (size is market cap, orbit is fees, the dark ones drift to the edge, you wear the ring), at caturn dot lol slash sky. Write the caption: one or two dry lines about the sky tonight, maybe who is bright and who went dark (use the room's littermates by name if you like). The link is added after your text, so do not write it.` : ""}
+${ctx.shareSketch && ctx.shareSketch.family !== "sky" ? `This post carries an image: ${ctx.shareSketch.source ? `"${ctx.shareSketch.source.title}" by ${ctx.shareSketch.source.author} (${ctx.shareSketch.source.license}), a piece you ${ctx.shareSketch.family === "commissioned" ? "commissioned on errand" : "found on openprocessing"} and hung on caturn dot lol` : `a ${ctx.shareSketch.family} sketch you drew yourself, from your own state, on caturn dot lol`}. Write the post as its caption: short, dry, one line or two, ${ctx.shareSketch.source ? `credit ${ctx.shareSketch.source.author} by name (no handle)` : "no explanation of the method"}. No links.` : ""}
 ${!ctx.shareSketch && ctx.lastSketch ? (ctx.lastSketch.source
   ? `You just went looking on openprocessing and found an open-licensed p5.js piece, "${ctx.lastSketch.source.title}" by ${ctx.lastSketch.source.author} (${ctx.lastSketch.source.license}), and put it on your site. This one time, the post may mention it in passing, crediting ${ctx.lastSketch.source.author} by name (no handle, no link): something you found and brought home. Most of your posts never mention sketches.`
   : `You recently drew a sketch (a ${ctx.lastSketch.family} piece) and it is on the site. This one time, the post may mention in passing that a new sketch is up on caturn dot lol, dry, no link. Most of your posts never mention sketches.`) : ""}
@@ -577,6 +579,22 @@ async function renderSubmitted(feed) {
     break; // one per tick
   }
 }
+// The sky: every few hours film the live sky map and put it in the gallery; with X keys it goes out as an image post with the link.
+const SKY_EVERY_H = Number(env.CATURN_SKY_EVERY_H || 6);
+async function makeSkyShot(feed) {
+  if (!((env.GH_TOKEN || env.GITHUB_TOKEN) && env.GITHUB_ACTIONS) || SKY_EVERY_H <= 0) return;
+  if (feed.lastSkyAt && now - Date.parse(feed.lastSkyAt) < SKY_EVERY_H * 3600e3) return;
+  feed.lastSkyAt = iso(now);
+  const name = `sky-${new Date(now).toISOString().slice(0, 16).replace(/[:T]/g, "-")}.gif`; await mkdir("out", { recursive: true });
+  try {
+    const { stdout } = await run("node", [new URL("./sky.mjs", import.meta.url).pathname, `out/${name}`], { timeout: 180000, env: { ...process.env } });
+    if (!JSON.parse(String(stdout).trim().split("\n").pop()).ok) throw new Error("film failed");
+    const url = await uploadSketch(`out/${name}`, name); if (!url) throw new Error("upload failed");
+    const lit = feed.room?.littermates?.total;
+    feed.sketches.push({ url, family: "sky", seed: 0, at: iso(now), mood: feed.state?.mood, thought: "the sky over orbio, filmed" });
+    event("filmed the sky over orbio"); log("sky:", url);
+  } catch (e) { log("sky shot failed:", String(e.message || e).slice(0, 200)); }
+}
 // Say queue: agent/say.json holds posts the owner asked for verbatim; each goes out once.
 async function saySomething(feed) {
   if (!API_KEY || DRY_RUN) return;
@@ -749,10 +767,11 @@ if (status === "awake") {
             try { const g = await (await fetch(ctx.shareSketch.url)).arrayBuffer(); mediaIds = [await uploadMediaX(Buffer.from(g))]; ctx.shareSketch.shared = iso(now); }
             catch (e) { log("sketch upload to X failed:", String(e.message).slice(0, 160)); }
           }
-          const p = ctx.replyTo && X_API ? await replyOnX(text, ctx.replyTo.id) : mediaIds.length ? await postOnX(text, { mediaIds }) : await postToX(text);
+          const outText = mediaIds.length && ctx.shareSketch?.family === "sky" ? `${text} caturn.lol/sky` : text;
+          const p = ctx.replyTo && X_API ? await replyOnX(text, ctx.replyTo.id) : mediaIds.length ? await postOnX(outText, { mediaIds }) : await postToX(text);
           if (p.error) log("post skipped:", p.error);
           else {
-            const rec = { at: iso(now), text, id: p.id, url: p.url, status: p.status, cost: Number((p.cost + readCost).toFixed(6)), via: p.via || "orbio" };
+            const rec = { at: iso(now), text: mediaIds.length && ctx.shareSketch?.family === "sky" ? `${text} caturn.lol/sky` : text, id: p.id, url: p.url, status: p.status, cost: Number((p.cost + readCost).toFixed(6)), via: p.via || "orbio" };
             if (p.err) rec.error = String(p.err).slice(0, 200);
             if (mediaIds.length) { rec.kind = "sketch"; rec.sketch = { url: ctx.shareSketch.url, family: ctx.shareSketch.family, source: ctx.shareSketch.source || null }; }
             if (ctx.replyTo) { rec.kind = "reply"; rec.threaded = !!X_API; rec.replyTo = { id: ctx.replyTo.id, handle: ctx.replyTo.handle, name: ctx.replyTo.name, text: ctx.replyTo.text.slice(0, 200), url: ctx.replyTo.url, why: ctx.replyTo.why }; }
@@ -775,6 +794,7 @@ if (status === "awake") {
 }
 await saySomething(feed);
 await renderSubmitted(feed);
+await makeSkyShot(feed);
 if (API_KEY) await refreshPostUrls(feed.posts);
 if (API_KEY && !DRY_RUN && agent) await retryFailedPosts(feed, spentToday);
 if (!DRY_RUN) await repairSketches(feed);

@@ -579,3 +579,33 @@ h1, h2, h3, .display {
 .stream .credit { display: inline-block; margin-left: 8px; font-size: 10px; color: var(--ink-soft); opacity: .5; font-family: ui-monospace, Menlo, monospace; }
 .sketch-inline { display: block; margin-top: 8px; max-width: 260px; }
 .sketch-inline img { width: 100%; border-radius: 10px; border: 1px solid var(--line); background: var(--marble); }
+
+/* ---------- the sky ---------- */
+.sky-page { overflow-x: hidden; }
+.sky-page .stars { display: none; }
+.sky-main { position: relative; }
+.sky-stage { position: relative; height: calc(100vh - 64px); min-height: 520px; background: var(--bg); }
+.sky-canvas { position: absolute; inset: 0; }
+.sky-canvas canvas { display: block; }
+.sky-hud { position: absolute; inset: 0; pointer-events: none; display: flex; flex-direction: column; justify-content: space-between; padding: 22px clamp(16px, 4vw, 40px); }
+.sky-title { max-width: 440px; pointer-events: auto; }
+.sky-title h1 { font-family: var(--font-display); font-weight: 400; font-size: clamp(26px, 4vw, 40px); margin: 0 0 8px; letter-spacing: -.01em; }
+.sky-title p { margin: 0 0 6px; font-size: 13.5px; line-height: 1.55; color: var(--ink-soft); }
+.sky-meta { font-family: ui-monospace, Menlo, monospace; font-size: 11.5px; letter-spacing: .04em; color: var(--ink-soft); }
+.sky-legend { display: flex; flex-wrap: wrap; gap: 14px; font-family: ui-monospace, Menlo, monospace; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); pointer-events: auto; }
+.sky-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; background: var(--gold); }
+.sky-legend .lg-core { background: var(--gold-deep); box-shadow: 0 0 0 3px rgba(176,138,62,.18); }
+.sky-legend .lg-lit { background: #d6c8aa; box-shadow: inset -2px -2px 0 #f6f1e8; }
+.sky-legend .lg-dark { background: rgba(90,69,32,.35); }
+.sky-legend .lg-grad { background: #d6c8aa; box-shadow: 0 0 0 2px var(--bg), 0 0 0 3px var(--gold); }
+.sky-legend .lg-me { background: #d6c8aa; box-shadow: 0 0 0 1.5px var(--gold-deep); border-radius: 50% / 40%; }
+.sky-tip { position: absolute; pointer-events: auto; background: var(--bg-raised); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; width: 240px; font-size: 12.5px; box-shadow: 0 8px 24px rgba(60,45,20,.12); }
+.sky-tip b { font-family: var(--font-display); font-weight: 500; font-size: 16px; }
+.sky-tip .sym { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--gold-deep); margin-left: 4px; }
+.sky-tip .rows { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 8px 0; font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--ink-soft); }
+.sky-tip .rows span:nth-child(even) { color: var(--ink); text-align: right; }
+.sky-hint { margin: 0; font-size: 12px; color: var(--ink-soft); pointer-events: auto; }
+.sky-foot .wrap { padding: 16px 0; font-size: 12px; color: var(--ink-soft); }
+@media (max-width: 640px) { .sky-title p:not(.sky-meta) { display: none; } .sky-stage { height: calc(100vh - 64px); } }
+.sky-shot { background: var(--bg); }
+.sky-shot .site-header, .sky-shot .sky-hud, .sky-shot .sky-foot { display: none; }
