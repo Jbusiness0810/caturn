@@ -28,3 +28,5 @@ Section 05 posts questions to `api/ask.js`, a Vercel function that answers in Ca
 
 ## Tracking terminal asks
 `api/ask.js` logs each exchange to Vercel Blob (`asks/YYYY-MM-DD.json`) and `api/asks.js` serves the last three days to the console. Create a Blob store in the Vercel project (Storage tab, Create Database, Blob) and connect it; that sets `BLOB_READ_WRITE_TOKEN` automatically. Redeploy afterwards. Without the store, answers still work but are not recorded.
+
+Live feed: the agent publishes data/feed.json to the rolling `sketches` release every tick; the site reads it through /api/feed.
