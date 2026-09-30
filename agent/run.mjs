@@ -528,7 +528,7 @@ async function renderSubmitted(feed) {
   let files = []; try { files = (await readdir(dir)).filter(f => f.endsWith(".json")); } catch { return; }
   for (const f of files) {
     const meta = JSON.parse(await readFile(new URL(f, dir), "utf8"));
-    if (feed.sketches.some(x => x.source?.key === meta.key)) continue;
+    if (feed.sketches.some(x => x.source?.key === meta.key) || (feed.sketchFailures?.[meta.key] || 0) >= 3) continue;
     const name = `commissioned-${meta.key}.gif`; await mkdir("out", { recursive: true });
     try {
       const { stdout } = await run("node", [new URL("./found.mjs", import.meta.url).pathname, JSON.stringify({ codeFile: new URL(meta.key + ".js", dir).pathname, title: meta.title, author: meta.author, license: meta.license, url: meta.url, frames: 24, size: 480, duotone: false }), `out/${name}`], { timeout: 180000, env: { ...process.env } });
@@ -536,7 +536,11 @@ async function renderSubmitted(feed) {
       const url = await uploadSketch(`out/${name}`, name); if (!url) throw new Error("upload failed");
       feed.sketches.push({ url, family: "commissioned", seed: 0, at: iso(now), source: { key: meta.key, id: 0, title: meta.title, author: meta.author, license: meta.license, url: meta.url, hearts: 1 }, mood: feed.state?.mood, thought: meta.note || "" });
       event(`hung a commissioned sketch · "${meta.title}" by ${meta.author}`); log("commissioned sketch:", url);
-    } catch (e) { log("commissioned sketch failed:", meta.key, String(e.message || e).slice(0, 200)); }
+    } catch (e) {
+      log("commissioned sketch failed:", meta.key, String(e.message || e).slice(0, 200));
+      feed.sketchFailures = feed.sketchFailures || {}; feed.sketchFailures[meta.key] = (feed.sketchFailures[meta.key] || 0) + 1;
+      if (feed.sketchFailures[meta.key] === 1) event(`could not render "${meta.title}" by ${meta.author}: ${String(e.message || e).slice(0, 80)}`);
+    }
     break; // one per tick
   }
 }

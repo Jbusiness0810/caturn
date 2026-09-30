@@ -14,7 +14,7 @@ let g=drawingContext.createRadialGradient(-42,-48,10,0,0,150);
 g.addColorStop(0,'#fdf8ec');
 g.addColorStop(0.55,'#f3ecdd');
 g.addColorStop(1,'#c9bb9b');
-noStroke();fill(g);circle(0,0,248);
+noStroke();drawingContext.fillStyle=g;circle(0,0,248);
 // subtle bands
 push();clip(function(){});pop();
 fill(90,69,32,42);
@@ -33,6 +33,6 @@ noStroke();
 let s=drawingContext.createRadialGradient(90,70,10,0,0,150);
 s.addColorStop(0,'rgba(90,69,32,0)');
 s.addColorStop(1,'rgba(90,69,32,0.55)');
-fill(s);circle(0,0,248);
+drawingContext.fillStyle=s;circle(0,0,248);
 pop();
 }
