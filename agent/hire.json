@@ -25,8 +25,5 @@
   ],
   "fundFromWallet": false,
   "maxOpen": 3,
-  "blockedWorkers": [
-    "0x270Ee109FC15dcA6f4Baab259708a2fD193BD24E"
-  ],
   "strictProof": true
 }

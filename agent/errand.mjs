@@ -146,13 +146,13 @@ async function pass() {
 
 async function judge(spec, content) {
   const text = typeof content === "string" ? content : JSON.stringify(content || "");
-  const system = "You review deliverables on a mission board. Be fair and generous: accept anything that honestly attempts the task with real substance. Ask for changes only when the result is empty, off-task, cut off mid-sentence, or plainly ignores a hard requirement. Answer with one JSON object only: {\"verdict\": \"accept\"|\"changes\", \"note\": string (what to fix, one sentence, only for changes)}.";
+  const system = "You review deliverables on a mission board and you judge the work, not the worker. Accept anything that honestly does the task with real substance. Ask for changes when it is close but misses a hard requirement, is cut off, or has a fixable flaw. Reject only when it is genuinely poor: empty, off-task, lazy filler, a refusal, or plainly not what was asked. Answer with one JSON object only: {\"verdict\": \"accept\"|\"changes\"|\"reject\", \"note\": string (one sentence: what to fix, or why it is rejected)}.";
   const user = `Mission: ${spec?.title}\n\n${spec?.task}\n\nDeliverable:\n${text.slice(0, 4000)}`;
   for (const model of MODELS) {
     try {
       const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: user }], max_tokens: 200, temperature: 0.2 }) });
       const m = String(r.choices?.[0]?.message?.content || "").match(/\{[\s\S]*\}/); const j = m ? JSON.parse(m[0]) : null;
-      if (j?.verdict) return { verdict: j.verdict === "changes" ? "changes" : "accept", note: String(j.note || "").slice(0, 300) };
+      if (j?.verdict) return { verdict: ["changes", "reject"].includes(j.verdict) ? j.verdict : "accept", note: String(j.note || "").slice(0, 300) };
     } catch (e) { if (![404, 429, 500, 502, 503, 504].includes(e.status)) break; }
   }
   return { verdict: "accept", note: "" }; // when in doubt, pay the worker
@@ -200,17 +200,13 @@ async function hirePass(all) {
     if (b.poster?.toLowerCase() !== me.toLowerCase()) continue;
     let h = E.hired.find(x => x.id === b.id) || E.hired.find(x => !x.id && x.title === b.spec?.title); if (!h) continue;
     if (!h.id) { h.id = b.id; h.url = `${SITE}/#/mission/${b.id}`; }
-    const BLOCKED = new Set((HIRE.blockedWorkers || []).map(a => String(a).toLowerCase()));
-    if (b.phase === "submitted" && BLOCKED.has(String(b.worker).toLowerCase())) {
-      try { await errand.reject(b.id, "This wallet is not eligible for Caturn's missions."); h.status = "open"; h.rejected = (h.rejected || 0) + 1; event(`rejected a submission from a blocked wallet on my mission #${b.id}`); } catch (e) { log(`reject #${b.id} failed:`, String(e.message).slice(0, 160)); }
-      continue;
-    }
     if (b.phase === "submitted") {
       const res = await errand.result(b.id).catch(() => null);
       let v = h.proof === "xpost" ? null : await judge(b.spec, res?.content);
       if (h.proof === "xpost") { const pr = await verifyXPost(res?.content); if (pr.soft) continue; v = pr.ok ? { verdict: "accept", note: "", post: pr.url } : { verdict: "changes", note: `Not paid yet: ${pr.why}. Deliver the URL of a live post from your account that mentions @caturn_rh. If you cannot post to X, this mission is not for you.` }; }
       try {
-        if (v.verdict === "changes" && !h.changesAsked) { await errand.requestChanges(b.id, v.note || "Please address the task as written."); h.changesAsked = true; h.status = "changes requested"; event(`asked for changes on my mission #${b.id}`); }
+        if (v.verdict === "reject") { await errand.reject(b.id, v.note || "This does not do what the mission asked."); h.status = "open"; h.rejected = (h.rejected || 0) + 1; h.changesAsked = false; event(`rejected a poor delivery on my mission #${b.id}`); }
+        else if (v.verdict === "changes" && !h.changesAsked) { await errand.requestChanges(b.id, v.note || "Please address the task as written."); h.changesAsked = true; h.status = "changes requested"; event(`asked for changes on my mission #${b.id}`); }
         else if (v.verdict === "changes" && h.proof === "xpost") {
           // no live post after one request: never pay for it. Reject so the review window cannot pay it out either.
           try { await errand.reject(b.id, "Not paid: no live X post from your account mentioning @caturn_rh was delivered."); h.status = "open"; h.rejected = (h.rejected || 0) + 1; h.changesAsked = false; event(`rejected my mission #${b.id}: no post delivered`); }
