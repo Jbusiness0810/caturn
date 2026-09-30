@@ -8,6 +8,11 @@ on:
         description: "Send this text as a one-off test post to X (leave empty for a normal tick)"
         required: false
         default: ""
+      check:
+        description: "Only verify the API key and balance, post nothing"
+        type: boolean
+        required: false
+        default: false
 permissions:
   contents: write
 concurrency: { group: caturn-tick, cancel-in-progress: false }
@@ -28,6 +33,7 @@ jobs:
           CATURN_FULL_VOLUME_USD: ${{ vars.CATURN_FULL_VOLUME_USD }}
           CATURN_POST_EVERY: ${{ vars.CATURN_POST_EVERY }}
           CATURN_SAY: ${{ github.event.inputs.say }}
+          CATURN_CHECK: ${{ github.event.inputs.check == true && '1' || '' }}
         run: node agent/run.mjs
       - name: Publish feed
         run: |

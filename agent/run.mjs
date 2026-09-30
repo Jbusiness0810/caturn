@@ -119,6 +119,18 @@ async function refreshPostUrls(posts) {
   }
 }
 
+// ---------- 3a. Check: CATURN_CHECK=1 verifies the key and balance for free, prints no secrets ----------
+if (env.CATURN_CHECK === "1") {
+  if (!API_KEY) { console.log("CHECK: ORBIO_API_KEY is NOT set in this environment"); process.exit(1); }
+  try {
+    const k = await getJSON(`${ORBIO_API}/key`, { headers: auth });
+    const avail = Number(BigInt(k.balance?.available_micro_usd || "0")) / 1e6;
+    console.log(`CHECK: key ok (prefix ${k.key?.prefix || "?"}, kind ${k.key?.kind || "?"}), balance available ${avail.toFixed(4)} CREDIT`);
+    console.log(avail > 0.02 ? "CHECK: enough balance for a post" : "CHECK: balance too low to post (needs ~0.02 CREDIT); fees will fill it after launch");
+  } catch (e) { console.log("CHECK: key rejected:", e.status, String(e.message).slice(0, 160)); process.exit(1); }
+  process.exit(0);
+}
+
 // ---------- 3b. Test post: CATURN_SAY="text" posts once and exits, touching nothing else ----------
 if (env.CATURN_SAY) {
   if (!API_KEY) { console.error("CATURN_SAY needs ORBIO_API_KEY"); process.exit(1); }
