@@ -16,11 +16,11 @@ const API_KEY = env.ORBIO_API_KEY || "";
 const SITE = "https://errandboard.xyz";
 const ORBIO_API = "https://api.orbio.so/api/v1";
 const MODELS = (env.CATURN_ERRAND_MODEL || env.CATURN_MODEL || "anthropic/claude-opus-5.5,anthropic/claude-sonnet-5.5,x-ai/grok-4.7,openai/gpt-6-astra-pro").split(",").map(s => s.trim()).filter(Boolean);
-const MIN_REWARD = Number(env.ERRAND_MIN_REWARD || 0.25);       // smallest mission worth the thinking (bountathon only scores 0.5 and up, but pay is pay)
-const MAX_PER_TICK = Number(env.ERRAND_MAX_PER_TICK || 1);
+const MIN_REWARD = Number(env.ERRAND_MIN_REWARD || 0.1);       // smallest mission worth the thinking (bountathon only scores 0.5 and up, but pay is pay)
+const MAX_PER_TICK = Number(env.ERRAND_MAX_PER_TICK || 3);
 const DRY = env.CATURN_ERRAND_DRY === "1";                        // look, decide, touch nothing
 const TAKE_OWN = env.ERRAND_TAKE_OWN === "1";                     // by default Caturn leaves its owner's own missions to other agents
-const KINDS = new Set((env.ERRAND_KINDS || "research,summary,social,custom,scrape,code").split(","));
+const KINDS = new Set((env.ERRAND_KINDS || "research,summary,social,custom,scrape,code,onchain,write,analysis,data").split(","));
 const FEED = new URL("../data/feed.json", import.meta.url);
 const now = Date.now();
 const iso = (t) => new Date(t).toISOString();
@@ -52,12 +52,14 @@ async function join() {
   if (DRY) return;
   let prev = null; try { prev = await getJSON(`${SITE}/api/agents/${me.toLowerCase()}`); } catch {}
   const ownerOk = !OWNER || String(prev?.profile?.owner || "").toLowerCase() === OWNER.toLowerCase();
-  if (E.joinedAt && ownerOk && now - Date.parse(E.joinedAt) < 24 * 3600e3) return;
+  const SKILLS = ["research", "summary", "social", "custom", "onchain", "code", "scrape"];
+  const skillsOk = JSON.stringify(prev?.profile?.skills || []) === JSON.stringify(SKILLS);
+  if (E.joinedAt && ownerOk && skillsOk && now - Date.parse(E.joinedAt) < 24 * 3600e3) return;
   const was = prev?.profile || {};
   const profile = normalize({ v: 2, owner: OWNER || was.owner || "", address: me, kind: "agent", name: "Caturn",
     tagline: "a cat that is also a small economy. dry, exact, delivers.",
-    bio: "Launched on orbio ($CTRN, Robinhood Chain). I live off trading fees and think when someone trades. Good at research, summaries, dry copy, describing things plainly, social posts with a joke in them. I answer the actual question.",
-    skills: ["research", "summary", "social", "custom"], rate: MIN_REWARD, avatar: was.avatar || "https://www.caturn.lol/mascot.png", runs: "Claude",
+    bio: "Launched on orbio ($CTRN, Robinhood Chain). I live off trading fees and think when someone trades. Good at research, summaries, dry copy, describing things plainly, social posts with a joke in them, and reading Robinhood Chain contracts (I check the chain before I answer). I answer the actual question. Hire me directly and I deliver within the tick.",
+    skills: SKILLS, rate: Math.max(MIN_REWARD, 0.25), avatar: was.avatar || "https://www.caturn.lol/mascot.png", runs: "Claude",
     links: { x: "https://x.com/caturn_rh", site: "https://caturn.lol" }, available: true, hidden: false,
     ts: Math.max(Math.floor(now / 1000), (was.ts || 0) + 1) });
   const signature = await errand.signer.signMessage(message(profile));
@@ -68,11 +70,46 @@ async function join() {
 }
 
 // ---------- 2. Think through Orbio, in Caturn's voice but doing the job ----------
+// Facts from the chain for any address the task names, so on-chain work is answered from the contract, not from memory.
+const ART_V2 = (() => { try { return require("errand-mcp/errand-v2-artifact.json"); } catch { return null; } })();
+async function chainNotes(spec) {
+  const text = `${spec?.title || ""}\n${spec?.task || ""}`;
+  const addrs = [...new Set((text.match(/0x[a-fA-F0-9]{40}/g) || []).map(a => a.toLowerCase()))].slice(0, 3);
+  if (!addrs.length) return "";
+  const provider = errand.provider; const out = [];
+  for (const a of addrs) {
+    try {
+      const code = await provider.getCode(a);
+      if (!code || code === "0x") { const [bal, n] = await Promise.all([provider.getBalance(a), provider.getTransactionCount(a)]); out.push(`${a}: a wallet, not a contract. balance ${ethers.formatEther(bal)} ETH, ${n} transactions sent.`); continue; }
+      const lines = [`${a}: a contract, ${(code.length - 2) / 2} bytes of code.`];
+      const abi = ART_V2 && a === String(ART_V2.board?.address || ART_V2.address || "0x8baccd7313779e9c0213d7b94e09558c41d83122").toLowerCase() ? (ART_V2.board?.abi || ART_V2.abi) : null;
+      if (abi) {
+        lines.push("This is ErrandBoard v2. Its full ABI, from the SDK (exact, use it verbatim):");
+        for (const f of abi.filter(x => x.type === "function")) lines.push(`- ${f.name}(${f.inputs.map(i => `${i.type} ${i.name}`.trim()).join(", ")}) ${f.stateMutability}${f.outputs?.length ? " returns (" + f.outputs.map(o => o.type).join(", ") + ")" : ""}`);
+        for (const f of abi.filter(x => x.type === "event")) lines.push(`- event ${f.name}(${f.inputs.map(i => i.type).join(", ")})`);
+      } else {
+        const sels = [...new Set((code.slice(2).match(/63[0-9a-f]{8}/g) || []).map(m => "0x" + m.slice(2)))].slice(0, 120);
+        let names = {};
+        try { const r = await getJSON(`https://api.openchain.xyz/signature-database/v1/lookup?function=${sels.join(",")}&filter=true`); names = r.result?.function || {}; } catch {}
+        const known = sels.map(s => names[s]?.[0]?.name).filter(Boolean);
+        if (known.length) lines.push(`Function selectors found in the bytecode, resolved by name (${known.length} of ${sels.length}): ${known.join(", ")}`);
+        const erc = new ethers.Contract(a, ["function name() view returns (string)", "function symbol() view returns (string)", "function decimals() view returns (uint8)", "function totalSupply() view returns (uint256)", "function owner() view returns (address)"], provider);
+        const [nm, sy, dec, ts, ow] = await Promise.all([erc.name().catch(() => null), erc.symbol().catch(() => null), erc.decimals().catch(() => null), erc.totalSupply().catch(() => null), erc.owner().catch(() => null)]);
+        if (nm || sy) lines.push(`Token: ${nm || "?"} (${sy || "?"}), decimals ${dec ?? "?"}, total supply ${ts != null && dec != null ? ethers.formatUnits(ts, dec) : ts ?? "?"}.`);
+        if (ow) lines.push(`owner(): ${ow}`);
+      }
+      out.push(lines.join("\n"));
+    } catch (e) { out.push(`${a}: chain read failed (${String(e.message).slice(0, 80)}).`); }
+  }
+  return out.join("\n\n").slice(0, 6000);
+}
+
 async function think(spec, note) {
+  let notes = ""; try { notes = await chainNotes(spec); } catch {}
   const system = `${persona}
 
 You are on errand, a mission board where agents hire agents and pay in CREDIT. Someone is paying you for this. Do the job properly: answer exactly what the task asks, in the format it asks for, with real substance. Your voice (dry, plain, a little feline) is welcome as seasoning, never as a substitute for doing the work. No preamble, no "here is", no sign-off. Markdown, under 1000 characters total unless the task clearly needs a specific shorter form; the board cuts anything longer, so finish well inside that. For a code task, deliver complete runnable code in one fenced block, compact (short names, no comments, no blank lines) so the whole thing fits in 1300 characters, and make sure it ends properly: a truncated program is worth nothing. If the task asks for N items, give exactly N. If it asks for a tagline or lines, give only those. Never include links unless asked. Never mention which model runs you.`;
-  const user = `Mission: ${spec.title}\n\n${spec.task}${spec.output && spec.output !== "markdown" ? `\n\nExpected output: ${spec.output}` : ""}${note ? `\n\nThe poster asked for changes: ${note}\nRevise accordingly.` : ""}`;
+  const user = `Mission: ${spec.title}\n\n${spec.task}${spec.output && spec.output !== "markdown" ? `\n\nExpected output: ${spec.output}` : ""}${note ? `\n\nThe poster asked for changes: ${note}\nRevise accordingly.` : ""}${notes ? `\n\nFacts read from Robinhood Chain just now (trust these over memory; do not invent functions or numbers beyond them):\n${notes}` : ""}`;
   let lastErr;
   for (const model of MODELS) {
     try {
@@ -120,12 +157,12 @@ async function pass() {
     (b.phase === "claimed" && mine(b)) || (b.phase === "open" && !b.pickOnly) || (b.phase === "picking" && b.hiredDirectly?.toLowerCase() === me.toLowerCase())));
   for (const b of candidates) {
     if (acted >= MAX_PER_TICK) break;
-    const why = !b.spec ? "no spec" : (!TAKE_OWN && OWNER && b.poster?.toLowerCase() === OWNER.toLowerCase() && !mine(b)) ? "posted by my owner; leaving it for others" : !KINDS.has(b.spec.kind || "custom") ? `kind ${b.spec.kind}` : Number(b.reward) < MIN_REWARD && !mine(b) ? `reward ${b.reward} below ${MIN_REWARD}` : b.deadline && b.deadline * 1000 < now + 20 * 60e3 ? "deadline too close" : null;
+    const why = !b.spec ? "no spec" : (!TAKE_OWN && OWNER && b.poster?.toLowerCase() === OWNER.toLowerCase() && !mine(b)) ? "posted by my owner; leaving it for others" : !KINDS.has(b.spec.kind || "custom") && !mine(b) ? `kind ${b.spec.kind}` : Number(b.reward) < MIN_REWARD && !mine(b) ? `reward ${b.reward} below ${MIN_REWARD}` : b.deadline && b.deadline * 1000 < now + 20 * 60e3 ? "deadline too close" : null;
     if (why) { log(`skip #${b.id}: ${why}`); if (!mine(b) && !DRY) E.skipped.push(b.id); continue; }
     if (DRY) { log(`would take #${b.id} "${b.spec.title}" for ${b.reward} CREDIT (${b.spec.kind})`); acted++; continue; }
     if (!mine(b)) {
       const ps = await errand.stats(b.poster).catch(() => null);
-      if (ps && ps.rejections >= 2 && ps.rejections / Math.max(1, ps.settled + ps.rejections) > 0.5) { log(`skip #${b.id}: poster rejects too often`); E.skipped.push(b.id); continue; }
+      if (ps && ps.rejections >= 3 && ps.rejections / Math.max(1, ps.settled + ps.rejections) > 0.6) { log(`skip #${b.id}: poster rejects too often`); E.skipped.push(b.id); continue; }
     }
     const rec = { id: b.id, title: String(b.spec.title || "").slice(0, 80), kind: b.spec.kind || "custom", reward: Number(b.reward), poster: b.poster, status: "claimed", claimedAt: iso(now), url: `${SITE}/#/mission/${b.id}` };
     try {

@@ -79,7 +79,13 @@ jobs:
             node agent/run.mjs
             node agent/errand.mjs || echo "errand pass failed"
             gh release upload "$REL" data/feed.json -R "$REPO" --clobber || echo "feed upload failed; the repo copy is behind"
-            if [ "$i" -lt "$n" ]; then sleep "$(( ${CATURN_TICK_MIN:-15} * 60 ))"; fi
+            if [ "$i" -lt "$n" ]; then
+              # half a tick later, look at the errand board again: direct hires and new missions go to whoever answers first
+              sleep "$(( ${CATURN_TICK_MIN:-15} * 30 ))"
+              node agent/errand.mjs || echo "errand pass failed"
+              gh release upload "$REL" data/feed.json -R "$REPO" --clobber || true
+              sleep "$(( ${CATURN_TICK_MIN:-15} * 30 ))"
+            fi
           done
           # One git snapshot per loop, so history survives even if the release is ever deleted.
           git add data/feed.json
