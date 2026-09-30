@@ -7,13 +7,13 @@ import { readFile, writeFile } from "node:fs/promises";
 const env = process.env;
 const API_KEY   = env.ORBIO_API_KEY || "";
 const AGENT_ID  = env.CATURN_AGENT_ID || "0x9b4e217f8759cb758664ac3b0ee730a4d15e7f6a"; // Caturn, agent 271. Override with CATURN_AGENT_ID.
-const MODEL     = env.CATURN_MODEL || "anthropic/claude-sonnet-5.5";
+const MODEL     = env.CATURN_MODEL || "anthropic/claude-fable-5.1";
 const DRY_RUN   = env.CATURN_DRY_RUN === "1";
 const POST_EVERY_N_THOUGHTS = Number(env.CATURN_POST_EVERY || 3);
 const MIN_THOUGHTS_PER_DAY  = Number(env.CATURN_MIN_THOUGHTS || 2);
 const MAX_THOUGHTS_PER_DAY  = Number(env.CATURN_MAX_THOUGHTS || 48);
 const VOLUME_FOR_FULL_ENERGY = Number(env.CATURN_FULL_VOLUME_USD || 50000); // 24h USD volume at which energy = 1
-const DAILY_CREDIT_CAP = Number(env.CATURN_DAILY_CAP || 0.5);              // CREDIT per UTC day, hard stop
+const DAILY_CREDIT_CAP = Number(env.CATURN_DAILY_CAP || 2);                // CREDIT per UTC day, hard stop
 const FEED = new URL("../data/feed.json", import.meta.url);
 
 const ORBIO_API = "https://api.orbio.so/api/v1";
@@ -140,7 +140,7 @@ if (env.CATURN_CHECK === "1") {
     console.log(`CHECK: key ok (prefix ${k.key?.prefix || "?"}, kind ${k.key?.kind || "?"}), balance available ${avail.toFixed(4)} CREDIT`);
     console.log(avail > 0.02 ? "CHECK: enough balance for a post" : "CHECK: balance too low to post (needs ~0.02 CREDIT); fees will fill it after launch");
   } catch (e) { console.log("CHECK: key rejected:", e.status, String(e.message).slice(0, 160)); process.exit(1); }
-  if (!env.CATURN_SAY) process.exit(0); // a manual run with "say" continues to the test post
+  // Then carry on: a "say" becomes a test post below, otherwise this is a normal tick.
 }
 
 // ---------- 3b. Test post: CATURN_SAY="text" posts once and exits, touching nothing else ----------

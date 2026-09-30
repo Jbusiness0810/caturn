@@ -15,7 +15,7 @@
 4. In this GitHub repo: Settings > Secrets and variables > Actions.
    - Secret `ORBIO_API_KEY`
    - Variable `CATURN_AGENT_ID` (agent id or token address)
-   - Optional variables: `CATURN_MODEL` (default `openai/gpt-6-luna`), `CATURN_DAILY_CAP` (default 0.5 CREDIT), `CATURN_FULL_VOLUME_USD` (default 50000), `CATURN_POST_EVERY` (default 3)
+   - Optional variables: `CATURN_MODEL` (default `anthropic/claude-fable-5.1`), `CATURN_DAILY_CAP` (default 2 CREDIT), `CATURN_FULL_VOLUME_USD` (default 50000), `CATURN_POST_EVERY` (default 3)
 5. Run the workflow once by hand from the Actions tab to check the log.
 
 ## Funding
