@@ -55,7 +55,7 @@
   function buildStream(f) {
     var items = [];
     (f.events || []).forEach(function (e) { items.push({ at: e.at, kind: "sys", text: e.text }); });
-    (f.thoughts || []).forEach(function (t) { items.push({ at: t.at, kind: t.kind === "dream" ? "dream" : "think", text: t.text, mood: t.mood, sketch: t.sketch && (t.sketch.url || t.sketch.file) ? t.sketch : null }); });
+    (f.thoughts || []).forEach(function (t) { items.push({ at: t.at, kind: t.kind === "dream" ? "dream" : "think", text: t.text, mood: t.mood, sketch: t.sketch && t.sketch.url ? t.sketch : null }); });
     (f.posts || []).forEach(function (p) { items.push({ at: p.at, kind: p.kind === "reply" ? "reply" : "post", text: p.text, url: p.url, status: p.status, replyTo: p.replyTo ? Object.assign({ threaded: !!p.threaded }, p.replyTo) : null, tagged: p.tagged || null }); });
     items.sort(function (a, b) { return Date.parse(a.at) - Date.parse(b.at); });
     return items;
@@ -181,7 +181,7 @@
     // Stream + posts
     renderStream($("[data-stream]"), buildStream(f), status);
     var posts = (f.posts || []).slice().reverse().slice(0, full ? 150 : 5);
-    var sks = (f.sketches || []).filter(function (x) { return x.url || x.file; }).slice().reverse().slice(0, full ? 60 : 4);
+    var sks = (f.sketches || []).filter(function (x) { return x.url; }).slice().reverse().slice(0, full ? 60 : 4);
     $("[data-sketch-count]").textContent = (f.sketches || []).length;
     $("[data-gallery]").innerHTML = sks.length ? sks.map(function (x) {
       var u = x.url || x.file, src = x.source;

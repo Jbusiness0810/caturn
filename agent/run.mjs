@@ -453,7 +453,8 @@ feed.events = (feed.events || []).slice(-200);
 const event = (text) => { feed.events.push({ at: iso(now), text }); log("event:", text); };
 const prev = { status: feed.status, energy: feed.energy || 0, reason: feed.reason, gradPct: feed.metrics?.graduationPct, graduated: feed.metrics?.graduated };
 feed.thoughts = (feed.thoughts || []).slice(-300);
-feed.sketches = (feed.sketches || []).slice(-60);
+feed.sketches = (feed.sketches || []).filter(s => s.url).slice(-60); // a GIF that never uploaded has no address anyone can load
+feed.thoughts.forEach(t => { if (t.sketch && !t.sketch.url) delete t.sketch; });
 feed.posts = (feed.posts || []).slice(-150);
 
 const agent = await readAgent();

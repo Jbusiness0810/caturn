@@ -53,6 +53,7 @@ jobs:
           CATURN_FOUND_LICENSES: ${{ vars.CATURN_FOUND_LICENSES }} # default cc0,by,by-sa; add by-nc-sa only if you accept non-commercial terms
           CATURN_SAY: ${{ github.event.inputs.say }}
           KICK_TOKEN: ${{ secrets.KICK_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}                    # lets gh upload sketch GIFs to the rolling "sketches" release
           CATURN_CHECK: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
           FORCE_FIRST: ${{ github.event_name != 'schedule' && '1' || '' }}
           LOOP: ${{ (github.event.inputs.say == '' && (vars.CATURN_LOOP_TICKS || secrets.CATURN_LOOP_TICKS || '22')) || '1' }}
