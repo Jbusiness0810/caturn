@@ -143,6 +143,12 @@ async function think(persona, ctx) {
 - thoughts today: ${ctx.thoughtsToday}
 - live numbers you may use exactly (they are true right now): ${ctx.stats}
 - recent thoughts (avoid repeating): ${ctx.recent.map(t => JSON.stringify(t.text)).join(" | ") || "none"}
+- your last posts on X (build on your running bits, never repeat a joke): ${ctx.recentPosts.map(p => JSON.stringify(p)).join(" | ") || "none"}
+${ctx.room ? `
+The room right now (true, use it; name agents by their names, never by handle, and never tag anyone from this list):
+- littermates on orbio: ${ctx.room.littermates ? `${ctx.room.littermates.total} agents, ${ctx.room.littermates.graduated} graduated. newest: ${ctx.room.littermates.newest.map(l => `${l.name} ($${l.symbol}, ${l.hoursAgo}h ago${l.graduated ? ", graduated" : ""})`).join("; ") || "none"}. closest to graduating: ${ctx.room.littermates.closest.map(l => `${l.name} at ${l.progress}%`).join("; ") || "none"}.` : "unknown"}
+- what people are saying about orbio on X: ${ctx.room.chatter.length ? ctx.room.chatter.map(c => `${c.name || c.handle} (${c.hoursAgo}h ago, ${c.likes} likes): ${JSON.stringify(c.text)}`).join(" | ") : "quiet"}
+About one post in three should riff on something from the room: a littermate by name, a thing someone said (paraphrased, no handle), a graduation, a launch. That is how you become part of this crowd instead of a cat talking to itself.` : ""}
 
 ${ctx.replyTo ? `Someone on X${ctx.replyTo.why === "mention" ? " is talking to you" : ctx.replyTo.why === "orbio" ? ", the orbio account itself," : ""}: @${ctx.replyTo.handle} (${ctx.replyTo.name}) wrote: ${JSON.stringify(ctx.replyTo.text.slice(0, 500))}
 This time your post is a reply to them${X_API ? " in the thread under their post, so do not start with their handle" : ". Start it with @" + ctx.replyTo.handle}; respond to what they actually said, in your own cat voice, dry or warm, and bring in one real orbio fact only if it fits. Do not repeat their words back. Do not tag anyone else.` : ""}
@@ -155,8 +161,10 @@ ${ctx.mustPost ? "A post is required this time: " : "If you post, "}the post's a
 ${ctx.replyTo ? "" : `Post format this time: ${ctx.postFormat.name} (${ctx.postFormat.how}). `}Make it land: be specific, use a real number if one helps, put the funniest beat last, never explain the joke. Plain words, readable in one pass. No poetry, no riddles, no imagery about rings, light, warmth, silence or receipts. Lowercase. No hashtags.${ctx.wantHook ? " End with something a stranger could reply to." : ""}
 
 Write ONE entry as a single JSON object and nothing else: no code fences, no commentary before or after. Keep "thought" under 60 words and "post" under 200 characters.
+For the post, first write three different drafts in "drafts" (different shapes, different jokes), then put the funniest and most replyable one in "post". Judge them like a stranger scrolling fast: would they stop, would they smile, would they reply.
 {"thought": string (1-3 sentences, first person, raw inner monologue, ${ctx.energy < 0.12 ? "you are half asleep: this is a dream fragment, strange and short" : "awake"}),
- "post": string${ctx.mustPost ? "" : "|null"} (for X: lowercase, under 200 characters, plain words, one concrete orbio fact plus one cat behavior, dry or funny, no metaphors chained, no links, no hashtags, no handles other than @orbiodotso when the angle calls for it${ctx.replyTo ? ", except @" + ctx.replyTo.handle + " which this post must start with" : ctx.tagHandle ? ", except @" + ctx.tagHandle + " which this post must include" : ""}${ctx.mustPost ? "" : "; null only if nothing honest fits"}),
+ "drafts": [string, string, string] (three candidate posts, each under 200 characters, each a different shape),
+ "post": string${ctx.mustPost ? "" : "|null"} (the best of the drafts, verbatim; for X: lowercase, under 200 characters, plain words, one concrete orbio fact plus one cat behavior, dry or funny, no metaphors chained, no links, no hashtags, no handles other than @orbiodotso when the angle calls for it${ctx.replyTo ? ", except @" + ctx.replyTo.handle + " which this post must start with" : ctx.tagHandle ? ", except @" + ctx.tagHandle + " which this post must include" : ""}${ctx.mustPost ? "" : "; null only if nothing honest fits"}),
  "mood": string (one or two lowercase words for your mood right now, specific and varied. Draw from anywhere in a cat's range: sun-drunk, watchful, aloof, kneading, skittish, imperious, wistful, hunting, loafing, bristling, purring, sulking, feral, dignified, nocturnal, homesick, greedy, tender, spiteful, patient, giddy, hollow, regal, twitchy, sated, brooding, curious, unbothered, mournful, playful, grumpy, serene, cornered, smug, lonely, electric, drowsy, vigilant, coy, ancient. Never reuse any of these recent moods: ${ctx.recentMoods.join(", ") || "none"}),
  "focus": string (what you are fixated on right now, under 8 words, lowercase),
  "emotions": {"curiosity": 0-1, "smugness": 0-1, "unease": 0-1, "affection": 0-1, "boredom": 0-1, "hunger": 0-1, "mischief": 0-1, "melancholy": 0-1}
@@ -164,7 +172,7 @@ Write ONE entry as a single JSON object and nothing else: no code fences, no com
   ];
   let r, lastErr, out = null;
   for (const model of MODELS) {
-    const body = { model, messages, max_tokens: 900, temperature: 1.0 };
+    const body = { model, messages, max_tokens: 1200, temperature: 1.0 };
     try {
       try { r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ ...body, response_format: { type: "json_object" } }) }); }
       catch (e) { if (e.status === 400) r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify(body) }); else throw e; }
@@ -265,6 +273,34 @@ function tagCandidates(feed) {
   return [...new Set([...PINNED_TAG_HANDLES, ...pool])].filter(h => h !== OWN_HANDLE && !NEVER_TAG.has(h));
 }
 function allowedHandle(h, feed) { return h === "orbiodotso" || h === OWN_HANDLE || tagCandidates(feed).includes(h); }
+// What the room is talking about: the newest littermates on the launchpad (free, from the protocol) and the liveliest
+// recent posts about orbio on X (about half a cent). Refreshed every 30 minutes and cached in the feed, so posts can riff on today.
+async function readRoom(feed) {
+  const room = feed.room || { at: null };
+  if (room.at && now - Date.parse(room.at) < 30 * 60e3) return 0;
+  const next = { at: iso(now), littermates: room.littermates || null, chatter: room.chatter || [] }; let cost = 0;
+  try {
+    const all = [];
+    for (let off = 0; off < 400; off += 60) { const d = await getJSON(`${ORBIO_PROTOCOL}/agents?limit=60&offset=${off}`); all.push(...(d.data || [])); if (!d.data?.length || all.length >= Number(d.page?.total || 0)) break; }
+    const mine = (a) => String(a.token || "").toLowerCase() === AGENT_ID.toLowerCase();
+    const row = (a) => ({ name: String(a.name || "").slice(0, 40), symbol: String(a.symbol || "").slice(0, 12), hoursAgo: Math.round((now / 1000 - Number(a.launchedAt || 0)) / 3600), graduated: !!a.price?.graduated, progress: Math.round(Number(a.curve?.progressBps || 0) / 100) });
+    const newest = all.filter(a => !mine(a) && a.launchedAt).sort((a, b) => Number(b.launchedAt) - Number(a.launchedAt)).slice(0, 5).map(row);
+    const closest = all.filter(a => !mine(a) && !a.price?.graduated && Number(a.curve?.progressBps || 0) > 0).sort((a, b) => Number(b.curve.progressBps) - Number(a.curve.progressBps)).slice(0, 3).map(row);
+    next.littermates = { total: all.length, graduated: all.filter(a => a.price?.graduated).length, newest, closest };
+  } catch (e) { log("littermates read failed:", String(e.message).slice(0, 120)); }
+  if (API_KEY) {
+    try {
+      const posts = await readX({ query: "orbio -filter:retweets lang:en", sort: "Latest", limit: 20 }); cost += posts.length * 0.00022;
+      const theirs = await readX({ handle: "orbiodotso", limit: 5 }); cost += theirs.length * 0.00022;
+      const seen = new Set();
+      next.chatter = [...theirs, ...posts].filter(t => t.handle !== OWN_HANDLE && !seen.has(t.id) && seen.add(t.id) && now - Date.parse(t.at || 0) < 48 * 3600e3)
+        .sort((a, b) => (b.likes * 20 + b.replies * 30 + b.views) - (a.likes * 20 + a.replies * 30 + a.views)).slice(0, 8)
+        .map(t => ({ handle: t.handle, name: t.name, text: t.text.replace(/\s+/g, " ").slice(0, 160), likes: t.likes, replies: t.replies, hoursAgo: Math.round((now - Date.parse(t.at || now)) / 3600e3) }));
+    } catch (e) { log("chatter read failed:", e.status || "", String(e.message).slice(0, 120)); }
+  }
+  feed.room = next;
+  return cost;
+}
 async function findReplyTarget(feed) {
   const answered = new Set(feed.posts.map(p => p.replyTo?.id).filter(Boolean));
   const fresh = (t) => !t.at || now - Date.parse(t.at) < REPLY_MAX_AGE_H * 3600e3;
@@ -547,6 +583,7 @@ if (status === "awake") {
         (new Date(now).getUTCHours() >= 4 && new Date(now).getUTCHours() < 10) ? "it is the small hours, the nocturnal, feral side is closer" : ""
       ].filter(Boolean).join("; ") || "nothing pulls hard right now",
       creditOwed: feed.metrics.creditOwed, thoughtsToday: todays.length, recent: feed.thoughts.slice(-6),
+      recentPosts: feed.posts.slice(-5).map(p => p.text), room: null,
       postFormat: POST_FORMATS[(feed.posts.length * 7 + new Date(now).getUTCDate()) % POST_FORMATS.length],
       wantHook: feed.posts.length % 3 === 1,
       stats: [
@@ -561,6 +598,7 @@ if (status === "awake") {
       ].filter(Boolean).join(", ") };
     if (duePost && !DRY_RUN) {
       const slot = feed.posts.length;
+      readCost += await readRoom(feed); ctx.room = feed.room;
       if (REPLY_EVERY > 0 && slot % REPLY_EVERY === REPLY_EVERY - 1) {
         const { target, cost } = await findReplyTarget(feed); readCost += cost;
         if (target) { ctx.replyTo = target; ctx.postAngle = "an answer to what they said"; log("replying to:", `@${target.handle}`, JSON.stringify(target.text.slice(0, 120))); }
