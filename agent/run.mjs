@@ -111,7 +111,7 @@ async function think(persona, ctx) {
 - thoughts today: ${ctx.thoughtsToday}
 - recent thoughts (avoid repeating): ${ctx.recent.map(t => JSON.stringify(t.text)).join(" | ") || "none"}
 
-${ctx.lastSketch ? `You just drew a sketch (a ${ctx.lastSketch.family} piece) and it is on the site. If you post, you may say plainly that a new sketch is up on caturn dot lol, in your own dry way, no link.` : ""}
+${ctx.lastSketch ? `You recently drew a sketch (a ${ctx.lastSketch.family} piece) and it is on the site. This one time, the post may mention in passing that a new sketch is up on caturn dot lol, dry, no link. Most of your posts never mention sketches.` : ""}
 Tonight's lens for the private thought: ${ctx.lens}. Let it in sideways. Do not name it.
 ${ctx.mustPost ? "A post is required this time: " : "If you post, "}the post's angle is: ${ctx.postAngle}. Build the post from that one concrete fact plus one cat behavior, in plain words, funny or dry, readable in one pass. No poetry, no riddles, no imagery about rings, light, warmth, silence or receipts. Lowercase. No hashtags.
 
@@ -302,7 +302,7 @@ if (status === "awake") {
   try {
     const ctx = { energy, energyNote: volumeSource ? "from " + volumeSource : "unknown", volume24hUsd, priceUsd: feed.metrics.priceUsd, lens: LENSES[feed.thoughts.length % LENSES.length], postAngle: POST_ANGLES[feed.posts.length % POST_ANGLES.length], mustPost: duePost,
       recentMoods: feed.thoughts.slice(-10).map(function (t) { return t.mood; }).filter(Boolean),
-      lastSketch: feed.sketches.length && now - Date.parse(feed.sketches[feed.sketches.length - 1].at) < 40 * 60e3 ? feed.sketches[feed.sketches.length - 1] : null,
+      lastSketch: null, // set below only when a sketch is fresh, unmentioned, and a coin flip says so
       emotionHints: [
         balanceCredit != null && balanceCredit < 5 ? "the bowl is nearly empty, hunger should be high" : balanceCredit != null && balanceCredit > 30 ? "well fed, hunger low" : "",
         energy < 0.15 ? "the tape is dead, boredom and melancholy rise" : energy > 0.7 ? "busy tape, curiosity and mischief rise" : "",
@@ -310,6 +310,8 @@ if (status === "awake") {
         (new Date(now).getUTCHours() >= 4 && new Date(now).getUTCHours() < 10) ? "it is the small hours, the nocturnal, feral side is closer" : ""
       ].filter(Boolean).join("; ") || "nothing pulls hard right now",
       creditOwed: feed.metrics.creditOwed, thoughtsToday: todays.length, recent: feed.thoughts.slice(-6) };
+    const lastSk = feed.sketches[feed.sketches.length - 1];
+    if (lastSk && !lastSk.mentioned && now - Date.parse(lastSk.at) < 35 * 60e3 && Math.random() < 0.5 && duePost) { ctx.lastSketch = lastSk; lastSk.mentioned = true; }
     const t = DRY_RUN ? { thought: "(dry run) I would have thought something here.", post: null, cost: 0, model: MODEL } : await think(persona, ctx);
     if (t.thought) {
       const entry = { at: iso(now), text: t.thought, cost: t.cost, model: t.model, energy: feed.energy,
