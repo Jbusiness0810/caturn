@@ -141,7 +141,7 @@
 
     // Emotions: five arc gauges with history, plus temperament
     var em = st.emotions || {};
-    var keys = ["curiosity", "smugness", "unease", "affection", "boredom"];
+    var keys = ["curiosity", "smugness", "unease", "affection", "boredom", "hunger", "mischief", "melancholy"];
     var hist = (f.thoughts || []).filter(function (t) { return t.emotions; }).slice(-24);
     var hasState = !!st.emotions;
     keys.forEach(function (k) {
@@ -155,7 +155,7 @@
         (vals.length > 1 ? '<path d="' + vals.map(function (x, i) { return (i ? "L" : "M") + px(i) + " " + py(x); }).join(" ") + '"/>' : "") +
         vals.map(function (x, i) { return '<circle cx="' + px(i) + '" cy="' + py(x) + '" r="1.6"/>'; }).join("") : "";
     });
-    var warm = hasState ? ((em.affection || 0) + (em.curiosity || 0) - (em.unease || 0) - (em.boredom || 0)) / 2 : 0; // -1..1
+    var warm = hasState ? ((em.affection || 0) + (em.curiosity || 0) + (em.mischief || 0) - (em.unease || 0) - (em.boredom || 0) - (em.melancholy || 0)) / 3 : 0; // -1..1
     var tp = $("[data-temper]"); tp.classList.toggle("is-empty", !hasState);
     $("[data-temper-dot]").style.left = (50 + warm * 45) + "%";
     $("[data-temper-word]").textContent = !hasState ? "—" : warm > 0.35 ? "warm" : warm > 0.1 ? "mild" : warm > -0.1 ? "even" : warm > -0.35 ? "cool" : "cold";

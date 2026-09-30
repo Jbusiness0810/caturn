@@ -30,7 +30,10 @@
    "smugness": 0.66,
    "unease": 0.18,
    "affection": 0.34,
-   "boredom": 0.12
+   "boredom": 0.12,
+   "hunger": 0.28,
+   "mischief": 0.55,
+   "melancholy": 0.12
   }
  },
  "events": [
@@ -71,7 +74,10 @@
     "smugness": 0.41,
     "unease": 0.4,
     "affection": 0.29,
-    "boredom": 0.4
+    "boredom": 0.4,
+    "hunger": 0.54,
+    "mischief": 0.62,
+    "melancholy": 0.66
    }
   },
   {
@@ -85,7 +91,10 @@
     "smugness": 0.34,
     "unease": 0.4,
     "affection": 0.32,
-    "boredom": 0.47
+    "boredom": 0.47,
+    "hunger": 0.76,
+    "mischief": 0.62,
+    "melancholy": 0.75
    }
   },
   {
@@ -99,7 +108,10 @@
     "smugness": 0.29,
     "unease": 0.31,
     "affection": 0.4,
-    "boredom": 0.52
+    "boredom": 0.52,
+    "hunger": 0.12,
+    "mischief": 0.43,
+    "melancholy": 0.76
    }
   },
   {
@@ -113,7 +125,10 @@
     "smugness": 0.41,
     "unease": 0.42,
     "affection": 0.43,
-    "boredom": 0.55
+    "boredom": 0.55,
+    "hunger": 0.55,
+    "mischief": 0.73,
+    "melancholy": 0.18
    }
   },
   {
@@ -127,7 +142,10 @@
     "smugness": 0.29,
     "unease": 0.42,
     "affection": 0.33,
-    "boredom": 0.47
+    "boredom": 0.47,
+    "hunger": 0.43,
+    "mischief": 0.27,
+    "melancholy": 0.48
    }
   },
   {
@@ -141,7 +159,10 @@
     "smugness": 0.18,
     "unease": 0.42,
     "affection": 0.31,
-    "boredom": 0.55
+    "boredom": 0.55,
+    "hunger": 0.5,
+    "mischief": 0.11,
+    "melancholy": 0.25
    }
   },
   {
@@ -155,7 +176,10 @@
     "smugness": 0.21,
     "unease": 0.42,
     "affection": 0.35,
-    "boredom": 0.54
+    "boredom": 0.54,
+    "hunger": 0.3,
+    "mischief": 0.74,
+    "melancholy": 0.64
    }
   },
   {
@@ -169,7 +193,10 @@
     "smugness": 0.33,
     "unease": 0.54,
     "affection": 0.43,
-    "boredom": 0.59
+    "boredom": 0.59,
+    "hunger": 0.21,
+    "mischief": 0.66,
+    "melancholy": 0.2
    }
   },
   {
@@ -183,7 +210,10 @@
     "smugness": 0.27,
     "unease": 0.48,
     "affection": 0.33,
-    "boredom": 0.66
+    "boredom": 0.66,
+    "hunger": 0.53,
+    "mischief": 0.19,
+    "melancholy": 0.1
    }
   },
   {
@@ -197,7 +227,10 @@
     "smugness": 0.35,
     "unease": 0.46,
     "affection": 0.44,
-    "boredom": 0.74
+    "boredom": 0.74,
+    "hunger": 0.71,
+    "mischief": 0.25,
+    "melancholy": 0.25
    }
   },
   {
@@ -211,7 +244,10 @@
     "smugness": 0.28,
     "unease": 0.56,
     "affection": 0.43,
-    "boredom": 0.86
+    "boredom": 0.86,
+    "hunger": 0.79,
+    "mischief": 0.71,
+    "melancholy": 0.3
    }
   },
   {
@@ -225,7 +261,10 @@
     "smugness": 0.18,
     "unease": 0.59,
     "affection": 0.5,
-    "boredom": 0.8
+    "boredom": 0.8,
+    "hunger": 0.77,
+    "mischief": 0.48,
+    "melancholy": 0.57
    }
   },
   {
@@ -239,7 +278,10 @@
     "smugness": 0.14,
     "unease": 0.7,
     "affection": 0.56,
-    "boredom": 0.71
+    "boredom": 0.71,
+    "hunger": 0.24,
+    "mischief": 0.76,
+    "melancholy": 0.58
    }
   },
   {
@@ -253,7 +295,10 @@
     "smugness": 0.04,
     "unease": 0.59,
     "affection": 0.63,
-    "boredom": 0.63
+    "boredom": 0.63,
+    "hunger": 0.78,
+    "mischief": 0.73,
+    "melancholy": 0.31
    }
   },
   {
@@ -267,7 +312,10 @@
     "smugness": 0.03,
     "unease": 0.52,
     "affection": 0.69,
-    "boredom": 0.54
+    "boredom": 0.54,
+    "hunger": 0.35,
+    "mischief": 0.22,
+    "melancholy": 0.2
    }
   },
   {
@@ -282,7 +330,10 @@
     "smugness": 0,
     "unease": 0.5,
     "affection": 0.62,
-    "boredom": 0.49
+    "boredom": 0.49,
+    "hunger": 0.15,
+    "mischief": 0.31,
+    "melancholy": 0.52
    }
   },
   {
@@ -296,7 +347,10 @@
     "smugness": 0.07,
     "unease": 0.45,
     "affection": 0.71,
-    "boredom": 0.42
+    "boredom": 0.42,
+    "hunger": 0.1,
+    "mischief": 0.57,
+    "melancholy": 0.34
    }
   },
   {
@@ -310,7 +364,10 @@
     "smugness": 0.16,
     "unease": 0.49,
     "affection": 0.62,
-    "boredom": 0.54
+    "boredom": 0.54,
+    "hunger": 0.32,
+    "mischief": 0.67,
+    "melancholy": 0.44
    }
   },
   {
@@ -325,7 +382,10 @@
     "smugness": 0.1,
     "unease": 0.55,
     "affection": 0.58,
-    "boredom": 0.49
+    "boredom": 0.49,
+    "hunger": 0.32,
+    "mischief": 0.44,
+    "melancholy": 0.59
    }
   },
   {
@@ -339,7 +399,10 @@
     "smugness": 0.0,
     "unease": 0.57,
     "affection": 0.51,
-    "boredom": 0.51
+    "boredom": 0.51,
+    "hunger": 0.14,
+    "mischief": 0.78,
+    "melancholy": 0.12
    }
   },
   {
@@ -353,7 +416,10 @@
     "smugness": 0,
     "unease": 0.68,
     "affection": 0.51,
-    "boredom": 0.53
+    "boredom": 0.53,
+    "hunger": 0.62,
+    "mischief": 0.69,
+    "melancholy": 0.11
    }
   },
   {
@@ -368,7 +434,10 @@
     "smugness": 0,
     "unease": 0.6,
     "affection": 0.61,
-    "boredom": 0.61
+    "boredom": 0.61,
+    "hunger": 0.65,
+    "mischief": 0.36,
+    "melancholy": 0.5
    }
   },
   {
@@ -382,7 +451,10 @@
     "smugness": 0,
     "unease": 0.66,
     "affection": 0.71,
-    "boredom": 0.53
+    "boredom": 0.53,
+    "hunger": 0.11,
+    "mischief": 0.13,
+    "melancholy": 0.23
    }
   },
   {
@@ -397,7 +469,10 @@
     "smugness": 0.09,
     "unease": 0.68,
     "affection": 0.7,
-    "boredom": 0.44
+    "boredom": 0.44,
+    "hunger": 0.77,
+    "mischief": 0.24,
+    "melancholy": 0.63
    }
   },
   {
@@ -411,7 +486,10 @@
     "smugness": 0.2,
     "unease": 0.62,
     "affection": 0.75,
-    "boredom": 0.38
+    "boredom": 0.38,
+    "hunger": 0.75,
+    "mischief": 0.76,
+    "melancholy": 0.34
    }
   },
   {
@@ -426,7 +504,10 @@
     "smugness": 0.66,
     "unease": 0.18,
     "affection": 0.34,
-    "boredom": 0.12
+    "boredom": 0.12,
+    "hunger": 0.35,
+    "mischief": 0.47,
+    "melancholy": 0.64
    }
   }
  ],

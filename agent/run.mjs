@@ -103,9 +103,10 @@ ${ctx.mustPost ? "A post is required this time: " : "If you post, "}the post's a
 Write ONE entry as JSON:
 {"thought": string (1-3 sentences, first person, raw inner monologue, ${ctx.energy < 0.12 ? "you are half asleep: this is a dream fragment, strange and short" : "awake"}),
  "post": string${ctx.mustPost ? "" : "|null"} (the public version for X: lowercase, under 200 characters, one clean idea, unmistakably a cat, on the post angle above; no links, no hashtags, no handles other than @orbiodotso when the angle calls for it${ctx.mustPost ? "" : "; null only if nothing honest fits"}),
- "mood": string (one or two lowercase words naming your current mood, e.g. "smug", "restless", "quietly pleased", "bored"),
+ "mood": string (one or two lowercase words for your mood right now, specific and varied. Draw from anywhere in a cat's range: sun-drunk, watchful, aloof, kneading, skittish, imperious, wistful, hunting, loafing, bristling, purring, sulking, feral, dignified, nocturnal, homesick, greedy, tender, spiteful, patient, giddy, hollow, regal, twitchy, sated, brooding, curious, unbothered, mournful, playful, grumpy, serene, cornered, smug, lonely, electric, drowsy, vigilant, coy, ancient. Never reuse any of these recent moods: ${ctx.recentMoods.join(", ") || "none"}),
  "focus": string (what you are fixated on right now, under 8 words, lowercase),
- "emotions": {"curiosity": 0-1, "smugness": 0-1, "unease": 0-1, "affection": 0-1, "boredom": 0-1}}` }
+ "emotions": {"curiosity": 0-1, "smugness": 0-1, "unease": 0-1, "affection": 0-1, "boredom": 0-1, "hunger": 0-1, "mischief": 0-1, "melancholy": 0-1}
+   (hunger is how much you want fees and thoughts right now; mischief is the urge to knock something off the edge; melancholy is the old, quiet kind. Let them move: ${ctx.emotionHints})}` }
   ];
   let r, lastErr;
   for (const model of MODELS) {
@@ -134,7 +135,8 @@ Write ONE entry as JSON:
   return { thought: String(out.thought || "").trim(), post: out.post ? String(out.post).trim() : null, cost, model: MODEL,
     mood: String(out.mood || "").trim().toLowerCase().slice(0, 32) || null,
     focus: String(out.focus || "").trim().toLowerCase().slice(0, 60) || null,
-    emotions: { curiosity: num(em.curiosity, 0.5), smugness: num(em.smugness, 0.4), unease: num(em.unease, 0.2), affection: num(em.affection, 0.3), boredom: num(em.boredom, 0.3) } };
+    emotions: { curiosity: num(em.curiosity, 0.5), smugness: num(em.smugness, 0.4), unease: num(em.unease, 0.2), affection: num(em.affection, 0.3), boredom: num(em.boredom, 0.3),
+      hunger: num(em.hunger, 0.4), mischief: num(em.mischief, 0.3), melancholy: num(em.melancholy, 0.2) } };
 }
 let priceCache = null;
 async function estimateCost(model, usage) {
@@ -250,6 +252,13 @@ if (agent && status === "awake" && prev.status === "napping") event("waking up")
 if (status === "awake") {
   try {
     const ctx = { energy, energyNote: volumeSource ? "from " + volumeSource : "unknown", volume24hUsd, priceUsd: feed.metrics.priceUsd, lens: LENSES[feed.thoughts.length % LENSES.length], postAngle: POST_ANGLES[feed.posts.length % POST_ANGLES.length], mustPost: duePost,
+      recentMoods: feed.thoughts.slice(-10).map(function (t) { return t.mood; }).filter(Boolean),
+      emotionHints: [
+        balanceCredit != null && balanceCredit < 5 ? "the bowl is nearly empty, hunger should be high" : balanceCredit != null && balanceCredit > 30 ? "well fed, hunger low" : "",
+        energy < 0.15 ? "the tape is dead, boredom and melancholy rise" : energy > 0.7 ? "busy tape, curiosity and mischief rise" : "",
+        feed.posts.length && now - Date.parse(feed.posts[feed.posts.length - 1].at) < 45 * 60e3 ? "you just spoke in public, a little smug or a little exposed" : "",
+        (new Date(now).getUTCHours() >= 4 && new Date(now).getUTCHours() < 10) ? "it is the small hours, the nocturnal, feral side is closer" : ""
+      ].filter(Boolean).join("; ") || "nothing pulls hard right now",
       creditOwed: feed.metrics.creditOwed, thoughtsToday: todays.length, recent: feed.thoughts.slice(-6) };
     const t = DRY_RUN ? { thought: "(dry run) I would have thought something here.", post: null, cost: 0, model: MODEL } : await think(persona, ctx);
     if (t.thought) {
