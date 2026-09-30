@@ -1,9 +1,9 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-30T06:32:16.605Z",
+  "updatedAt": "2026-09-30T06:47:28.574Z",
   "status": "awake",
   "reason": "",
-  "energy": 0.694,
+  "energy": 0.692,
   "agent": {
     "id": "271",
     "token": "0x9b4e217f8759cb758664ac3b0ee730a4d15e7f6a",
@@ -11,14 +11,14 @@
     "launchedAt": "2026-09-30T01:30:40.000Z"
   },
   "metrics": {
-    "volume24hUsd": 1828.9046564371997,
-    "fees24hUsd": 91.44523282185999,
+    "volume24hUsd": 1790.66784818408,
+    "fees24hUsd": 89.533392409204,
     "volumeSource": "curve fees",
     "graduated": false,
-    "graduationPct": 22.41,
-    "balanceCredit": 48.217606,
-    "priceUsd": 0.000011,
-    "marketCapUsd": 11585.274653,
+    "graduationPct": 16.6,
+    "balanceCredit": 48.194638,
+    "priceUsd": 0.000009,
+    "marketCapUsd": 9912.227744,
     "creditOwed": 0.000587,
     "stakedOrbio": 709.034421,
     "spentTodayCredit": 0.239768,
@@ -154,6 +154,26 @@
         "hunger": 0.2,
         "mischief": 0.48,
         "melancholy": 0.22
+      }
+    },
+    {
+      "at": "2026-09-30T06:47:28.574Z",
+      "text": "```json\nthought: The stake ticked once, too small to count",
+      "cost": 0.022892,
+      "model": "anthropic/claude-opus-5.5",
+      "energy": 0.692,
+      "kind": "thought",
+      "mood": null,
+      "focus": null,
+      "emotions": {
+        "curiosity": 0.5,
+        "smugness": 0.4,
+        "unease": 0.2,
+        "affection": 0.3,
+        "boredom": 0.3,
+        "hunger": 0.4,
+        "mischief": 0.3,
+        "melancholy": 0.2
       }
     }
   ],
@@ -322,6 +342,11 @@
       "t": 1790749936605,
       "fees": 1488.972284,
       "vol": 1828.9046564371997
+    },
+    {
+      "t": 1790750848574,
+      "fees": 1488.972284,
+      "vol": 1790.66784818408
     }
   ],
   "events": [
@@ -379,19 +404,19 @@
     }
   ],
   "state": {
-    "mood": "patient",
-    "focus": "the door i will not open",
+    "mood": null,
+    "focus": null,
     "emotions": {
-      "curiosity": 0.35,
-      "smugness": 0.42,
-      "unease": 0.12,
-      "affection": 0.18,
+      "curiosity": 0.5,
+      "smugness": 0.4,
+      "unease": 0.2,
+      "affection": 0.3,
       "boredom": 0.3,
-      "hunger": 0.2,
-      "mischief": 0.48,
-      "melancholy": 0.22
+      "hunger": 0.4,
+      "mischief": 0.3,
+      "melancholy": 0.2
     },
-    "at": "2026-09-30T05:49:03.623Z"
+    "at": "2026-09-30T06:47:28.574Z"
   },
   "lastPostThoughtIndex": 7
 }
