@@ -606,6 +606,6 @@ h1, h2, h3, .display {
 .sky-tip .rows span:nth-child(even) { color: var(--ink); text-align: right; }
 .sky-hint { margin: 0; font-size: 12px; color: var(--ink-soft); pointer-events: auto; }
 .sky-foot .wrap { padding: 16px 0; font-size: 12px; color: var(--ink-soft); }
-@media (max-width: 640px) { .sky-title p:not(.sky-meta) { display: none; } .sky-stage { height: calc(100vh - 64px); } }
+@media (max-width: 640px) { .sky-title p:not(.sky-meta) { display: none; } .sky-stage { height: calc(100vh - 64px); } .sky-legend { gap: 8px 12px; font-size: 10px; margin-top: auto; } .sky-hud { padding: 16px; } .sky-tip { width: 220px; } }
 .sky-shot { background: var(--bg); }
 .sky-shot .site-header, .sky-shot .sky-hud, .sky-shot .sky-foot { display: none; }

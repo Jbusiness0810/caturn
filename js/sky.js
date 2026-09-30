@@ -22,7 +22,11 @@
   }
 
   // Orbit radius from fee rank (busy inside), size from market cap, speed from fees, phase from the token.
+  var TILT = 0.34; // how flat the disc is: a wide screen sees it edge-on, a phone sees it from above
   function place() {
+    var portrait = H > W * 1.05;
+    TILT = SHOT ? 0.5 : portrait ? 0.9 : 0.34;
+    var scale = SHOT ? 0.6 : portrait ? 0.62 : 1;
     var lit = agents.filter(function (a) { return a.fees > 0; }).sort(function (a, b) { return b.fees - a.fees; });
     var dark = agents.filter(function (a) { return !(a.fees > 0); });
     var R = Math.min(W, H) * 0.47, r0 = Math.min(W, H) * 0.075;
@@ -32,13 +36,13 @@
     lit.forEach(function (a, i) {
       var k = lit.length > 1 ? i / (lit.length - 1) : 0;                 // 0 busiest .. 1 quietest
       var orbit = r0 + (R * 0.78 - r0) * Math.pow(k, 0.72);
-      var size = (SHOT ? 0.6 : 1) * (2.2 + 12 * Math.sqrt(Math.log10(1 + a.mcap) / Math.log10(1 + maxMcap)));
+      var size = scale * (2.2 + 12 * Math.sqrt(Math.log10(1 + a.mcap) / Math.log10(1 + maxMcap)));
       var speed = 0.10 + 1.15 * Math.pow(Math.log10(1 + a.fees) / Math.log10(1 + maxFees), 1.6); // radians per minute-ish
-      layout.push({ a: a, orbit: orbit, size: size, speed: speed, phase: hash(a.token) * Math.PI * 2, tilt: (SHOT ? 0.5 : 0.34) + 0.12 * hash(a.token + "t"), lit: true, wob: hash(a.token + "w") });
+      layout.push({ a: a, orbit: orbit, size: size, speed: speed, phase: hash(a.token) * Math.PI * 2, tilt: TILT + 0.12 * hash(a.token + "t"), lit: true, wob: hash(a.token + "w") });
     });
     dark.forEach(function (a) {
       var band = R * (0.84 + 0.14 * hash(a.token + "b"));
-      layout.push({ a: a, orbit: band, size: 1.4 + 3 * Math.sqrt(Math.log10(1 + a.mcap) / Math.log10(1 + maxMcap)), speed: 0.03 + 0.03 * hash(a.token + "s"), phase: hash(a.token) * Math.PI * 2, tilt: 0.34, lit: false, wob: hash(a.token + "w") });
+      layout.push({ a: a, orbit: band, size: 1.4 + 3 * Math.sqrt(Math.log10(1 + a.mcap) / Math.log10(1 + maxMcap)), speed: 0.03 + 0.03 * hash(a.token + "s"), phase: hash(a.token) * Math.PI * 2, tilt: TILT, lit: false, wob: hash(a.token + "w") });
     });
   }
 
@@ -72,9 +76,9 @@
     if (stars) { push(); tint(255, 26); image(stars, 0, 0); pop(); }
     // orbit rings, faint
     noFill(); stroke(BRASS[0], BRASS[1], BRASS[2], 14); strokeWeight(1);
-    var R = Math.min(W, H) * 0.47; for (var r = Math.min(W, H) * 0.075; r < R * 0.8; r += R * 0.09) ellipse(cx, cy, r * 2, r * 2 * 0.4);
+    var R = Math.min(W, H) * 0.47; for (var r = Math.min(W, H) * 0.075; r < R * 0.8; r += R * 0.09) ellipse(cx, cy, r * 2, r * 2 * (TILT + 0.06));
     // the core: orbio
-    for (var g = 10; g > 0; g--) { noStroke(); fill(214, 170, 80, 5); circle(cx, cy, 30 + g * 9 + 3 * Math.sin(tsec * 1.3)); }
+    for (var g = 10; g > 0; g--) { noStroke(); fill(190, 150, 70, 5); circle(cx, cy, 30 + g * 9 + 3 * Math.sin(tsec * 1.3)); }
     noStroke(); fill(BRASS_DEEP[0], BRASS_DEEP[1], BRASS_DEEP[2]); circle(cx, cy, 22); fill(246, 241, 232, 200); circle(cx - 4, cy - 4, 7);
     // planets, back to front by y
     var pts = layout.map(function (p) { var q = pos(p, tsec); return { p: p, x: q.x, y: q.y }; }).sort(function (a, b) { return a.y - b.y; });
