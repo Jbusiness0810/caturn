@@ -1,19 +1,26 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-30T01:03:52.968Z",
-  "status": "prelaunch",
-  "reason": "no agent yet",
-  "energy": 0,
-  "agent": null,
+  "updatedAt": "2026-09-30T01:52:40.295Z",
+  "status": "napping",
+  "reason": "think failed",
+  "energy": 0.684,
+  "agent": {
+    "id": "271",
+    "token": "0x9b4e217f8759cb758664ac3b0ee730a4d15e7f6a",
+    "symbol": "CTRN",
+    "launchedAt": "2026-09-30T01:30:40.000Z"
+  },
   "metrics": {
-    "volume24hUsd": null,
-    "fees24hUsd": 0,
-    "priceUsd": null,
-    "marketCapUsd": null,
-    "creditOwed": null,
-    "stakedOrbio": null,
+    "volume24hUsd": 1641.51351208566,
+    "fees24hUsd": 82.075675604283,
+    "volumeSource": "curve fees",
+    "graduated": false,
+    "priceUsd": 0.000013,
+    "marketCapUsd": 13036.611672,
+    "creditOwed": 0,
+    "stakedOrbio": 598.075794,
     "spentTodayCredit": 0,
-    "thoughtsPerDay": 0
+    "thoughtsPerDay": 33
   },
   "thoughts": [],
   "posts": [],
@@ -52,7 +59,17 @@
       "t": 1790730232968,
       "fees": 0,
       "vol": null
+    },
+    {
+      "t": 1790733160295,
+      "fees": 1255.959167,
+      "vol": 1641.51351208566
     }
   ],
-  "events": []
+  "events": [
+    {
+      "at": "2026-09-30T01:52:40.295Z",
+      "text": "energy 0% -> 68% (24h volume $1642)"
+    }
+  ]
 }
