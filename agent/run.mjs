@@ -411,6 +411,30 @@ async function uploadSketch(file, name) {
     return `https://github.com/${repo}/releases/download/${SKETCH_RELEASE}/${name}`;
   } catch (e) { log("sketch upload failed:", String(e.message || e).slice(0, 200)); return null; }
 }
+// A sketch whose upload failed is drawn again from its seed on a run that can upload, and reattached to its thought.
+async function repairSketches(feed) {
+  if (!((env.GH_TOKEN || env.GITHUB_TOKEN) && env.GITHUB_ACTIONS)) return;
+  const sk = feed.sketches.find(x => !x.url && x.seed && (x.repairTries || 0) < 2);
+  if (!sk) return;
+  sk.repairTries = (sk.repairTries || 0) + 1;
+  const thought = feed.thoughts.find(t => t.sketch && !t.sketch.url && t.sketch.seed === sk.seed);
+  try {
+    let fixed;
+    if (sk.family === "found" && sk.source?.id) {
+      const name = `found-${sk.at.slice(0, 16).replace(/[:T]/g, "-")}-${sk.seed % 10000}.gif`; await mkdir("out", { recursive: true });
+      const { stdout } = await run("node", [new URL("./found.mjs", import.meta.url).pathname, JSON.stringify({ ids: [sk.source.id], seed: sk.seed, frames: 24, size: 480, probes: 0, attempts: 1, licenses: FOUND_LICENSES }), `out/${name}`], { timeout: 420000, env: { ...process.env } });
+      if (!JSON.parse(String(stdout).trim().split("\n").pop()).ok) throw new Error("could not re-render the found sketch");
+      fixed = { url: await uploadSketch(`out/${name}`, name) };
+    } else {
+      const name = `caturn-${sk.at.slice(0, 16).replace(/[:T]/g, "-")}-${sk.family}-${sk.seed}.gif`; await mkdir("out", { recursive: true });
+      await run("node", [new URL("./sketch.mjs", import.meta.url).pathname, JSON.stringify({ family: sk.family, seed: sk.seed, energy: thought?.energy ?? feed.energy, emotions: thought?.emotions || {}, frames: 24, size: 480 }), `out/${name}`], { timeout: 120000, env: { ...process.env } });
+      fixed = { url: await uploadSketch(`out/${name}`, name) };
+    }
+    if (!fixed.url) throw new Error("upload failed again");
+    sk.url = fixed.url; sk.file = null; if (thought) { thought.sketch.url = fixed.url; thought.sketch.file = null; }
+    event(`redrew a sketch that never made it to the site · ${sk.family} ${sk.seed}`); log("sketch repaired:", fixed.url);
+  } catch (e) { log("sketch repair failed:", String(e.message || e).slice(0, 200)); }
+}
 // The art experiment: go looking for an open-licensed p5.js sketch by a real person, run it, and put it on the site with their name.
 const FOUND_THEMES = ["flow field", "particles", "noise", "orbit", "spiral", "circles", "grid", "waves", "rings", "generative", "kaleidoscope", "boids", "lissajous", "moire", "starfield", "trees"];
 async function findSketchIds(theme) {
@@ -453,8 +477,7 @@ feed.events = (feed.events || []).slice(-200);
 const event = (text) => { feed.events.push({ at: iso(now), text }); log("event:", text); };
 const prev = { status: feed.status, energy: feed.energy || 0, reason: feed.reason, gradPct: feed.metrics?.graduationPct, graduated: feed.metrics?.graduated };
 feed.thoughts = (feed.thoughts || []).slice(-300);
-feed.sketches = (feed.sketches || []).filter(s => s.url).slice(-60); // a GIF that never uploaded has no address anyone can load
-feed.thoughts.forEach(t => { if (t.sketch && !t.sketch.url) delete t.sketch; });
+feed.sketches = (feed.sketches || []).filter(s => s.url || s.seed).slice(-60); // one without an address is re-rendered later (see repairSketches); one without a seed is lost
 feed.posts = (feed.posts || []).slice(-150);
 
 const agent = await readAgent();
@@ -601,6 +624,7 @@ if (status === "awake") {
 }
 if (API_KEY) await refreshPostUrls(feed.posts);
 if (API_KEY && !DRY_RUN && agent) await retryFailedPosts(feed, spentToday);
+if (!DRY_RUN) await repairSketches(feed);
 
 await writeFile(FEED, JSON.stringify(feed, null, 2) + "\n");
 log(`status=${feed.status} energy=${feed.energy} thoughts/day=${thoughtsPerDay} spentToday=${feed.metrics.spentTodayCredit} ${feed.reason || ""}`);
