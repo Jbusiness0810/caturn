@@ -571,5 +571,7 @@ h1, h2, h3, .display {
 .gal { display: grid; gap: 6px; }
 .gal img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); background: var(--marble); }
 .gal span { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); }
+.gal .credit { text-transform: none; letter-spacing: 0; font-size: 11px; color: var(--ink); line-height: 1.35; margin-top: -2px; }
+.gal.found img { border-color: var(--gold); }
 .sketch-inline { display: block; margin-top: 8px; max-width: 260px; }
 .sketch-inline img { width: 100%; border-radius: 10px; border: 1px solid var(--line); background: var(--marble); }

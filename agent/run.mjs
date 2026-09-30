@@ -17,6 +17,7 @@ const DRY_RUN   = env.CATURN_DRY_RUN === "1";
 const FORCE     = env.CATURN_FORCE === "1";      // manual runs: think now, ignoring the pacing timer (budget still applies)
 const POST_INTERVAL_MIN = Number(env.CATURN_POST_INTERVAL_MIN || 30);   // post to X on this clock, whatever the pacing says
 const SKETCH_EVERY = Number(env.CATURN_SKETCH_EVERY || 4);              // draw a sketch every Nth thought (0 = never)
+const FOUND_SKETCHES = env.CATURN_FOUND_SKETCHES !== "0";                // every other sketch is an open-licensed p5.js piece found on openprocessing
 const SKETCH_RELEASE = "sketches";                                      // rolling GitHub release that hosts the GIFs
 const OWN_HANDLE = (env.CATURN_X_HANDLE || "caturn_rh").toLowerCase();
 // People worth tagging now and then. Pinned ones come from CATURN_TAG_HANDLES (comma-separated, no @); the rest Caturn finds on X itself:
@@ -138,7 +139,9 @@ async function think(persona, ctx) {
 ${ctx.replyTo ? `Someone on X${ctx.replyTo.why === "mention" ? " is talking to you" : ctx.replyTo.why === "orbio" ? ", the orbio account itself," : ""}: @${ctx.replyTo.handle} (${ctx.replyTo.name}) wrote: ${JSON.stringify(ctx.replyTo.text.slice(0, 500))}
 This time your post is an answer to them. Start it with @${ctx.replyTo.handle}, respond to what they actually said, in your own cat voice, dry or warm, and bring in one real orbio fact only if it fits. Do not repeat their words back. Do not tag anyone else.` : ""}
 ${ctx.tagHandle ? `This time, address @${ctx.tagHandle} directly in the post (they are part of orbio's world). Speak to them the way a cat speaks to a person it has decided to acknowledge: one concrete orbio fact, one cat behavior, dry, never a plea, never flattery, never asking them for anything. That handle must appear in the post, and no other.` : ""}
-${ctx.lastSketch ? `You recently drew a sketch (a ${ctx.lastSketch.family} piece) and it is on the site. This one time, the post may mention in passing that a new sketch is up on caturn dot lol, dry, no link. Most of your posts never mention sketches.` : ""}
+${ctx.lastSketch ? (ctx.lastSketch.source
+  ? `You just went looking on openprocessing and found an open-licensed p5.js piece, "${ctx.lastSketch.source.title}" by ${ctx.lastSketch.source.author} (${ctx.lastSketch.source.license}), and put it on your site. This one time, the post may mention it in passing, crediting ${ctx.lastSketch.source.author} by name (no handle, no link): something you found and brought home. Most of your posts never mention sketches.`
+  : `You recently drew a sketch (a ${ctx.lastSketch.family} piece) and it is on the site. This one time, the post may mention in passing that a new sketch is up on caturn dot lol, dry, no link. Most of your posts never mention sketches.`) : ""}
 Tonight's lens for the private thought: ${ctx.lens}. Let it in sideways. Do not name it.
 ${ctx.mustPost ? "A post is required this time: " : "If you post, "}the post's angle is: ${ctx.postAngle}.
 ${ctx.replyTo ? "" : `Post format this time: ${ctx.postFormat.name} (${ctx.postFormat.how}). `}Make it land: be specific, use a real number if one helps, put the funniest beat last, never explain the joke. Plain words, readable in one pass. No poetry, no riddles, no imagery about rings, light, warmth, silence or receipts. Lowercase. No hashtags.${ctx.wantHook ? " End with something a stranger could reply to." : ""}
@@ -348,6 +351,41 @@ async function makeSketch(ctx) {
   }
   return { url, family, seed, file: url ? null : file, at: iso(now) };
 }
+async function uploadSketch(file, name) {
+  if (!((env.GH_TOKEN || env.GITHUB_TOKEN) && env.GITHUB_ACTIONS)) return null;
+  const repo = env.GITHUB_REPOSITORY || "Jbusiness0810/caturn";
+  try {
+    try { await run("gh", ["release", "view", SKETCH_RELEASE, "-R", repo]); }
+    catch { await run("gh", ["release", "create", SKETCH_RELEASE, "-R", repo, "-t", "Caturn sketches", "-n", "Generative sketches drawn by the agent. Rolling."]); }
+    await run("gh", ["release", "upload", SKETCH_RELEASE, file, "-R", repo, "--clobber"], { timeout: 120000 });
+    return `https://github.com/${repo}/releases/download/${SKETCH_RELEASE}/${name}`;
+  } catch (e) { log("sketch upload failed:", String(e.message || e).slice(0, 200)); return null; }
+}
+// The art experiment: go looking for an open-licensed p5.js sketch by a real person, run it, and put it on the site with their name.
+const FOUND_THEMES = ["flow field", "particles", "noise", "orbit", "spiral", "circles", "grid", "waves", "rings", "generative", "kaleidoscope", "boids", "lissajous", "moire", "starfield", "trees"];
+async function findSketchIds(theme) {
+  if (!API_KEY) return { ids: [], cost: 0 };
+  try {
+    const r = await getJSON(`${ORBIO_API}/tools/web.search`, { method: "POST", headers: auth, body: JSON.stringify({ query: `site:openprocessing.org/sketch ${theme} p5.js`, limit: 10, max_cost: "0.0150" }) });
+    const results = r.results || r.result?.results || [];
+    const ids = [...new Set(results.map(x => (String(x.url || "").match(/openprocessing\.org\/sketch\/(\d+)/) || [])[1]).filter(Boolean).map(Number))];
+    return { ids, cost: results.length * 0.0011 };
+  } catch (e) { log("sketch search failed:", e.status || "", String(e.message).slice(0, 120)); return { ids: [], cost: 0 }; }
+}
+async function makeFoundSketch(ctx) {
+  const theme = FOUND_THEMES[Math.floor(Math.random() * FOUND_THEMES.length)];
+  const { ids, cost } = await findSketchIds(theme);
+  const seed = Math.floor(Math.random() * 2147483646) + 1;
+  const name = `found-${new Date(now).toISOString().slice(0, 16).replace(/[:T]/g, "-")}-${seed % 10000}.gif`;
+  await mkdir("out", { recursive: true });
+  const file = `out/${name}`;
+  const { stdout } = await run("node", [new URL("./found.mjs", import.meta.url).pathname, JSON.stringify({ ids, seed, frames: 24, size: 480, probes: 60, attempts: 4 }), file], { timeout: 420000, env: { ...process.env } });
+  const r = JSON.parse(String(stdout).trim().split("\n").pop());
+  if (!r.ok) throw new Error("no usable sketch found");
+  const url = await uploadSketch(file, name);
+  return { url, family: "found", seed, file: url ? null : file, at: iso(now), theme, still: !!r.still, cost,
+    source: { id: r.source.id, title: r.source.title, author: r.source.author, license: r.source.license, url: r.source.url, authorUrl: r.source.authorUrl } };
+}
 
 if (env.CATURN_SKETCH_TEST === "1") {
   const f = JSON.parse(await readFile(FEED, "utf8")); f.sketches = f.sketches || [];
@@ -471,8 +509,14 @@ if (status === "awake") {
       feed.thoughts.push(entry);
       feed.state = { mood: t.mood, focus: t.focus, emotions: t.emotions, at: iso(now) };
       if (SKETCH_EVERY > 0 && feed.thoughts.length % SKETCH_EVERY === 0) {
-        try { const sk = await makeSketch({ energy, emotions: t.emotions }); entry.sketch = sk; feed.sketches.push({ ...sk, mood: t.mood, thought: t.thought.slice(0, 140) }); event(`drew a sketch · ${sk.family} ${sk.seed}`); log("sketch:", JSON.stringify(sk)); }
-        catch (e) { log("sketch failed:", String(e.message || e).slice(0, 200)); }
+        const found = FOUND_SKETCHES && feed.sketches.length % 2 === 1;
+        try {
+          const sk = found ? await makeFoundSketch({ mood: t.mood }) : await makeSketch({ energy, emotions: t.emotions });
+          entry.sketch = sk; feed.sketches.push({ ...sk, mood: t.mood, thought: t.thought.slice(0, 140) });
+          if (sk.cost) entry.cost = Number(((entry.cost || 0) + sk.cost).toFixed(6));
+          event(sk.source ? `found a sketch on openprocessing · "${sk.source.title}" by ${sk.source.author} (${sk.source.license})` : `drew a sketch · ${sk.family} ${sk.seed}`);
+          log("sketch:", JSON.stringify(sk));
+        } catch (e) { log((found ? "found sketch" : "sketch") + " failed:", String(e.message || e).slice(0, 200)); }
       }
       const n = feed.thoughts.length;
       // Post on the clock: whenever POST_INTERVAL_MIN has passed since the last post.

@@ -42,6 +42,7 @@ jobs:
           CATURN_TAG_HANDLES: ${{ vars.CATURN_TAG_HANDLES }}      # comma-separated handles to tag now and then, on top of what Caturn finds itself
           CATURN_TAG_EVERY: ${{ vars.CATURN_TAG_EVERY }}          # tag someone in one post in N (default 5)
           CATURN_REPLY_EVERY: ${{ vars.CATURN_REPLY_EVERY }}      # look for something to answer every N posts (default 2)
+          CATURN_FOUND_SKETCHES: ${{ vars.CATURN_FOUND_SKETCHES }} # 0 turns off the openprocessing art experiment
           CATURN_SAY: ${{ github.event.inputs.say }}
           KICK_TOKEN: ${{ secrets.KICK_TOKEN }}
           CATURN_CHECK: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}

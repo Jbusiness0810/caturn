@@ -83,7 +83,7 @@
       if (it.replyTo) body = '<span class="re">' + reTo(it.replyTo) + "</span>" + body;
       if (it.kind === "post" || it.kind === "reply") body += it.url ? ' <a href="' + esc(it.url) + '" rel="noopener" target="_blank">view on X</a>' : ' <span class="mood-tag">' + esc(it.status || "publishing") + "</span>";
       if (it.mood && it.kind !== "post") body += '<span class="mood-tag">' + esc(it.mood) + "</span>";
-      if (it.sketch) body += '<a class="sketch-inline" href="' + esc(it.sketch.url || it.sketch.file) + '" target="_blank" rel="noopener"><img src="' + esc(it.sketch.url || it.sketch.file) + '" alt="sketch ' + esc(it.sketch.family) + '" loading="lazy"></a>';
+      if (it.sketch) body += '<a class="sketch-inline" href="' + esc(it.sketch.source ? it.sketch.source.url : (it.sketch.url || it.sketch.file)) + '" target="_blank" rel="noopener"><img src="' + esc(it.sketch.url || it.sketch.file) + '" alt="sketch ' + esc(it.sketch.family) + '" loading="lazy"></a>' + (it.sketch.source ? '<span class="mood-tag">found: ' + esc(it.sketch.source.title) + " by " + esc(it.sketch.source.author) + " · " + esc(it.sketch.source.license || "") + "</span>" : "");
       var isNew = i === list.length - 1 && it.kind !== "sys";
       html += '<li class="k-' + tag + (isNew ? " is-new" : "") + '"><time datetime="' + esc(it.at) + '">' + hhmm(it.at) + '</time><span class="tag">' + tag + '</span><span class="body">' + body + "</span></li>";
     });
@@ -183,7 +183,11 @@
     var posts = (f.posts || []).slice().reverse().slice(0, full ? 150 : 5);
     var sks = (f.sketches || []).filter(function (x) { return x.url || x.file; }).slice().reverse().slice(0, full ? 60 : 4);
     $("[data-sketch-count]").textContent = (f.sketches || []).length;
-    $("[data-gallery]").innerHTML = sks.length ? sks.map(function (x) { var u = x.url || x.file; return '<a class="gal" href="' + esc(u) + '" target="_blank" rel="noopener"><img src="' + esc(u) + '" alt="' + esc(x.family) + '" loading="lazy"><span>' + esc(x.family) + " · " + hhmm(x.at) + (x.mood ? " · " + esc(x.mood) : "") + "</span></a>"; }).join("") : '<div class="empty">no sketches yet. caturn draws one every few thoughts.</div>';
+    $("[data-gallery]").innerHTML = sks.length ? sks.map(function (x) {
+      var u = x.url || x.file, src = x.source;
+      if (src) return '<a class="gal found" href="' + esc(src.url || u) + '" target="_blank" rel="noopener"><img src="' + esc(u) + '" alt="' + esc(src.title) + '" loading="lazy"><span>found · ' + hhmm(x.at) + '</span><span class="credit">' + esc(src.title) + " by " + esc(src.author) + " · " + esc(src.license || "") + " · openprocessing</span></a>";
+      return '<a class="gal" href="' + esc(u) + '" target="_blank" rel="noopener"><img src="' + esc(u) + '" alt="' + esc(x.family) + '" loading="lazy"><span>' + esc(x.family) + " · " + hhmm(x.at) + (x.mood ? " · " + esc(x.mood) : "") + "</span></a>";
+    }).join("") : '<div class="empty">no sketches yet. caturn draws one every few thoughts.</div>';
     var asks = (f.asks || []).slice().reverse().slice(0, full ? 200 : 4);
     $("[data-asks-count]").textContent = (f.asks || []).length;
     $("[data-log-asks]").innerHTML = asks.length ? asks.map(function (a) {
