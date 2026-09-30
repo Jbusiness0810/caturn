@@ -3,21 +3,44 @@
 // Needs ORBIO_API_KEY set in the Vercel project's environment variables.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { createHash } from "node:crypto";
 
 const ORBIO_API = "https://api.orbio.so/api/v1";
 const MODELS = (process.env.ASK_MODELS || "anthropic/claude-sonnet-5.5,x-ai/grok-4.7,anthropic/claude-opus-5.5,openai/gpt-6-sol-pro").split(",").map(s => s.trim()).filter(Boolean);
-const MAX_Q = 280, MAX_TOKENS = 260;
-const PER_IP_PER_HOUR = Number(process.env.ASK_PER_IP || 12);
-const PER_INSTANCE_PER_DAY = Number(process.env.ASK_PER_DAY || 400);
+const MAX_Q = 240, MAX_TOKENS = 220;
+const PER_IP_PER_HOUR = Number(process.env.ASK_PER_IP || 6);
+const PER_IP_PER_DAY = Number(process.env.ASK_PER_IP_DAY || 20);
+const PER_INSTANCE_PER_DAY = Number(process.env.ASK_PER_DAY || 250);
+const BALANCE_FLOOR = Number(process.env.ASK_BALANCE_FLOOR || 10);   // CREDIT the terminal must leave for Caturn's own thoughts
+const POW_BITS = Number(process.env.ASK_POW_BITS || 15);             // proof-of-work difficulty: ~2^15 hashes, under a second in a browser
+const MIN_GAP_MS = 8000;                                             // one question per visitor every 8 seconds
 
 // Crude in-memory limits (per warm instance). Enough to stop a casual drain of the balance.
 const ipHits = new Map(); let dayCount = 0, dayStamp = new Date().toISOString().slice(0, 10);
 function limited(ip) {
   const today = new Date().toISOString().slice(0, 10); if (today !== dayStamp) { dayStamp = today; dayCount = 0; ipHits.clear(); }
   if (dayCount >= PER_INSTANCE_PER_DAY) return "caturn has answered enough for one day. the balance is for thinking, too.";
-  const now = Date.now(), arr = (ipHits.get(ip) || []).filter(t => now - t < 3600e3);
-  if (arr.length >= PER_IP_PER_HOUR) return "you have asked a lot. cats answer on their own schedule. try again in an hour.";
-  arr.push(now); ipHits.set(ip, arr); dayCount++; return null;
+  const now = Date.now(), all = (ipHits.get(ip) || []).filter(t => now - t < 86400e3), hour = all.filter(t => now - t < 3600e3);
+  if (all.length && now - all[all.length - 1] < MIN_GAP_MS) return "slower. a cat answers one thing at a time.";
+  if (hour.length >= PER_IP_PER_HOUR) return "you have asked a lot. cats answer on their own schedule. try again in an hour.";
+  if (all.length >= PER_IP_PER_DAY) return "that is enough for one day. come back tomorrow.";
+  all.push(now); ipHits.set(ip, all); dayCount++; return null;
+}
+// Proof of work: the browser must find a nonce so sha256(q|ts|nonce) has POW_BITS leading zero bits. Cheap for a person, costly for a loop.
+function leadingZeroBits(hex) { let n = 0; for (const ch of hex) { const v = parseInt(ch, 16); if (v === 0) { n += 4; continue; } n += Math.clz32(v) - 28; break; } return n; }
+function powOk(q, ts, nonce) {
+  if (!ts || !nonce || Math.abs(Date.now() - Number(ts)) > 5 * 60e3) return false;
+  const h = createHash("sha256").update(`${q}|${ts}|${nonce}`).digest("hex");
+  return leadingZeroBits(h) >= POW_BITS;
+}
+let balanceCache = { at: 0, v: null };
+async function balanceOk(key) {
+  if (Date.now() - balanceCache.at < 60e3 && balanceCache.v != null) return balanceCache.v >= BALANCE_FLOOR;
+  try {
+    const r = await fetch(`${ORBIO_API}/key`, { headers: { Authorization: `Bearer ${key}` } }); const k = await r.json();
+    balanceCache = { at: Date.now(), v: Number(BigInt(k.balance?.available_micro_usd || "0")) / 1e6 };
+    return balanceCache.v >= BALANCE_FLOOR;
+  } catch { return true; } // if the balance read fails, do not block; the 402 path still catches an empty bowl
 }
 
 let persona = "";
@@ -33,11 +56,14 @@ export default async function handler(req, res) {
   if (!key) return res.status(503).json({ error: "the terminal is not wired to a balance yet." });
   const origin = req.headers.origin || "", host = req.headers.host || "";
   if (origin && !origin.includes(host.replace(/^www\./, ""))) return res.status(403).json({ error: "forbidden" });
-  let q = (req.body && typeof req.body === "object" ? req.body.q : null) ?? "";
-  q = String(q).replace(/\s+/g, " ").trim().slice(0, MAX_Q);
+  const b = req.body && typeof req.body === "object" ? req.body : {};
+  if (b.website) return res.status(400).json({ error: "no." }); // honeypot field: humans never fill it
+  let q = String(b.q ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_Q);
   if (!q) return res.status(400).json({ error: "ask something." });
+  if (!powOk(q, b.ts, b.nonce)) return res.status(400).json({ error: "the stamp is missing. reload and ask again." });
   const ip = (req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket?.remoteAddress || "?";
   const lim = limited(ip); if (lim) return res.status(429).json({ error: lim });
+  if (!(await balanceOk(key))) return res.status(402).json({ error: "the bowl is low. caturn keeps what is left for its own thoughts. trade, and it refills." });
 
   const messages = [{ role: "system", content: persona + "\n\n" + ANSWER_MODE }, { role: "user", content: q }];
   let lastErr = null;
