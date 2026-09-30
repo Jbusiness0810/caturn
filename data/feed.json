@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-30T06:19:50.563Z",
+  "updatedAt": "2026-09-30T06:32:16.605Z",
   "status": "awake",
   "reason": "",
   "energy": 0.694,
@@ -15,10 +15,10 @@
     "fees24hUsd": 91.44523282185999,
     "volumeSource": "curve fees",
     "graduated": false,
-    "graduationPct": 22.43,
-    "balanceCredit": 48.240574,
+    "graduationPct": 22.41,
+    "balanceCredit": 48.217606,
     "priceUsd": 0.000011,
-    "marketCapUsd": 11590.65965,
+    "marketCapUsd": 11585.274653,
     "creditOwed": 0.000587,
     "stakedOrbio": 709.034421,
     "spentTodayCredit": 0.239768,
@@ -315,6 +315,11 @@
     },
     {
       "t": 1790749190563,
+      "fees": 1488.972284,
+      "vol": 1828.9046564371997
+    },
+    {
+      "t": 1790749936605,
       "fees": 1488.972284,
       "vol": 1828.9046564371997
     }
