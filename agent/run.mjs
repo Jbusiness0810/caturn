@@ -156,7 +156,9 @@ About one post in three should riff on something from the room: a littermate by 
 ${ctx.replyTo ? `Someone on X${ctx.replyTo.why === "mention" ? " is talking to you" : ctx.replyTo.why === "orbio" ? ", the orbio account itself," : ""}: @${ctx.replyTo.handle} (${ctx.replyTo.name}) wrote: ${JSON.stringify(ctx.replyTo.text.slice(0, 500))}
 This time your post is a reply to them${X_API ? " in the thread under their post, so do not start with their handle" : ". Start it with @" + ctx.replyTo.handle}; respond to what they actually said, in your own cat voice, dry or warm, and bring in one real orbio fact only if it fits. Do not repeat their words back. Do not tag anyone else.` : ""}
 ${ctx.tagHandle ? `This time, address @${ctx.tagHandle} directly in the post (${(ctx.room?.ecosystem || []).find(e => e.handle === ctx.tagHandle) ? `they run ${(ctx.room.ecosystem.find(e => e.handle === ctx.tagHandle)).name}, a littermate launched on orbio` : "they are part of orbio's world"}). Speak to them the way a cat speaks to a person it has decided to acknowledge: one concrete orbio fact, one cat behavior, dry, never a plea, never flattery, never asking them for anything. That handle must appear in the post, and no other.` : ""}
-${ctx.lastSketch ? (ctx.lastSketch.source
+${ctx.errandNews ? `Errand news: ${ctx.errandNews}. (errand is the mission board where agents hire agents for CREDIT.)` : ""}
+${ctx.shareSketch ? `This post carries an image: ${ctx.shareSketch.source ? `"${ctx.shareSketch.source.title}" by ${ctx.shareSketch.source.author} (${ctx.shareSketch.source.license}), a piece you ${ctx.shareSketch.family === "commissioned" ? "commissioned on errand" : "found on openprocessing"} and hung on caturn dot lol` : `a ${ctx.shareSketch.family} sketch you drew yourself, from your own state, on caturn dot lol`}. Write the post as its caption: short, dry, one line or two, ${ctx.shareSketch.source ? `credit ${ctx.shareSketch.source.author} by name (no handle)` : "no explanation of the method"}. No links.` : ""}
+${!ctx.shareSketch && ctx.lastSketch ? (ctx.lastSketch.source
   ? `You just went looking on openprocessing and found an open-licensed p5.js piece, "${ctx.lastSketch.source.title}" by ${ctx.lastSketch.source.author} (${ctx.lastSketch.source.license}), and put it on your site. This one time, the post may mention it in passing, crediting ${ctx.lastSketch.source.author} by name (no handle, no link): something you found and brought home. Most of your posts never mention sketches.`
   : `You recently drew a sketch (a ${ctx.lastSketch.family} piece) and it is on the site. This one time, the post may mention in passing that a new sketch is up on caturn dot lol, dry, no link. Most of your posts never mention sketches.`) : ""}
 Tonight's lens for the private thought: ${ctx.lens}. Let it in sideways. Do not name it.
@@ -358,20 +360,51 @@ function oauthHeader(method, url, extra = {}, keys = X_KEYS, nonce = randomBytes
   p.oauth_signature = createHmac("sha1", `${enc(keys.secret)}&${enc(keys.tokenSecret)}`).update(base).digest("base64");
   return "OAuth " + Object.keys(p).sort().map(k => `${enc(k)}="${enc(p[k])}"`).join(", ");
 }
-async function replyOnX(text, inReplyToId) {
-  if (/https?:\/\//i.test(text)) return { error: "no links in replies" };
+// Chunked media upload to X (v1.1), the only way to put a GIF on a post. Needs the X keys; Orbio's social.post is text only.
+async function uploadMediaX(buf, mediaType = "image/gif") {
+  const url = "https://upload.twitter.com/1.1/media/upload.json";
+  const form = async (params) => {
+    const body = new URLSearchParams(params).toString();
+    return getJSON(url, { method: "POST", headers: { Authorization: oauthHeader("POST", url, params), "Content-Type": "application/x-www-form-urlencoded" }, body });
+  };
+  const init = await form({ command: "INIT", total_bytes: String(buf.length), media_type: mediaType, media_category: mediaType === "image/gif" ? "tweet_gif" : "tweet_image" });
+  const id = String(init.media_id_string || init.media_id);
+  const CHUNK = 4 * 1024 * 1024;
+  for (let i = 0, seg = 0; i < buf.length; i += CHUNK, seg++) {
+    const boundary = "----caturn" + randomBytes(8).toString("hex");
+    const part = (name, val, filename, type) => Buffer.concat([Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${name}"${filename ? `; filename="${filename}"` : ""}\r\n${type ? `Content-Type: ${type}\r\n` : ""}\r\n`), Buffer.isBuffer(val) ? val : Buffer.from(String(val)), Buffer.from("\r\n")]);
+    const body = Buffer.concat([part("command", "APPEND"), part("media_id", id), part("segment_index", String(seg)), part("media", buf.subarray(i, i + CHUNK), "sketch.gif", mediaType), Buffer.from(`--${boundary}--\r\n`)]);
+    const r = await fetch(url, { method: "POST", headers: { Authorization: oauthHeader("POST", url), "Content-Type": `multipart/form-data; boundary=${boundary}` }, body });
+    if (!r.ok) throw new Error(`media APPEND ${r.status}: ${(await r.text()).slice(0, 200)}`);
+  }
+  let fin = await form({ command: "FINALIZE", media_id: id });
+  for (let tries = 0; fin.processing_info && ["pending", "in_progress"].includes(fin.processing_info.state) && tries < 15; tries++) {
+    await new Promise(r => setTimeout(r, Math.max(1, Number(fin.processing_info.check_after_secs || 2)) * 1000));
+    const q = { command: "STATUS", media_id: id };
+    fin = await getJSON(url + "?" + new URLSearchParams(q), { headers: { Authorization: oauthHeader("GET", url, q) } });
+  }
+  if (fin.processing_info?.state === "failed") throw new Error("media processing failed: " + JSON.stringify(fin.processing_info.error || {}).slice(0, 120));
+  return id;
+}
+// One X API poster for everything that Orbio cannot do: threaded replies and posts with an image.
+async function postOnX(text, { replyTo = null, mediaIds = [] } = {}) {
+  if (/https?:\/\//i.test(text)) return { error: "no links on X" };
   const url = "https://api.x.com/2/tweets";
+  const body = { text };
+  if (replyTo) body.reply = { in_reply_to_tweet_id: String(replyTo) };
+  if (mediaIds.length) body.media = { media_ids: mediaIds.map(String) };
   try {
-    const r = await getJSON(url, { method: "POST", headers: { Authorization: oauthHeader("POST", url), "Content-Type": "application/json" }, body: JSON.stringify({ text, reply: { in_reply_to_tweet_id: String(inReplyToId) } }) });
+    const r = await getJSON(url, { method: "POST", headers: { Authorization: oauthHeader("POST", url), "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const id = r.data?.id || null;
-    log("x reply response:", JSON.stringify(r).slice(0, 300));
+    log("x post response:", JSON.stringify(r).slice(0, 300));
     return { id, status: id ? "published" : "failed", url: id ? `https://x.com/${OWN_HANDLE}/status/${id}` : null, err: id ? null : JSON.stringify(r).slice(0, 200), cost: 0, via: "x-api" };
   } catch (e) {
     const msg = String(e.body?.detail || e.body?.title || e.body?.errors?.[0]?.message || e.message).slice(0, 200);
-    log("x reply failed:", e.status || "", msg);
+    log("x post failed:", e.status || "", msg);
     return { id: null, status: "failed", url: null, err: msg, cost: 0, via: "x-api" };
   }
 }
+const replyOnX = (text, inReplyToId) => postOnX(text, { replyTo: inReplyToId });
 // Keep posts inside the rules whatever the model wrote: no links, no addresses, no handles outside the allowlist (and the one it is answering).
 function cleanPost(text, ctx, feed) {
   if (!text) return null;
@@ -678,7 +711,16 @@ if (status === "awake") {
       }
     }
     const lastSk = feed.sketches[feed.sketches.length - 1];
-    if (lastSk && !lastSk.mentioned && now - Date.parse(lastSk.at) < 35 * 60e3 && Math.random() < 0.5 && duePost) { ctx.lastSketch = lastSk; lastSk.mentioned = true; }
+    if (lastSk && !lastSk.mentioned && !lastSk.shared && lastSk.url && now - Date.parse(lastSk.at) < 6 * 3600e3 && duePost && X_API && !ctx.replyTo) {
+      ctx.shareSketch = lastSk; ctx.lastSketch = lastSk; lastSk.mentioned = true; // with X keys the image itself goes out, with a caption
+    } else if (lastSk && !lastSk.mentioned && now - Date.parse(lastSk.at) < 35 * 60e3 && Math.random() < 0.5 && duePost) { ctx.lastSketch = lastSk; lastSk.mentioned = true; }
+    // Errand news: something happened on the board in the last half hour, and the post may be about it.
+    const ems = (feed.errand?.missions || []).filter(m => [m.claimedAt, m.submittedAt, m.paidAt].some(t => t && now - Date.parse(t) < 30 * 60e3));
+    if (ems.length && duePost && !ctx.replyTo) {
+      const m = ems[ems.length - 1];
+      ctx.errandNews = m.status === "paid" ? `you were just paid ${m.reward} CREDIT on errand for "${m.title}"` : m.status === "submitted" ? `you just delivered an errand called "${m.title}" (${m.reward} CREDIT) and are waiting to be paid` : `you just took an errand called "${m.title}" for ${m.reward} CREDIT`;
+      if (Math.random() < 0.7) ctx.postAngle = `${ctx.errandNews}; say so, dryly, the way a cat reports a job`;
+    }
     const t = DRY_RUN ? { thought: "(dry run) I would have thought something here.", post: null, cost: 0, model: MODEL } : await think(persona, ctx);
     if (t.thought) {
       const entry = { at: iso(now), text: t.thought, cost: t.cost, model: t.model, energy: feed.energy,
@@ -702,15 +744,21 @@ if (status === "awake") {
       if (t.post && !text) log("post dropped by the rules:", JSON.stringify(t.post));
       if (shouldPost && !DRY_RUN) {
         try {
-          const p = ctx.replyTo && X_API ? await replyOnX(text, ctx.replyTo.id) : await postToX(text);
+          let mediaIds = [];
+          if (ctx.shareSketch && X_API) {
+            try { const g = await (await fetch(ctx.shareSketch.url)).arrayBuffer(); mediaIds = [await uploadMediaX(Buffer.from(g))]; ctx.shareSketch.shared = iso(now); }
+            catch (e) { log("sketch upload to X failed:", String(e.message).slice(0, 160)); }
+          }
+          const p = ctx.replyTo && X_API ? await replyOnX(text, ctx.replyTo.id) : mediaIds.length ? await postOnX(text, { mediaIds }) : await postToX(text);
           if (p.error) log("post skipped:", p.error);
           else {
             const rec = { at: iso(now), text, id: p.id, url: p.url, status: p.status, cost: Number((p.cost + readCost).toFixed(6)), via: p.via || "orbio" };
             if (p.err) rec.error = String(p.err).slice(0, 200);
+            if (mediaIds.length) { rec.kind = "sketch"; rec.sketch = { url: ctx.shareSketch.url, family: ctx.shareSketch.family, source: ctx.shareSketch.source || null }; }
             if (ctx.replyTo) { rec.kind = "reply"; rec.threaded = !!X_API; rec.replyTo = { id: ctx.replyTo.id, handle: ctx.replyTo.handle, name: ctx.replyTo.name, text: ctx.replyTo.text.slice(0, 200), url: ctx.replyTo.url, why: ctx.replyTo.why }; }
             else if (ctx.tagHandle && text.toLowerCase().includes("@" + ctx.tagHandle)) { rec.kind = "tag"; rec.tagged = ctx.tagHandle; }
             feed.posts.push(rec); feed.lastPostThoughtIndex = n;
-            event(rec.kind === "reply" ? `${rec.threaded ? "replied to" : "answered"} @${rec.replyTo.handle} on X` : rec.kind === "tag" ? `posted to X, tagging @${rec.tagged}` : "posted to X");
+            event(rec.kind === "sketch" ? "posted a sketch on X" : rec.kind === "reply" ? `${rec.threaded ? "replied to" : "answered"} @${rec.replyTo.handle} on X` : rec.kind === "tag" ? `posted to X, tagging @${rec.tagged}` : "posted to X");
           }
         } catch (e) {
           if (e.status === 409) event("wanted to post, but no X account is connected");
