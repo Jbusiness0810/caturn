@@ -5,6 +5,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHash, createHmac } from "node:crypto";
 import { put, get } from "@vercel/blob";
+const BLOB_VAR = Object.keys(process.env).find(k => /BLOB_READ_WRITE_TOKEN$/i.test(k)) || null;
+const BLOB_TOKEN = BLOB_VAR ? process.env[BLOB_VAR] : null;
 
 const ORBIO_API = "https://api.orbio.so/api/v1";
 const MODELS = (process.env.ASK_MODELS || "anthropic/claude-sonnet-5.5,x-ai/grok-4.7,anthropic/claude-opus-5.5,openai/gpt-6-sol-pro").split(",").map(s => s.trim()).filter(Boolean);
@@ -59,13 +61,13 @@ function ticketLimited(req, res) {
 }
 // Log each exchange to Vercel Blob (one JSON file per UTC day) so the site can show it. Best effort; never blocks the answer.
 async function logAsk(entry) {
-  if (!process.env.BLOB_READ_WRITE_TOKEN) return;
+  if (!BLOB_TOKEN) return;
   try {
     const day = entry.at.slice(0, 10), path = `asks/${day}.json`;
     let arr = [];
-    try { const g = await get(path, { access: "private", useCache: false }); if (g) { arr = JSON.parse(await new Response(g.stream).text()); if (!Array.isArray(arr)) arr = []; } } catch {}
+    try { const g = await get(path, { access: "private", useCache: false, token: BLOB_TOKEN }); if (g) { arr = JSON.parse(await new Response(g.stream).text()); if (!Array.isArray(arr)) arr = []; } } catch {}
     arr.push(entry); if (arr.length > 500) arr = arr.slice(-500);
-    await put(path, JSON.stringify(arr), { access: "private", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json" });
+    await put(path, JSON.stringify(arr), { access: "private", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json", token: BLOB_TOKEN });
   } catch (e) { console.error("logAsk failed:", e.message); }
 }
 let balanceCache = { at: 0, v: null };
