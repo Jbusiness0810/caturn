@@ -1,13 +1,13 @@
 {
   "version": 1,
-  "updatedAt": null,
+  "updatedAt": "2026-09-29T23:24:53.892Z",
   "status": "prelaunch",
   "reason": "no agent yet",
   "energy": 0,
   "agent": null,
   "metrics": {
     "volume24hUsd": null,
-    "fees24hUsd": null,
+    "fees24hUsd": 0,
     "priceUsd": null,
     "marketCapUsd": null,
     "creditOwed": null,
@@ -17,5 +17,32 @@
   },
   "thoughts": [],
   "posts": [],
-  "samples": []
+  "samples": [
+    {
+      "t": 1790644103829,
+      "fees": 0,
+      "vol": null
+    },
+    {
+      "t": 1790666045269,
+      "fees": 0,
+      "vol": null
+    },
+    {
+      "t": 1790691187573,
+      "fees": 0,
+      "vol": null
+    },
+    {
+      "t": 1790710368348,
+      "fees": 0,
+      "vol": null
+    },
+    {
+      "t": 1790724293892,
+      "fees": 0,
+      "vol": null
+    }
+  ],
+  "events": []
 }
