@@ -165,7 +165,7 @@ Write ONE entry as a single JSON object and nothing else: no code fences, no com
     } catch (e) {
       lastErr = e;
       const code = e.body?.error?.code || "";
-      if (e.status === 404 || e.status === 502 || e.status === 503 || /model_not_available|provider/i.test(code)) { log(`model ${model} unavailable (${e.status} ${code}), trying next`); continue; }
+      if (e.status === 404 || e.status === 429 || e.status === 500 || e.status === 502 || e.status === 503 || e.status === 504 || /model_not_available|provider|rate_limit|overloaded|timeout/i.test(code)) { log(`model ${model} unavailable (${e.status} ${code}), trying next`); continue; }
       throw e;
     }
     const text = String(r.choices?.[0]?.message?.content || "");
