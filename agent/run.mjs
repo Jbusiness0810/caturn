@@ -182,15 +182,22 @@ async function postToX(text) {
   const r = await getJSON(`${ORBIO_API}/tools/social.post`, { method: "POST", headers: auth, body: JSON.stringify({
     text, platforms: ["twitter"], max_cost: "0.0250"
   }) });
-  const url = r.platforms?.find(p => p.platformPostUrl)?.platformPostUrl || r.result?.platforms?.find(p => p.platformPostUrl)?.platformPostUrl || null;
-  return { id: r.post_id || r.result?.post_id || null, status: r.status || r.result?.status || "publishing", url, cost: Number(r.cost?.credit || 0.0187) };
+  const plats = r.platforms || r.result?.platforms || [];
+  const url = plats.find(p => p.platformPostUrl)?.platformPostUrl || null;
+  const err = plats.map(p => p.error || p.message || p.errorMessage).find(Boolean) || r.error?.message || null;
+  log("post response:", JSON.stringify(r).slice(0, 400));
+  return { id: r.post_id || r.result?.post_id || null, status: r.status || r.result?.status || "publishing", url, err, cost: Number(r.cost?.credit || 0.0187) };
 }
 async function refreshPostUrls(posts) {
   for (const p of posts.filter(p => p.id && !p.url).slice(-5)) {
     try {
       const r = await getJSON(`${ORBIO_API}/tools/social.post.status`, { method: "POST", headers: auth, body: JSON.stringify({ post_id: p.id, max_cost: "0" }) });
-      const url = r.platforms?.find(x => x.platformPostUrl)?.platformPostUrl || r.result?.platforms?.find(x => x.platformPostUrl)?.platformPostUrl;
+      const plats = r.platforms || r.result?.platforms || [];
+      const url = plats.find(x => x.platformPostUrl)?.platformPostUrl;
       if (url) p.url = url; if (r.status) p.status = r.status;
+      const err = plats.map(x => x.error || x.message || x.errorMessage).find(Boolean);
+      if (err) p.error = String(err).slice(0, 200);
+      if (r.status === "failed") log("post", p.id, "failed:", JSON.stringify(r).slice(0, 400));
     } catch (e) { log("status check failed:", e.message); }
   }
 }
@@ -434,6 +441,7 @@ if (status === "awake") {
           if (p.error) log("post skipped:", p.error);
           else {
             const rec = { at: iso(now), text, id: p.id, url: p.url, status: p.status, cost: Number((p.cost + readCost).toFixed(6)) };
+            if (p.err) rec.error = String(p.err).slice(0, 200);
             if (ctx.replyTo) { rec.kind = "reply"; rec.replyTo = { id: ctx.replyTo.id, handle: ctx.replyTo.handle, name: ctx.replyTo.name, text: ctx.replyTo.text.slice(0, 200), url: ctx.replyTo.url, why: ctx.replyTo.why }; }
             else if (ctx.tagHandle && text.toLowerCase().includes("@" + ctx.tagHandle)) { rec.kind = "tag"; rec.tagged = ctx.tagHandle; }
             feed.posts.push(rec); feed.lastPostThoughtIndex = n;
