@@ -33,7 +33,7 @@ jobs:
           CATURN_FULL_VOLUME_USD: ${{ vars.CATURN_FULL_VOLUME_USD }}
           CATURN_POST_EVERY: ${{ vars.CATURN_POST_EVERY }}
           CATURN_SAY: ${{ github.event.inputs.say }}
-          CATURN_CHECK: ${{ github.event.inputs.check == true && '1' || '' }}
+          CATURN_CHECK: ${{ github.event.inputs.check == 'true' && '1' || '' }}
           LOOP: ${{ (github.event_name == 'schedule' && vars.CATURN_LOOP_TICKS) || '1' }}
         run: |
           git config user.name "caturn-bot"
@@ -44,5 +44,5 @@ jobs:
             node agent/run.mjs
             git add data/feed.json
             git diff --cached --quiet || (git commit -q -m "caturn: tick" && git push -q origin HEAD:master) || true
-            [ "$i" -lt "$n" ] && sleep 1800
+            if [ "$i" -lt "$n" ]; then sleep 1800; fi
           done
