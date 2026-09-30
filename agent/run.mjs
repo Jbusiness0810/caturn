@@ -257,7 +257,7 @@ async function readX(params) {
 // Who is around orbio on X: handles the orbio account mentions, and the bigger accounts mentioning orbio. Cached in the feed.
 async function refreshTagPool(feed) {
   const pool = feed.tagPool || { at: null, handles: [] };
-  if (pool.at && now - Date.parse(pool.at) < TAG_POOL_REFRESH_H * 3600e3) return 0;
+  if (pool.at && pool.v === 2 && now - Date.parse(pool.at) < TAG_POOL_REFRESH_H * 3600e3) return 0; // v2: partners only
   const found = new Map(); let cost = 0;
   try {
     const theirs = await readX({ handle: "orbiodotso", limit: 20 }); cost += theirs.length * 0.00022;
@@ -271,9 +271,9 @@ async function refreshTagPool(feed) {
       const e = found.get(h) || { handle: h, name: "", followers: 0, mentionedByOrbio: 0, posts: 0 }; e.name = t.name; e.followers = Math.max(e.followers, t.followers); e.posts++; found.set(h, e);
     }
     const handles = [...found.values()].filter(h => h.mentionedByOrbio > 0).sort((a, b) => b.mentionedByOrbio - a.mentionedByOrbio).slice(0, 12); // partners orbio names, nothing else
-    feed.tagPool = { at: iso(now), handles };
+    feed.tagPool = { at: iso(now), v: 2, handles };
     log("tag pool:", handles.map(h => "@" + h.handle + (h.mentionedByOrbio ? "*" : "")).join(" ") || "(empty)");
-  } catch (e) { log("tag pool refresh failed:", e.status || "", String(e.message).slice(0, 160)); feed.tagPool = { at: iso(now), handles: pool.handles }; }
+  } catch (e) { log("tag pool refresh failed:", e.status || "", String(e.message).slice(0, 160)); feed.tagPool = { at: iso(now), v: 2, handles: (pool.handles || []).filter(h => h.mentionedByOrbio > 0) }; }
   return cost;
 }
 function tagCandidates(feed) {
