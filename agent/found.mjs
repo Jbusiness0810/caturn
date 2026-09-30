@@ -60,7 +60,7 @@ async function inspect(id) {
 async function findCandidate() {
   if (opts.codeFile) { // local test of the renderer with our own code
     const { readFileSync } = await import("node:fs");
-    return { id: 0, title: "local test", author: "caturn", license: "CC0", url: "", authorUrl: "", code: readFileSync(opts.codeFile, "utf8") };
+    return { id: opts.title ? 1 : 0, title: opts.title || "local test", author: opts.author || "caturn", license: opts.license || "CC0", url: opts.url || "", authorUrl: "", code: readFileSync(opts.codeFile, "utf8") };
   }
   const ids = [...(opts.ids || [])].map(Number).filter(n => n > 0);
   const shuffle = (a) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
@@ -145,7 +145,7 @@ async function render(c) {
         const d = g.getImageData(0, 0, size, size).data; let s = ""; for (let j = 0; j < d.length; j += 0x8000) s += String.fromCharCode.apply(null, d.subarray(j, j + 0x8000)); res.push(btoa(s));
       }
       return res;
-    }, { pngs: frames.map(f => f.toString("base64")), size: SIZE, duotone: opts.duotone !== false, credit: c.id ? `${c.title} · ${c.author} · ${c.license} · openprocessing`.slice(0, 90) : "" });
+    }, { pngs: frames.map(f => f.toString("base64")), size: SIZE, duotone: opts.duotone !== false, credit: c.id ? `${c.title} · ${c.author} · ${c.license}${opts.codeFile ? "" : " · openprocessing"}`.slice(0, 90) : "" });
     // Reject a blank or frozen result.
     const first = Buffer.from(scaled[0], "base64"), last = Buffer.from(scaled[scaled.length - 1], "base64");
     let varSum = 0; for (let j = 0; j < first.length; j += 64) varSum += Math.abs(first[j] - first[first.length - 1 - j]);

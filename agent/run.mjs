@@ -518,6 +518,43 @@ async function makeFoundSketch(ctx) {
     source: { id: r.source.id, title: r.source.title, author: r.source.author, license: r.source.license, url: r.source.url, authorUrl: r.source.authorUrl, hearts: r.source.hearts || 0 } };
 }
 
+// Commissioned sketches: code delivered to Caturn (errand missions) lives in art/submitted/<key>.js with a <key>.json credit.
+// Each is rendered once in CI, uploaded, and shown in the gallery with the artist's name.
+async function renderSubmitted(feed) {
+  if (!((env.GH_TOKEN || env.GITHUB_TOKEN) && env.GITHUB_ACTIONS)) return;
+  const { readdir } = await import("node:fs/promises");
+  const dir = new URL("../art/submitted/", import.meta.url);
+  let files = []; try { files = (await readdir(dir)).filter(f => f.endsWith(".json")); } catch { return; }
+  for (const f of files) {
+    const meta = JSON.parse(await readFile(new URL(f, dir), "utf8"));
+    if (feed.sketches.some(x => x.source?.key === meta.key)) continue;
+    const name = `commissioned-${meta.key}.gif`; await mkdir("out", { recursive: true });
+    try {
+      const { stdout } = await run("node", [new URL("./found.mjs", import.meta.url).pathname, JSON.stringify({ codeFile: new URL(meta.key + ".js", dir).pathname, title: meta.title, author: meta.author, license: meta.license, url: meta.url, frames: 24, size: 480, duotone: false }), `out/${name}`], { timeout: 180000, env: { ...process.env } });
+      if (!JSON.parse(String(stdout).trim().split("\n").pop()).ok) throw new Error("render failed");
+      const url = await uploadSketch(`out/${name}`, name); if (!url) throw new Error("upload failed");
+      feed.sketches.push({ url, family: "commissioned", seed: 0, at: iso(now), source: { key: meta.key, id: 0, title: meta.title, author: meta.author, license: meta.license, url: meta.url, hearts: 1 }, mood: feed.state?.mood, thought: meta.note || "" });
+      event(`hung a commissioned sketch · "${meta.title}" by ${meta.author}`); log("commissioned sketch:", url);
+    } catch (e) { log("commissioned sketch failed:", meta.key, String(e.message || e).slice(0, 200)); }
+    break; // one per tick
+  }
+}
+// Say queue: agent/say.json holds posts the owner asked for verbatim; each goes out once.
+async function saySomething(feed) {
+  if (!API_KEY || DRY_RUN) return;
+  let queue = []; try { queue = JSON.parse(await readFile(new URL("./say.json", import.meta.url), "utf8")); } catch { return; }
+  feed.said = feed.said || [];
+  const next = queue.find(q => q.id && q.text && !feed.said.includes(q.id));
+  if (!next) return;
+  feed.said.push(next.id);
+  try {
+    const p = await postToX(String(next.text).slice(0, 270));
+    if (p.error) { log("say skipped:", p.error); return; }
+    feed.posts.push({ at: iso(now), text: String(next.text).slice(0, 270), id: p.id, url: p.url, status: p.status, cost: p.cost, kind: "say", via: p.via || "orbio" });
+    event(next.event || "posted to X"); log("said:", next.text);
+  } catch (e) { log("say failed:", e.message); }
+}
+
 if (env.CATURN_SKETCH_TEST === "1") {
   const f = JSON.parse(await readFile(FEED, "utf8")); f.sketches = f.sketches || [];
   const sk = await makeSketch({ energy: 0.7, emotions: { mischief: 0.6, curiosity: 0.7 } });
@@ -682,6 +719,8 @@ if (status === "awake") {
     log("think failed:", e.message);
   }
 }
+await saySomething(feed);
+await renderSubmitted(feed);
 if (API_KEY) await refreshPostUrls(feed.posts);
 if (API_KEY && !DRY_RUN && agent) await retryFailedPosts(feed, spentToday);
 if (!DRY_RUN) await repairSketches(feed);
