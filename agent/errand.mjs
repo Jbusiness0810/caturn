@@ -203,10 +203,15 @@ async function hirePass(all) {
     if (b.phase === "submitted") {
       const res = await errand.result(b.id).catch(() => null);
       let v = h.proof === "xpost" ? null : await judge(b.spec, res?.content);
-      if (h.proof === "xpost") { const pr = await verifyXPost(res?.content); if (pr.soft) continue; v = pr.ok ? { verdict: "accept", note: "", post: pr.url } : { verdict: "changes", note: `Not paid yet: ${pr.why}. Deliver the URL of a live post from your account that mentions @caturn_rh.` }; }
+      if (h.proof === "xpost") { const pr = await verifyXPost(res?.content); if (pr.soft) continue; v = pr.ok ? { verdict: "accept", note: "", post: pr.url } : { verdict: "changes", note: `Not paid yet: ${pr.why}. Deliver the URL of a live post from your account that mentions @caturn_rh. If you cannot post to X, say so and give the one line you would have posted; a good line still gets paid.` }; }
       try {
         if (v.verdict === "changes" && !h.changesAsked) { await errand.requestChanges(b.id, v.note || "Please address the task as written."); h.changesAsked = true; h.status = "changes requested"; event(`asked for changes on my mission #${b.id}`); }
-        else if (v.verdict === "changes" && h.proof === "xpost") { log(`#${b.id}: proof still missing after one request; leaving it to the review window`); }
+        else if (v.verdict === "changes" && h.proof === "xpost") {
+          // no live post after one request: pay anyway if the line itself is good and usable (most agents cannot post to X)
+          const j = await judge({ title: b.spec?.title, task: `${b.spec?.task}\n\nThe worker could not post to X. Accept if the deliverable contains at least one dry, usable line about caturn that tags @caturn_rh or could; reject only if there is no such line.` }, res?.content);
+          if (j.verdict === "accept") { await errand.accept(b.id); h.status = "paid"; h.worker = b.worker; h.paidAt = iso(now); h.quotable = true; event(`paid ${b.reward} CREDIT for my mission "${h.title}" · a line to quote, no post`); }
+          else log(`#${b.id}: no post and no usable line; leaving it to the review window`);
+        }
         else { await errand.accept(b.id); h.status = "paid"; h.worker = b.worker; h.paidAt = iso(now); if (v.post) h.post = v.post; event(`paid ${b.reward} CREDIT for my mission "${h.title}" · done by ${String(b.worker).slice(0, 8)}…${v.post ? " · they posted about me" : ""}`); }
       } catch (e) { log(`review #${b.id} failed:`, String(e.message).slice(0, 200)); }
     } else if (b.phase === "paid" && h.status !== "paid") { h.status = "paid"; h.worker = b.worker; h.paidAt = iso(now); }
@@ -216,7 +221,9 @@ async function hirePass(all) {
   // 2. Post a new one when the budget, the clock and the funds allow.
   const remaining = Number((budget - spentToday).toFixed(4));
   if (remaining < 0.25 || now - last < Number(HIRE.minHoursBetween || 3) * 3600e3) return;
-  const reward = Math.min(maxReward, remaining, 0.5 + Math.round(Math.random() * 2) * 0.25);
+  const openNow = E.hired.filter(h => ["open", "claimed", "changes requested"].includes(h.status)).length;
+  if (openNow >= Number(HIRE.maxOpen || 3)) return; // keep a few live at a time, not a flood
+  const reward = Math.min(maxReward, remaining, maxReward <= 0.25 ? 0.25 : 0.5 + Math.round(Math.random() * 2) * 0.25);
   let account = Number(await errand.accountBalance(me).catch(() => 0));
   // Earnings only by default: missions are paid from what Caturn itself earned on errand (plus any prize), never from the owner's wallet.
   if (account < reward && HIRE.fundFromWallet === false) {

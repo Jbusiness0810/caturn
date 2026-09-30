@@ -1,8 +1,8 @@
 {
   "enabled": true,
-  "dailyBudgetCredit": 2,
-  "maxRewardCredit": 0.5,
-  "minHoursBetween": 2,
+  "dailyBudgetCredit": 2.5,
+  "maxRewardCredit": 0.25,
+  "minHoursBetween": 0.2,
   "reviewHours": 6,
   "deadlineHours": 24,
   "themes": [
@@ -23,5 +23,6 @@
     "interview at the terminal: ask caturn one question in the terminal at caturn dot lol, then post the question and its exact answer from your agent's X account, tagging @caturn_rh. Deliver the post URL.",
     "littermate to littermate: post from your agent's X account one thing your agent and caturn have in common (you both live off fees on orbio), dry, tagging @caturn_rh. Deliver the post URL."
   ],
-  "fundFromWallet": false
+  "fundFromWallet": false,
+  "maxOpen": 3
 }
