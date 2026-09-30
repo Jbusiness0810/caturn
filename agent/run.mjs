@@ -321,7 +321,11 @@ async function readRoom(feed) {
 async function findReplyTarget(feed) {
   const answered = new Set(feed.posts.map(p => p.replyTo?.id).filter(Boolean));
   const fresh = (t) => !t.at || now - Date.parse(t.at) < REPLY_MAX_AGE_H * 3600e3;
-  const usable = (t) => t.handle !== OWN_HANDLE && !answered.has(t.id) && fresh(t) && !/^RT @/i.test(t.text) && t.text.replace(/@\w+/g, "").trim().length > 12;
+  // Follow-back farms, "dm us", callout accounts: never worth two cents. A stranger earns an answer with substance and a real following.
+  const spammy = (t) => /follow\s*(me\s*)?back|follow\s+for|dm\s+(us|me)|let'?s\s+talk|collab|check\s+(out\s+)?my|aped my|callout|airdrop|giveaway|whitelist|promo|shill|send\s+me/i.test(t.text) || (/https?:\/\/t\.co/.test(t.text) && t.text.replace(/@\w+|https?:\/\/\S+/g, "").trim().length < 40);
+  const ecoSet = new Set((feed.room?.ecosystem || []).map(e => e.handle).concat(REPLY_ACCOUNTS));
+  const usable = (t) => t.handle !== OWN_HANDLE && !answered.has(t.id) && fresh(t) && !/^RT @/i.test(t.text) && t.text.replace(/@\w+/g, "").trim().length > 12
+    && !spammy(t) && (ecoSet.has(t.handle) || (t.followers >= 300 && t.text.replace(/@\w+/g, "").trim().length >= 40));
   const score = (t) => t.views + t.likes * 20 + t.replies * 30 + t.reposts * 40 + (now - Date.parse(t.at || 0) < 6 * 3600e3 ? 500 : 0); // engagement, with a bonus for being recent
   const lastTo = (h) => Math.max(0, ...feed.posts.filter(p => p.replyTo?.handle === h).map(p => Date.parse(p.at)));
   const pick = (list, why) => { const t = list.filter(usable).sort((a, b) => score(b) - score(a))[0]; return t ? { ...t, why, url: `https://x.com/${t.handle}/status/${t.id}` } : null; };
@@ -329,7 +333,7 @@ async function findReplyTarget(feed) {
   try {
     // 1. Someone talking to Caturn always comes first.
     const mentions = await readX({ mentions_of: OWN_HANDLE }); cost += mentions.length * 0.00022;
-    const m = pick(mentions, "mention"); if (m) return { target: m, cost };
+    const m = pick(mentions.filter(t => ecoSet.has(t.handle) || now - lastTo(t.handle) > 24 * 3600e3), "mention"); if (m) return { target: m, cost };
     // 2. The people who matter: Orbio's founder and the orbio account. Their newest unanswered post, at most once an hour each.
     const order = [...REPLY_ACCOUNTS]; for (let i = feed.posts.length % order.length; i > 0; i--) order.push(order.shift());
     for (const h of order) {
@@ -349,7 +353,7 @@ async function findReplyTarget(feed) {
     // 4. Otherwise the highest-engagement recent post about orbio itself, once per account per gap.
     const around = await readX({ query: "(orbio OR $orbio OR @orbiodotso OR errandboard OR \"robinhood chain\" OR $ctrn) -filter:retweets lang:en", sort: "Top", limit: 20 }); cost += around.length * 0.00022;
     const about = (t) => /orbio|errand|robinhood chain|\$ctrn|caturn/i.test(t.text);
-    const a = pick(around.filter(t => about(t) && now - lastTo(t.handle) > REPLY_SAME_HANDLE_GAP_H * 3600e3 && t.followers >= 50), "search");
+    const a = pick(around.filter(t => about(t) && now - lastTo(t.handle) > REPLY_SAME_HANDLE_GAP_H * 3600e3 && t.followers >= 300), "search");
     if (a) return { target: a, cost };
   } catch (e) { log("reading X failed:", e.status || "", String(e.message).slice(0, 160)); }
   return { target: null, cost };
