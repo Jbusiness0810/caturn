@@ -15,7 +15,7 @@ const MODELS    = (env.CATURN_MODEL || "anthropic/claude-fable-5.1,anthropic/cla
 let MODEL = MODELS[0];
 const DRY_RUN   = env.CATURN_DRY_RUN === "1";
 const FORCE     = env.CATURN_FORCE === "1";      // manual runs: think now, ignoring the pacing timer (budget still applies)
-const POST_INTERVAL_MIN = Number(env.CATURN_POST_INTERVAL_MIN || 30);   // post to X on this clock, whatever the pacing says
+const POST_INTERVAL_MIN = Number(env.CATURN_POST_INTERVAL_MIN || 10);   // post to X on this clock, whatever the pacing says
 const SKETCH_EVERY = Number(env.CATURN_SKETCH_EVERY || 4);              // draw a sketch every Nth thought (0 = never)
 const FOUND_SKETCHES = env.CATURN_FOUND_SKETCHES !== "0";                // every other sketch is an open-licensed p5.js piece found on openprocessing
 const FOUND_ARTISTS = (env.CATURN_FOUND_ARTISTS || "").split(",").map(s => Number(s.trim())).filter(n => n > 0); // openprocessing user ids to draw from first
@@ -25,7 +25,7 @@ const OWN_HANDLE = (env.CATURN_X_HANDLE || "caturn_rh").toLowerCase();
 // People worth tagging now and then. Pinned ones come from CATURN_TAG_HANDLES (comma-separated, no @); the rest Caturn finds on X itself:
 // accounts @orbiodotso mentions, and the larger accounts talking about orbio. Robinhood is the chain Caturn lives on.
 const PINNED_TAG_HANDLES = (env.CATURN_TAG_HANDLES || "robinhoodapp").split(",").map(s => s.trim().replace(/^@/, "").toLowerCase()).filter(Boolean);
-const TAG_EVERY  = Number(env.CATURN_TAG_EVERY || 5);     // tag someone in roughly one post in five (0 = never)
+const TAG_EVERY  = Number(env.CATURN_TAG_EVERY || 8);     // tag someone in roughly one post in five (0 = never)
 const TAG_POOL_REFRESH_H = 12;                            // re-scan X for people around orbio this often
 const REPLY_EVERY = Number(env.CATURN_REPLY_EVERY || 2);  // every Nth post slot looks for something on X to answer (0 = never)
 const REPLY_MAX_AGE_H = 72;                               // only answer posts younger than this
@@ -34,7 +34,7 @@ const NEVER_TAG = new Set(["orbiodotso", "x", "twitter", "elonmusk", "grok"]);
 const MIN_THOUGHTS_PER_DAY  = Number(env.CATURN_MIN_THOUGHTS || 6);
 const MAX_THOUGHTS_PER_DAY  = Number(env.CATURN_MAX_THOUGHTS || 96);   // every 15 minutes at full energy
 const VOLUME_FOR_FULL_ENERGY = Number(env.CATURN_FULL_VOLUME_USD || 50000); // 24h USD volume at which energy = 1
-const DAILY_CREDIT_CAP = Number(env.CATURN_DAILY_CAP || 2);                // CREDIT per UTC day, hard stop
+const DAILY_CREDIT_CAP = Number(env.CATURN_DAILY_CAP || 6);                // CREDIT per UTC day, hard stop
 const FEED = new URL("../data/feed.json", import.meta.url);
 
 const ORBIO_API = "https://api.orbio.so/api/v1";

@@ -31,16 +31,17 @@ jobs:
         with: { node-version: 20 }
       - name: Sketch tooling (playwright drives the runner's Chrome; gifenc encodes)
         run: npm i --no-save --no-audit --no-fund playwright@1.49.1 gifenc@1.0.3
-      - name: Think (loops CATURN_LOOP_TICKS times, 15 min apart, committing after each)
+      - name: Think (loops CATURN_LOOP_TICKS times, CATURN_TICK_MIN apart, committing after each)
         env:
           ORBIO_API_KEY: ${{ secrets.ORBIO_API_KEY }}
           CATURN_AGENT_ID: ${{ vars.CATURN_AGENT_ID || secrets.CATURN_AGENT_ID }}
           CATURN_MODEL: ${{ vars.CATURN_MODEL }}
           CATURN_DAILY_CAP: ${{ vars.CATURN_DAILY_CAP }}
           CATURN_FULL_VOLUME_USD: ${{ vars.CATURN_FULL_VOLUME_USD }}
-          CATURN_POST_INTERVAL_MIN: ${{ vars.CATURN_POST_INTERVAL_MIN }}
+          CATURN_POST_INTERVAL_MIN: "10"                          # a post or reply every 10 minutes (aggressive, for now)
+          CATURN_TICK_MIN: "10"                                    # ticks every 10 minutes, so each tick can post
           CATURN_TAG_HANDLES: ${{ vars.CATURN_TAG_HANDLES }}      # comma-separated handles to tag now and then, on top of what Caturn finds itself
-          CATURN_TAG_EVERY: ${{ vars.CATURN_TAG_EVERY }}          # tag someone in one post in N (default 5)
+          CATURN_TAG_EVERY: ${{ vars.CATURN_TAG_EVERY }}          # tag someone in one post in N (default 8)
           CATURN_REPLY_EVERY: ${{ vars.CATURN_REPLY_EVERY }}      # look for something to answer every N posts (default 2)
           CATURN_FOUND_SKETCHES: ${{ vars.CATURN_FOUND_SKETCHES }} # 0 turns off the openprocessing art experiment
           CATURN_FOUND_ARTISTS: ${{ vars.CATURN_FOUND_ARTISTS }}   # openprocessing user ids to look at first (takawo is 6533)
@@ -60,7 +61,7 @@ jobs:
             node agent/run.mjs
             git add data/feed.json
             git diff --cached --quiet || (git commit -q -m "caturn: tick" && git push -q origin HEAD:master) || true
-            if [ "$i" -lt "$n" ]; then sleep 900; fi
+            if [ "$i" -lt "$n" ]; then sleep "$(( ${CATURN_TICK_MIN:-15} * 60 ))"; fi
           done
       - name: Kick the next loop (needs the KICK_TOKEN secret; a push with GITHUB_TOKEN cannot start workflows)
         if: ${{ always() && github.event.inputs.say == '' }}
