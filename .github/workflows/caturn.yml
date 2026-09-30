@@ -50,6 +50,8 @@ jobs:
           X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
           CATURN_FOUND_SKETCHES: ${{ vars.CATURN_FOUND_SKETCHES }} # 0 turns off the openprocessing art experiment
           CATURN_FOUND_ARTISTS: ${{ vars.CATURN_FOUND_ARTISTS }}   # openprocessing user ids to look at first (takawo is 6533)
+          CATURN_FOUND_CURATORS: ${{ vars.CATURN_FOUND_CURATORS }} # whose hearted sketches to draw from (default takawo, 6533)
+          CATURN_FOUND_MIN_HEARTS: ${{ vars.CATURN_FOUND_MIN_HEARTS }} # a found sketch needs this many hearts (default 12)
           CATURN_FOUND_LICENSES: ${{ vars.CATURN_FOUND_LICENSES }} # default cc0,by,by-sa; add by-nc-sa only if you accept non-commercial terms
           CATURN_SAY: ${{ github.event.inputs.say }}
           KICK_TOKEN: ${{ secrets.KICK_TOKEN }}

@@ -20,6 +20,8 @@ const POST_INTERVAL_MIN = Number(env.CATURN_POST_INTERVAL_MIN || 10);   // post 
 const SKETCH_EVERY = Number(env.CATURN_SKETCH_EVERY || 4);              // draw a sketch every Nth thought (0 = never)
 const FOUND_SKETCHES = env.CATURN_FOUND_SKETCHES !== "0";                // every other sketch is an open-licensed p5.js piece found on openprocessing
 const FOUND_ARTISTS = (env.CATURN_FOUND_ARTISTS || "").split(",").map(s => Number(s.trim())).filter(n => n > 0); // openprocessing user ids to draw from first
+const FOUND_MIN_HEARTS = Number(env.CATURN_FOUND_MIN_HEARTS || 12);        // a found sketch needs this many hearts on openprocessing
+const FOUND_CURATORS = (env.CATURN_FOUND_CURATORS || "6533,65884").split(",").map(s => Number(s.trim())).filter(n => n > 0); // whose hearted sketches to draw from (takawo by default)
 const FOUND_LICENSES = (env.CATURN_FOUND_LICENSES || "cc0,by,by-sa").split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
 const SKETCH_RELEASE = "sketches";                                      // rolling GitHub release that hosts the GIFs
 const OWN_HANDLE = (env.CATURN_X_HANDLE || "caturn_rh").toLowerCase();
@@ -489,12 +491,12 @@ async function makeFoundSketch(ctx) {
   const name = `found-${new Date(now).toISOString().slice(0, 16).replace(/[:T]/g, "-")}-${seed % 10000}.gif`;
   await mkdir("out", { recursive: true });
   const file = `out/${name}`;
-  const { stdout } = await run("node", [new URL("./found.mjs", import.meta.url).pathname, JSON.stringify({ ids, seed, frames: 24, size: 480, probes: 60, attempts: 4, artists: FOUND_ARTISTS, licenses: FOUND_LICENSES }), file], { timeout: 420000, env: { ...process.env } });
+  const { stdout } = await run("node", [new URL("./found.mjs", import.meta.url).pathname, JSON.stringify({ ids, seed, frames: 24, size: 480, probes: 150, attempts: 4, artists: FOUND_ARTISTS, curators: FOUND_CURATORS, licenses: FOUND_LICENSES, minHearts: FOUND_MIN_HEARTS }), file], { timeout: 420000, env: { ...process.env } });
   const r = JSON.parse(String(stdout).trim().split("\n").pop());
   if (!r.ok) throw new Error("no usable sketch found");
   const url = await uploadSketch(file, name);
   return { url, family: "found", seed, file: url ? null : file, at: iso(now), theme, still: !!r.still, cost,
-    source: { id: r.source.id, title: r.source.title, author: r.source.author, license: r.source.license, url: r.source.url, authorUrl: r.source.authorUrl } };
+    source: { id: r.source.id, title: r.source.title, author: r.source.author, license: r.source.license, url: r.source.url, authorUrl: r.source.authorUrl, hearts: r.source.hearts || 0 } };
 }
 
 if (env.CATURN_SKETCH_TEST === "1") {
@@ -513,7 +515,8 @@ feed.events = (feed.events || []).slice(-200);
 const event = (text) => { feed.events.push({ at: iso(now), text }); log("event:", text); };
 const prev = { status: feed.status, energy: feed.energy || 0, reason: feed.reason, gradPct: feed.metrics?.graduationPct, graduated: feed.metrics?.graduated };
 feed.thoughts = (feed.thoughts || []).slice(-300);
-feed.sketches = (feed.sketches || []).filter(s => s.url || s.seed).slice(-60); // one without an address is re-rendered later (see repairSketches); one without a seed is lost
+feed.sketches = (feed.sketches || []).filter(s => s.url || s.seed).filter(s => !s.source || s.source.hearts >= 1).slice(-60); // found pieces from before the quality gate go
+feed.thoughts.forEach(t => { if (t.sketch?.source && !(t.sketch.source.hearts >= 1)) delete t.sketch; }); // one without an address is re-rendered later (see repairSketches); one without a seed is lost
 feed.posts = (feed.posts || []).slice(-150);
 
 const agent = await readAgent();
