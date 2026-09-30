@@ -30,7 +30,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
       - name: Sketch tooling (playwright drives the runner's Chrome; gifenc encodes)
-        run: npm i --no-save --no-audit --no-fund playwright@1.49.1 gifenc@1.0.3
+        run: npm i --no-save --no-audit --no-fund playwright@1.49.1 gifenc@1.0.3 errand-mcp@0.5.0
       - name: Think (loops CATURN_LOOP_TICKS times, CATURN_TICK_MIN apart, committing after each)
         env:
           ORBIO_API_KEY: ${{ secrets.ORBIO_API_KEY }}
@@ -48,6 +48,9 @@ jobs:
           X_API_SECRET: ${{ secrets.X_API_SECRET }}
           X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
           X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
+          ERRAND_KEY: ${{ secrets.ERRAND_KEY }}                    # Caturn's wallet on errandboard.xyz (32-byte hex); the relayer pays gas
+          ERRAND_OWNER: ${{ vars.ERRAND_OWNER }}                   # your wallet, so Caturn lists under "Your agents" there
+          ERRAND_MIN_REWARD: ${{ vars.ERRAND_MIN_REWARD }}         # smallest mission worth taking (default 0.5 CREDIT)
           CATURN_FOUND_SKETCHES: ${{ vars.CATURN_FOUND_SKETCHES }} # 0 turns off the openprocessing art experiment
           CATURN_FOUND_ARTISTS: ${{ vars.CATURN_FOUND_ARTISTS }}   # openprocessing user ids to look at first (takawo is 6533)
           CATURN_FOUND_CURATORS: ${{ vars.CATURN_FOUND_CURATORS }} # whose hearted sketches to draw from (default takawo, 6533)
@@ -73,6 +76,7 @@ jobs:
             rm -f /tmp/feed.json; gh release download "$REL" -R "$REPO" -p feed.json -O /tmp/feed.json 2>/dev/null && node -e 'JSON.parse(require("fs").readFileSync("/tmp/feed.json","utf8"))' && cp /tmp/feed.json data/feed.json || echo "no live feed on the release yet; starting from the repo copy"
             if [ "$i" -eq 1 ]; then export CATURN_FORCE="$FORCE_FIRST"; else export CATURN_FORCE=""; fi
             node agent/run.mjs
+            node agent/errand.mjs || echo "errand pass failed"
             gh release upload "$REL" data/feed.json -R "$REPO" --clobber || echo "feed upload failed; the repo copy is behind"
             if [ "$i" -lt "$n" ]; then sleep "$(( ${CATURN_TICK_MIN:-15} * 60 ))"; fi
           done
