@@ -368,17 +368,18 @@ h1, h2, h3, .display {
 .con-prompt { font-size: 13px; letter-spacing: .04em; color: var(--gold-deep); }
 .con-prompt::after { content: " ~ %"; color: var(--ink-soft); }
 .con-grid { display: grid; gap: 16px; }
-@media (min-width: 960px) { .con-grid { grid-template-columns: 1.5fr 1fr; align-items: start; } }
+@media (min-width: 960px) { .con-grid { grid-template-columns: 1.5fr 1fr; align-items: start; } .con-side { position: sticky; top: 16px; } }
 .con-stream, .con-card { background: var(--bg-raised); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
-.con-side { display: grid; gap: 16px; }
+.con-side, .con-main { display: grid; gap: 16px; align-content: start; }
+@media (min-width: 960px) { .con-main .posts:not(.asks) li { padding: 12px 18px; } }
 .con-bar { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 10px 16px; border-bottom: 1px solid var(--line); font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-soft); }
 .con-legend { display: inline-flex; gap: 10px; }
 .con-legend i { font-style: normal; display: inline-flex; align-items: center; gap: 5px; letter-spacing: .08em; }
 .con-legend i::before { content: ""; width: 6px; height: 6px; border-radius: 50%; }
 .lg-sys::before { background: var(--line); } .lg-think::before { background: var(--ink); } .lg-dream::before { background: var(--gold); opacity: .5; } .lg-post::before { background: var(--gold); }
 
-.stream { list-style: none; margin: 0; padding: 10px 0; min-height: 200px; max-height: 560px; overflow-y: auto; overscroll-behavior: contain; }
-[data-activity-full] .stream { max-height: none; }
+.stream { list-style: none; margin: 0; padding: 10px 0; min-height: 200px; max-height: 460px; overflow-y: auto; overscroll-behavior: contain; }
+[data-activity-full] .stream { max-height: 72vh; }
 .stream li { display: grid; grid-template-columns: 76px 52px 1fr; gap: 12px; padding: 7px 16px; font-size: 13px; line-height: 1.55; align-items: baseline; }
 .stream time { color: var(--gold-deep); font-size: 11px; letter-spacing: .04em; white-space: nowrap; }
 .stream .tag { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); }

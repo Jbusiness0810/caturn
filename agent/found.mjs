@@ -13,7 +13,9 @@ const { GIFEncoder, quantize, applyPalette } = require("gifenc");
 const here = dirname(fileURLToPath(import.meta.url));
 const opts = JSON.parse(process.argv[2] || "{}"), out = process.argv[3] || "found.gif";
 const FRAMES = Number(opts.frames || 24), SIZE = Number(opts.size || 480), FPS = 12, STEPS_PER_FRAME = 2;
-const OK_LICENSES = { "cc0": "CC0", "by": "CC BY", "by-sa": "CC BY-SA" };
+const LICENSE_NAMES = { "cc0": "CC0", "by": "CC BY", "by-sa": "CC BY-SA", "by-nc": "CC BY-NC", "by-nc-sa": "CC BY-NC-SA", "by-nd": "CC BY-ND", "by-nc-nd": "CC BY-NC-ND" };
+// Default: only licences that allow reuse anywhere. Non-commercial ones can be opted into with opts.licenses (the owner's call).
+const OK_LICENSES = Object.fromEntries((opts.licenses || ["cc0", "by", "by-sa"]).map(k => [String(k).toLowerCase(), LICENSE_NAMES[String(k).toLowerCase()] || String(k).toUpperCase()]));
 const API = "https://openprocessing.org/api";
 const NEEDS_ASSETS = /\b(loadImage|loadFont|loadSound|loadJSON|loadStrings|loadTable|loadXML|loadBytes|loadModel|loadShader|createCapture|createVideo|createAudio|httpGet|httpDo|fetch|XMLHttpRequest|WebSocket|importScripts|socket|ml5|tf\.)\b/;
 const NEEDS_INPUT_ONLY = /\bfunction\s+(mousePressed|mouseClicked|keyPressed|touchStarted)\b/;
@@ -56,6 +58,16 @@ async function findCandidate() {
     return { id: 0, title: "local test", author: "caturn", license: "CC0", url: "", authorUrl: "", code: readFileSync(opts.codeFile, "utf8") };
   }
   const ids = [...(opts.ids || [])].map(Number).filter(n => n > 0);
+  // Favourite artists first, about half the time: a few random public sketches of theirs, still licence-checked.
+  const artists = [...(opts.artists || [])].map(Number).filter(n => n > 0);
+  if (artists.length && (opts.preferArtists ?? Math.random() < 0.5)) {
+    const uid = artists[Math.floor(Math.random() * artists.length)];
+    try {
+      const list = (await getJSON(`${API}/user/${uid}/sketches`)).filter(x => x.userID === uid && x.mode === "p5js" && !x.isPrivate && !x.isDraft);
+      for (let i = list.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [list[i], list[j]] = [list[j], list[i]]; }
+      for (const x of list.slice(0, 15)) ids.unshift(x.visualID);
+    } catch (e) { log("artist list failed", uid, e.message); }
+  }
   for (const id of ids) { try { const c = await inspect(id); if (c) return c; } catch (e) { log("skip", id, e.message); } }
   // Random probing: sketch ids are sequential; most of the last few years' ids are p5.js.
   let rnd = Number(opts.seed || Date.now()) % 2147483647;

@@ -43,6 +43,8 @@ jobs:
           CATURN_TAG_EVERY: ${{ vars.CATURN_TAG_EVERY }}          # tag someone in one post in N (default 5)
           CATURN_REPLY_EVERY: ${{ vars.CATURN_REPLY_EVERY }}      # look for something to answer every N posts (default 2)
           CATURN_FOUND_SKETCHES: ${{ vars.CATURN_FOUND_SKETCHES }} # 0 turns off the openprocessing art experiment
+          CATURN_FOUND_ARTISTS: ${{ vars.CATURN_FOUND_ARTISTS }}   # openprocessing user ids to look at first (takawo is 6533)
+          CATURN_FOUND_LICENSES: ${{ vars.CATURN_FOUND_LICENSES }} # default cc0,by,by-sa; add by-nc-sa only if you accept non-commercial terms
           CATURN_SAY: ${{ github.event.inputs.say }}
           KICK_TOKEN: ${{ secrets.KICK_TOKEN }}
           CATURN_CHECK: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}

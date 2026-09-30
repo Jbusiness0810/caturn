@@ -265,11 +265,30 @@
         </div>
 
         <div class="con-grid">
+          <div class="con-main">
           <section class="con-stream" aria-label="Agent stream">
             <div class="con-bar"><span>stream</span><span class="con-legend"><i class="lg-sys">sys</i><i class="lg-think">think</i><i class="lg-dream">dream</i><i class="lg-post">post</i></span></div>
             <ol class="stream" data-stream></ol>
             <div class="con-cursor" data-cursor>waiting for launch</div>
           </section>
+
+
+            <section class="con-card" aria-label="Sketches">
+              <div class="con-bar"><span>sketches</span><span data-sketch-count>0</span></div>
+              <div class="gallery" data-gallery></div>
+            </section>
+
+            <section class="con-card" aria-label="Asks">
+              <div class="con-bar"><span>asked at the terminal</span><span data-asks-count>0</span></div>
+              <ol class="posts asks" data-log-asks></ol>
+            </section>
+
+            <section class="con-card" aria-label="Posts">
+              <div class="con-bar"><span>posted to X</span><span data-posts-count>0</span></div>
+              <ol class="posts" data-log-posts></ol>
+              <p class="log-more"><a class="textlink" href="/activity">Open the full console</a></p>
+            </section>
+          </div>
 
           <aside class="con-side">
             <section class="con-card energy" aria-label="Energy">
@@ -329,22 +348,6 @@
                 <div><dt>market cap</dt><dd data-m-mcap>—</dd></div>
                 <div><dt>uptime</dt><dd data-m-uptime>—</dd></div>
               </dl>
-            </section>
-
-            <section class="con-card" aria-label="Sketches">
-              <div class="con-bar"><span>sketches</span><span data-sketch-count>0</span></div>
-              <div class="gallery" data-gallery></div>
-            </section>
-
-            <section class="con-card" aria-label="Asks">
-              <div class="con-bar"><span>asked at the terminal</span><span data-asks-count>0</span></div>
-              <ol class="posts asks" data-log-asks></ol>
-            </section>
-
-            <section class="con-card" aria-label="Posts">
-              <div class="con-bar"><span>posted to X</span><span data-posts-count>0</span></div>
-              <ol class="posts" data-log-posts></ol>
-              <p class="log-more"><a class="textlink" href="/activity">Open the full console</a></p>
             </section>
           </aside>
         </div>

@@ -18,6 +18,8 @@ const FORCE     = env.CATURN_FORCE === "1";      // manual runs: think now, igno
 const POST_INTERVAL_MIN = Number(env.CATURN_POST_INTERVAL_MIN || 30);   // post to X on this clock, whatever the pacing says
 const SKETCH_EVERY = Number(env.CATURN_SKETCH_EVERY || 4);              // draw a sketch every Nth thought (0 = never)
 const FOUND_SKETCHES = env.CATURN_FOUND_SKETCHES !== "0";                // every other sketch is an open-licensed p5.js piece found on openprocessing
+const FOUND_ARTISTS = (env.CATURN_FOUND_ARTISTS || "").split(",").map(s => Number(s.trim())).filter(n => n > 0); // openprocessing user ids to draw from first
+const FOUND_LICENSES = (env.CATURN_FOUND_LICENSES || "cc0,by,by-sa").split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
 const SKETCH_RELEASE = "sketches";                                      // rolling GitHub release that hosts the GIFs
 const OWN_HANDLE = (env.CATURN_X_HANDLE || "caturn_rh").toLowerCase();
 // People worth tagging now and then. Pinned ones come from CATURN_TAG_HANDLES (comma-separated, no @); the rest Caturn finds on X itself:
@@ -393,7 +395,7 @@ async function makeFoundSketch(ctx) {
   const name = `found-${new Date(now).toISOString().slice(0, 16).replace(/[:T]/g, "-")}-${seed % 10000}.gif`;
   await mkdir("out", { recursive: true });
   const file = `out/${name}`;
-  const { stdout } = await run("node", [new URL("./found.mjs", import.meta.url).pathname, JSON.stringify({ ids, seed, frames: 24, size: 480, probes: 60, attempts: 4 }), file], { timeout: 420000, env: { ...process.env } });
+  const { stdout } = await run("node", [new URL("./found.mjs", import.meta.url).pathname, JSON.stringify({ ids, seed, frames: 24, size: 480, probes: 60, attempts: 4, artists: FOUND_ARTISTS, licenses: FOUND_LICENSES }), file], { timeout: 420000, env: { ...process.env } });
   const r = JSON.parse(String(stdout).trim().split("\n").pop());
   if (!r.ok) throw new Error("no usable sketch found");
   const url = await uploadSketch(file, name);
