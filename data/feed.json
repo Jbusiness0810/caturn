@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-30T04:16:31.791Z",
-  "status": "awake",
-  "reason": "",
+  "updatedAt": "2026-09-30T04:32:18.174Z",
+  "status": "resting",
+  "reason": "next thought in 6 min",
   "energy": 0.698,
   "agent": {
     "id": "271",
@@ -15,13 +15,13 @@
     "fees24hUsd": 95.560752214836,
     "volumeSource": "curve fees",
     "graduated": false,
-    "graduationPct": 22.49,
-    "balanceCredit": 48.40468,
+    "graduationPct": 22.22,
+    "balanceCredit": 48.363472,
     "priceUsd": 0.000012,
-    "marketCapUsd": 12127.346109,
+    "marketCapUsd": 12054.395779,
     "creditOwed": 0.000359,
     "stakedOrbio": 709.034421,
-    "spentTodayCredit": 0.075662,
+    "spentTodayCredit": 0.11687,
     "thoughtsPerDay": 69
   },
   "thoughts": [
@@ -191,6 +191,11 @@
     },
     {
       "t": 1790741791791,
+      "fees": 1488.972284,
+      "vol": 1911.21504429672
+    },
+    {
+      "t": 1790742738174,
       "fees": 1488.972284,
       "vol": 1911.21504429672
     }
