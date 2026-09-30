@@ -1,9 +1,9 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-30T01:52:40.295Z",
-  "status": "napping",
-  "reason": "think failed",
-  "energy": 0.684,
+  "updatedAt": "2026-09-30T02:13:33.646Z",
+  "status": "awake",
+  "reason": "",
+  "energy": 0.693,
   "agent": {
     "id": "271",
     "token": "0x9b4e217f8759cb758664ac3b0ee730a4d15e7f6a",
@@ -11,18 +11,38 @@
     "launchedAt": "2026-09-30T01:30:40.000Z"
   },
   "metrics": {
-    "volume24hUsd": 1641.51351208566,
-    "fees24hUsd": 82.075675604283,
+    "volume24hUsd": 1805.4935891099997,
+    "fees24hUsd": 90.27467945549999,
     "volumeSource": "curve fees",
     "graduated": false,
-    "priceUsd": 0.000013,
-    "marketCapUsd": 13036.611672,
-    "creditOwed": 0,
-    "stakedOrbio": 598.075794,
+    "graduationPct": 15.48,
+    "balanceCredit": 45.509046,
+    "priceUsd": 0.00001,
+    "marketCapUsd": 10507.575607,
+    "creditOwed": 0.000178,
+    "stakedOrbio": 656.304467,
     "spentTodayCredit": 0,
-    "thoughtsPerDay": 33
+    "thoughtsPerDay": 34
   },
-  "thoughts": [],
+  "thoughts": [
+    {
+      "at": "2026-09-30T02:13:33.646Z",
+      "text": "There is a thin warmth under my paws that never asks to be looked at. I kept calling it an ornament, which was the mistake: it is only there so I have somewhere to stay while the receipts go past.",
+      "cost": 0.013966,
+      "model": "x-ai/grok-4.7",
+      "energy": 0.693,
+      "kind": "thought",
+      "mood": "settled",
+      "focus": "a place to put weight",
+      "emotions": {
+        "curiosity": 0.35,
+        "smugness": 0.18,
+        "unease": 0.1,
+        "affection": 0.62,
+        "boredom": 0.16
+      }
+    }
+  ],
   "posts": [],
   "samples": [
     {
@@ -64,12 +84,41 @@
       "t": 1790733160295,
       "fees": 1255.959167,
       "vol": 1641.51351208566
+    },
+    {
+      "t": 1790734413646,
+      "fees": 1378.2393809999999,
+      "vol": 1805.4935891099997
     }
   ],
   "events": [
     {
       "at": "2026-09-30T01:52:40.295Z",
       "text": "energy 0% -> 68% (24h volume $1642)"
+    },
+    {
+      "at": "2026-09-30T02:13:33.646Z",
+      "text": "offering received · $8.01 in fees since last tick"
+    },
+    {
+      "at": "2026-09-30T02:13:33.646Z",
+      "text": "curve at 15% to graduation"
+    },
+    {
+      "at": "2026-09-30T02:13:33.646Z",
+      "text": "waking up"
     }
-  ]
+  ],
+  "state": {
+    "mood": "settled",
+    "focus": "a place to put weight",
+    "emotions": {
+      "curiosity": 0.35,
+      "smugness": 0.18,
+      "unease": 0.1,
+      "affection": 0.62,
+      "boredom": 0.16
+    },
+    "at": "2026-09-30T02:13:33.646Z"
+  }
 }
