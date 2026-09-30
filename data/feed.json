@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-30T15:03:39.084Z",
-  "status": "awake",
-  "reason": "",
+  "updatedAt": "2026-09-30T15:18:56.031Z",
+  "status": "resting",
+  "reason": "next thought in 6 min",
   "energy": 0.7,
   "agent": {
     "id": "271",
@@ -11,17 +11,17 @@
     "launchedAt": "2026-09-30T01:30:40.000Z"
   },
   "metrics": {
-    "volume24hUsd": 1952.0961454893798,
-    "fees24hUsd": 97.604807274469,
+    "volume24hUsd": 1945.6609803303197,
+    "fees24hUsd": 97.28304901651599,
     "volumeSource": "curve fees",
     "graduated": false,
     "graduationPct": 14.34,
-    "balanceCredit": 50.710488,
+    "balanceCredit": 50.658816,
     "priceUsd": 0.000009,
-    "marketCapUsd": 9512.582081,
-    "creditOwed": 0.002515,
+    "marketCapUsd": 9481.289503,
+    "creditOwed": 0.002606,
     "stakedOrbio": 762.279692,
-    "spentTodayCredit": 0.312616,
+    "spentTodayCredit": 0.364288,
     "thoughtsPerDay": 69
   },
   "thoughts": [
@@ -483,6 +483,11 @@
       "t": 1790780619084,
       "fees": 1600.787353,
       "vol": 1952.0961454893798
+    },
+    {
+      "t": 1790781536031,
+      "fees": 1600.787353,
+      "vol": 1945.6609803303197
     }
   ],
   "events": [
@@ -570,5 +575,6 @@
     },
     "at": "2026-09-30T15:03:39.084Z"
   },
-  "lastPostThoughtIndex": 10
+  "lastPostThoughtIndex": 10,
+  "sketches": []
 }
