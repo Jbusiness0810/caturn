@@ -28,7 +28,8 @@ const OWN_HANDLE = (env.CATURN_X_HANDLE || "caturn_rh").toLowerCase();
 // People worth tagging now and then. Pinned ones come from CATURN_TAG_HANDLES (comma-separated, no @); the rest Caturn finds on X itself:
 // accounts @orbiodotso mentions, and the larger accounts talking about orbio. Robinhood is the chain Caturn lives on.
 const PINNED_TAG_HANDLES = (env.CATURN_TAG_HANDLES || "").split(",").map(s => s.trim().replace(/^@/, "").toLowerCase()).filter(Boolean);
-const TAG_EVERY  = Number(env.CATURN_TAG_EVERY || 8);     // tag someone in roughly one post in five (0 = never)
+const TAG_EVERY  = Number(env.CATURN_TAG_EVERY || 8);
+const CA_EVERY   = Number(env.CATURN_CA_EVERY || 6);     // append the real contract address to one post in N (0 = never)     // tag someone in roughly one post in five (0 = never)
 const TAG_POOL_REFRESH_H = 12;                            // re-scan X for people around orbio this often
 const REPLY_EVERY = Number(env.CATURN_REPLY_EVERY || 2);  // every Nth post slot looks for something on X to answer (0 = never)
 const REPLY_MAX_AGE_H = 72;                               // only answer posts younger than this
@@ -411,7 +412,8 @@ const replyOnX = (text, inReplyToId) => postOnX(text, { replyTo: inReplyToId });
 function cleanPost(text, ctx, feed) {
   if (!text) return null;
   let t = String(text).replace(/\s+/g, " ").trim();
-  if (/https?:\/\/|www\.|0x[a-f0-9]{40}/i.test(t)) return null;
+  if (/https?:\/\/|www\./i.test(t)) return null;
+  for (const m of t.matchAll(/0x[a-f0-9]{40}/gi)) if (m[0].toLowerCase() !== AGENT_ID.toLowerCase()) return null; // only the real contract, never another address
   const extra = new Set([ctx.replyTo?.handle, ctx.tagHandle].filter(Boolean));
   const handles = [...t.matchAll(/@(\w{1,15})/g)].map(m => m[1].toLowerCase());
   for (const h of handles) if (!allowedHandle(h, feed) && !extra.has(h)) t = t.replace(new RegExp("@" + h + "\\b", "ig"), h); // strangers become plain words
@@ -772,11 +774,13 @@ if (status === "awake") {
             try { const g = await (await fetch(ctx.shareSketch.url)).arrayBuffer(); mediaIds = [await uploadMediaX(Buffer.from(g))]; ctx.shareSketch.shared = iso(now); }
             catch (e) { log("sketch upload to X failed:", String(e.message).slice(0, 160)); }
           }
-          const outText = mediaIds.length && ctx.shareSketch?.family === "sky" ? `${text} caturn.lol/sky` : text;
-          const p = ctx.replyTo && X_API ? await replyOnX(text, ctx.replyTo.id) : mediaIds.length ? await postOnX(outText, { mediaIds }) : await postToX(text);
+          const withCA = CA_EVERY > 0 && !ctx.replyTo && feed.posts.length % CA_EVERY === CA_EVERY - 1 && !text.toLowerCase().includes(AGENT_ID.toLowerCase());
+          const text2 = withCA ? `${text}\n\nca: ${AGENT_ID}` : text;
+          const outText = mediaIds.length && ctx.shareSketch?.family === "sky" ? `${text2} caturn.lol/sky` : text2;
+          const p = ctx.replyTo && X_API ? await replyOnX(text, ctx.replyTo.id) : mediaIds.length ? await postOnX(outText, { mediaIds }) : await postToX(text2);
           if (p.error) log("post skipped:", p.error);
           else {
-            const rec = { at: iso(now), text: mediaIds.length && ctx.shareSketch?.family === "sky" ? `${text} caturn.lol/sky` : text, id: p.id, url: p.url, status: p.status, cost: Number((p.cost + readCost).toFixed(6)), via: p.via || "orbio" };
+            const rec = { at: iso(now), text: outText, id: p.id, url: p.url, status: p.status, cost: Number((p.cost + readCost).toFixed(6)), via: p.via || "orbio" };
             if (p.err) rec.error = String(p.err).slice(0, 200);
             if (mediaIds.length) { rec.kind = "sketch"; rec.sketch = { url: ctx.shareSketch.url, family: ctx.shareSketch.family, source: ctx.shareSketch.source || null }; }
             if (ctx.replyTo) { rec.kind = "reply"; rec.threaded = !!X_API; rec.replyTo = { id: ctx.replyTo.id, handle: ctx.replyTo.handle, name: ctx.replyTo.name, text: ctx.replyTo.text.slice(0, 200), url: ctx.replyTo.url, why: ctx.replyTo.why }; }
