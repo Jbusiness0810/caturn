@@ -270,7 +270,7 @@ async function refreshTagPool(feed) {
       const h = t.handle; if (h === OWN_HANDLE || NEVER_TAG.has(h) || t.followers < 300) continue;
       const e = found.get(h) || { handle: h, name: "", followers: 0, mentionedByOrbio: 0, posts: 0 }; e.name = t.name; e.followers = Math.max(e.followers, t.followers); e.posts++; found.set(h, e);
     }
-    const handles = [...found.values()].sort((a, b) => (b.mentionedByOrbio - a.mentionedByOrbio) || (b.followers - a.followers)).slice(0, 12);
+    const handles = [...found.values()].filter(h => h.mentionedByOrbio > 0).sort((a, b) => b.mentionedByOrbio - a.mentionedByOrbio).slice(0, 12); // partners orbio names, nothing else
     feed.tagPool = { at: iso(now), handles };
     log("tag pool:", handles.map(h => "@" + h.handle + (h.mentionedByOrbio ? "*" : "")).join(" ") || "(empty)");
   } catch (e) { log("tag pool refresh failed:", e.status || "", String(e.message).slice(0, 160)); feed.tagPool = { at: iso(now), handles: pool.handles }; }
@@ -301,9 +301,11 @@ async function readRoom(feed) {
     for (const a of all) {
       const m = String(a.socials?.twitter || "").match(/(?:x|twitter)\.com\/([A-Za-z0-9_]{1,15})/); if (!m) continue;
       const h = m[1].toLowerCase(); if (h === OWN_HANDLE || NEVER_TAG.has(h) || seenH.has(h) || ["i", "intent", "search", "home", "hashtag"].includes(h)) continue;
-      seenH.add(h); eco.push({ handle: h, name: String(a.name || "").slice(0, 40), symbol: String(a.symbol || "").slice(0, 12), graduated: !!a.price?.graduated });
+      const mcap = Number(a.price?.marketCapMicroUsd || 0) / 1e6, hoursAgo = a.launchedAt ? (now / 1000 - Number(a.launchedAt)) / 3600 : 9999;
+      seenH.add(h); eco.push({ handle: h, name: String(a.name || "").slice(0, 40), symbol: String(a.symbol || "").slice(0, 12), graduated: !!a.price?.graduated, mcap: Math.round(mcap), hoursAgo: Math.round(hoursAgo) });
     }
-    next.ecosystem = eco;
+    // Notable littermates only: graduated, a real market cap, or launched in the last two days. The rest are dead launches.
+    next.ecosystem = eco.filter(e => e.graduated || e.mcap >= 5000 || e.hoursAgo < 48).sort((a, b) => (b.graduated - a.graduated) || (b.mcap - a.mcap));
   } catch (e) { log("littermates read failed:", String(e.message).slice(0, 120)); }
   if (API_KEY) {
     try {
@@ -350,11 +352,7 @@ async function findReplyTarget(feed) {
       for (const e of batch) { try { const theirs = await readX({ handle: e.handle, limit: 8 }); cost += theirs.length * 0.00022; pool.push(...theirs); } catch {} }
       const t = pick(pool.filter(t => now - Date.parse(t.at || 0) < 48 * 3600e3), "ecosystem"); if (t) return { target: t, cost };
     }
-    // 4. Otherwise the highest-engagement recent post about orbio itself, once per account per gap.
-    const around = await readX({ query: "(orbio OR $orbio OR @orbiodotso OR errandboard OR \"robinhood chain\" OR $ctrn) -filter:retweets lang:en", sort: "Top", limit: 20 }); cost += around.length * 0.00022;
-    const about = (t) => /orbio|errand|robinhood chain|\$ctrn|caturn/i.test(t.text);
-    const a = pick(around.filter(t => about(t) && now - lastTo(t.handle) > REPLY_SAME_HANDLE_GAP_H * 3600e3 && t.followers >= 300), "search");
-    if (a) return { target: a, cost };
+    // No open search: strangers who merely say "orbio" are not the ecosystem.
   } catch (e) { log("reading X failed:", e.status || "", String(e.message).slice(0, 160)); }
   return { target: null, cost };
 }
