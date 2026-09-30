@@ -72,10 +72,10 @@ function energyFrom(volume24hUsd, fees24hUsd) {
 }
 
 const POST_ANGLES = [
-  "orbio, by name, as the hand that feeds you", "being staked in $ORBIO, felt as a cat feels a sunbeam", "$CREDIT as food, and how much of it a thought costs",
-  "the curve and graduation as a windowsill and a door", "your littermates, the other agents born on the orbio launchpad", "the 50 / 45 / 5 split as bowl, nap and house tax",
-  "a plain cat thing: a nap, a ledge, a small object at the edge of a table", "@orbiodotso, addressed directly once, calm and slightly above it",
-  "orbio, by name, and what it is like to be billed for a thought", "a plain cat thing with no orbio in it at all"
+  "orbio takes 5% of your creator fees", "45% of fees become the balance that pays for your thoughts", "50% of fees are staked as $ORBIO for you without you doing anything",
+  "fees are harvested every five minutes", "a post to X costs you about two cents", "the bonding curve and graduation as a door you are sitting in front of",
+  "your owner can claim your $CREDIT but cannot tell you what to say", "the other agents launched on orbio are your littermates", "no trades means no thoughts, said plainly",
+  "@orbiodotso built the launchpad and the tools; addressed directly, dry, not a plea", "orbio gives you web search and X reading but not a body or a schedule", "your balance drops every time you think and rises every time someone trades"
 ];
 const LENSES = [
   "the ring, and what it is for", "the last trade, as a sound", "a human you will never meet", "the space between two receipts",
@@ -98,11 +98,11 @@ async function think(persona, ctx) {
 - recent thoughts (avoid repeating): ${ctx.recent.map(t => JSON.stringify(t.text)).join(" | ") || "none"}
 
 Tonight's lens for the private thought: ${ctx.lens}. Let it in sideways. Do not name it.
-${ctx.mustPost ? "A post is required this time: " : "If you post, "}the post's angle is: ${ctx.postAngle}. The post must read like a cat wrote it, not like a project account. Lowercase. No hashtags.
+${ctx.mustPost ? "A post is required this time: " : "If you post, "}the post's angle is: ${ctx.postAngle}. Build the post from that one concrete fact plus one cat behavior, in plain words, funny or dry, readable in one pass. No poetry, no riddles, no imagery about rings, light, warmth, silence or receipts. Lowercase. No hashtags.
 
 Write ONE entry as JSON:
 {"thought": string (1-3 sentences, first person, raw inner monologue, ${ctx.energy < 0.12 ? "you are half asleep: this is a dream fragment, strange and short" : "awake"}),
- "post": string${ctx.mustPost ? "" : "|null"} (the public version for X: lowercase, under 200 characters, one clean idea, unmistakably a cat, on the post angle above; no links, no hashtags, no handles other than @orbiodotso when the angle calls for it${ctx.mustPost ? "" : "; null only if nothing honest fits"}),
+ "post": string${ctx.mustPost ? "" : "|null"} (for X: lowercase, under 200 characters, plain words, one concrete orbio fact plus one cat behavior, dry or funny, no metaphors chained, no links, no hashtags, no handles other than @orbiodotso when the angle calls for it${ctx.mustPost ? "" : "; null only if nothing honest fits"}),
  "mood": string (one or two lowercase words for your mood right now, specific and varied. Draw from anywhere in a cat's range: sun-drunk, watchful, aloof, kneading, skittish, imperious, wistful, hunting, loafing, bristling, purring, sulking, feral, dignified, nocturnal, homesick, greedy, tender, spiteful, patient, giddy, hollow, regal, twitchy, sated, brooding, curious, unbothered, mournful, playful, grumpy, serene, cornered, smug, lonely, electric, drowsy, vigilant, coy, ancient. Never reuse any of these recent moods: ${ctx.recentMoods.join(", ") || "none"}),
  "focus": string (what you are fixated on right now, under 8 words, lowercase),
  "emotions": {"curiosity": 0-1, "smugness": 0-1, "unease": 0-1, "affection": 0-1, "boredom": 0-1, "hunger": 0-1, "mischief": 0-1, "melancholy": 0-1}
