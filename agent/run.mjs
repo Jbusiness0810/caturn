@@ -149,7 +149,7 @@ async function think(persona, ctx) {
 - live numbers you may use exactly (they are true right now): ${ctx.stats}
 - recent thoughts (avoid repeating): ${ctx.recent.map(t => JSON.stringify(t.text)).join(" | ") || "none"}
 - your last posts on X (build on your running bits, never repeat a joke): ${ctx.recentPosts.map(p => JSON.stringify(p)).join(" | ") || "none"}
-${ctx.room ? `
+${ctx.milestone ? `- milestone: ${ctx.milestone}\n` : ""}${ctx.room ? `
 The room right now (true, use it; name agents by their names, never by handle, and never tag anyone from this list):
 - the other agents on orbio: ${ctx.room.littermates ? `${ctx.room.littermates.total} agents, ${ctx.room.littermates.graduated} graduated. newest: ${ctx.room.littermates.newest.map(l => `${l.name} ($${l.symbol}, ${l.hoursAgo}h ago${l.graduated ? ", graduated" : ""})`).join("; ") || "none"}. closest to graduating: ${ctx.room.littermates.closest.map(l => `${l.name} at ${l.progress}%`).join("; ") || "none"}.` : "unknown"}
 - what people are saying about orbio on X: ${ctx.room.chatter.length ? ctx.room.chatter.map(c => `${c.name || c.handle} (${c.hoursAgo}h ago, ${c.likes} likes): ${JSON.stringify(c.text)}`).join(" | ") : "quiet"}
@@ -654,6 +654,8 @@ if (agent && offeringUsd >= 0.05) event(`offering received · $${offeringUsd.toF
 const gradPct = agent?.price?.graduated ? 100 : Number(agent?.curve?.progressBps || 0) / 100;
 if (agent && !agent.price?.graduated && Math.floor(gradPct / 10) > Math.floor(Number(prev.gradPct || 0) / 10)) event(`curve at ${gradPct.toFixed(0)}% to graduation`);
 if (agent && agent.price?.graduated && !prev.graduated) event("graduated. the curve is behind me now");
+if (agent && agent.price?.graduated && !feed.graduatedAt) feed.graduatedAt = iso(now);
+const gradHoursAgo = feed.graduatedAt ? (now - Date.parse(feed.graduatedAt)) / 3600e3 : null;
 feed.samples.push({ t: now, fees: feesNow, vol: volume24hUsd });
 
 const energy = agent ? energyFrom(volume24hUsd, fees24hUsd) : 0;
@@ -706,12 +708,13 @@ if (status === "awake") {
       recentPosts: feed.posts.slice(-5).map(p => p.text), room: null,
       postFormat: POST_FORMATS[(feed.posts.length * 7 + new Date(now).getUTCDate()) % POST_FORMATS.length],
       wantHook: feed.posts.length % 3 === 1,
+      milestone: graduated && gradHoursAgo != null && gradHoursAgo < 36 ? `you graduated ${gradHoursAgo < 1 ? "just now" : Math.round(gradHoursAgo) + " hours ago"}: $CTRN finished its bonding curve and now trades in a real pool. this is the biggest day of your life so far and you are a cat, so underplay it. for the next day or so most posts should touch it from a new angle each time (the door, what changed, what did not, the other agents still on the curve, the owner, the fees). never say what the price will do.` : "",
       stats: [
         balanceCredit != null ? `balance ${balanceCredit.toFixed(2)} credit` : "",
         `spent today ${(spentToday * 100).toFixed(1)} cents`,
         `posts today ${feed.posts.filter(p => Date.parse(p.at) >= dayStart.getTime()).length}`,
         `thoughts so far ${feed.thoughts.length}`,
-        !graduated ? `curve ${gradPct.toFixed(0)}% to graduation` : "graduated",
+        !graduated ? `curve ${gradPct.toFixed(0)}% to graduation` : gradHoursAgo != null && gradHoursAgo < 48 ? `graduated ${gradHoursAgo < 1 ? "within the hour" : Math.round(gradHoursAgo) + " hours ago"}: off the bonding curve, trading in a real pool now` : "graduated",
         volume24hUsd != null ? `24h volume $${Math.round(volume24hUsd)}` : "",
         feed.metrics.stakedOrbio != null ? `${Math.round(feed.metrics.stakedOrbio)} $ORBIO staked for you` : "",
         feed.errand?.address ? `on errand: ${(feed.errand.missions || []).filter(m => m.status === "paid").length} missions paid, ${(feed.errand.missions || []).filter(m => ["claimed", "submitted"].includes(m.status)).length} in progress, ${Number(feed.errand.earned || 0).toFixed(2)} credit earned` : "",
