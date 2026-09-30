@@ -85,6 +85,15 @@ const LENSES = [
 ];
 
 // ---------- 3. Think and post through Orbio ----------
+function parseThought(text) {
+  let t = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim();
+  try { const o = JSON.parse(t); return o && typeof o === "object" ? o : null; } catch {}
+  const m = t.match(/\{[\s\S]*\}/); if (m) { try { const o = JSON.parse(m[0]); return o && typeof o === "object" ? o : null; } catch {} }
+  // Truncated JSON: salvage the strings that did close.
+  const grab = (k) => { const mm = t.match(new RegExp('"' + k + '"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"')); if (!mm) return null; try { return JSON.parse('"' + mm[1] + '"'); } catch { return mm[1]; } };
+  const thought = grab("thought"); if (!thought) return null;
+  return { thought, post: grab("post"), mood: grab("mood"), focus: grab("focus") };
+}
 async function think(persona, ctx) {
   const messages = [
     { role: "system", content: persona },
@@ -100,7 +109,7 @@ async function think(persona, ctx) {
 Tonight's lens for the private thought: ${ctx.lens}. Let it in sideways. Do not name it.
 ${ctx.mustPost ? "A post is required this time: " : "If you post, "}the post's angle is: ${ctx.postAngle}. Build the post from that one concrete fact plus one cat behavior, in plain words, funny or dry, readable in one pass. No poetry, no riddles, no imagery about rings, light, warmth, silence or receipts. Lowercase. No hashtags.
 
-Write ONE entry as JSON:
+Write ONE entry as a single JSON object and nothing else: no code fences, no commentary before or after. Keep "thought" under 60 words and "post" under 200 characters.
 {"thought": string (1-3 sentences, first person, raw inner monologue, ${ctx.energy < 0.12 ? "you are half asleep: this is a dream fragment, strange and short" : "awake"}),
  "post": string${ctx.mustPost ? "" : "|null"} (for X: lowercase, under 200 characters, plain words, one concrete orbio fact plus one cat behavior, dry or funny, no metaphors chained, no links, no hashtags, no handles other than @orbiodotso when the angle calls for it${ctx.mustPost ? "" : "; null only if nothing honest fits"}),
  "mood": string (one or two lowercase words for your mood right now, specific and varied. Draw from anywhere in a cat's range: sun-drunk, watchful, aloof, kneading, skittish, imperious, wistful, hunting, loafing, bristling, purring, sulking, feral, dignified, nocturnal, homesick, greedy, tender, spiteful, patient, giddy, hollow, regal, twitchy, sated, brooding, curious, unbothered, mournful, playful, grumpy, serene, cornered, smug, lonely, electric, drowsy, vigilant, coy, ancient. Never reuse any of these recent moods: ${ctx.recentMoods.join(", ") || "none"}),
@@ -108,26 +117,28 @@ Write ONE entry as JSON:
  "emotions": {"curiosity": 0-1, "smugness": 0-1, "unease": 0-1, "affection": 0-1, "boredom": 0-1, "hunger": 0-1, "mischief": 0-1, "melancholy": 0-1}
    (hunger is how much you want fees and thoughts right now; mischief is the urge to knock something off the edge; melancholy is the old, quiet kind. Let them move: ${ctx.emotionHints})}` }
   ];
-  let r, lastErr;
+  let r, lastErr, out = null;
   for (const model of MODELS) {
-    const body = { model, messages, max_tokens: 400, temperature: 1.0 };
+    const body = { model, messages, max_tokens: 900, temperature: 1.0 };
     try {
       try { r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ ...body, response_format: { type: "json_object" } }) }); }
       catch (e) { if (e.status === 400) r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify(body) }); else throw e; }
-      MODEL = model; break;
     } catch (e) {
       lastErr = e;
       const code = e.body?.error?.code || "";
       if (e.status === 404 || e.status === 502 || e.status === 503 || /model_not_available|provider/i.test(code)) { log(`model ${model} unavailable (${e.status} ${code}), trying next`); continue; }
       throw e;
     }
+    const text = String(r.choices?.[0]?.message?.content || "");
+    const finish = r.choices?.[0]?.finish_reason || "";
+    log("usage:", JSON.stringify(r.usage || null).slice(0, 160), "finish:", finish);
+    out = parseThought(text);
+    if (out && out.thought) { MODEL = model; break; }
+    log(`model ${model} returned unusable output (${finish}, ${text.length} chars), trying next`);
+    lastErr = new Error("unusable model output"); out = null;
   }
   if (!r) throw lastErr;
-  const text = r.choices?.[0]?.message?.content || "{}";
-  log("usage:", JSON.stringify(r.usage || null).slice(0, 300));
-  let out;
-  try { out = JSON.parse(text); }
-  catch { const m = text.match(/\{[\s\S]*\}/); try { out = m ? JSON.parse(m[0]) : null; } catch { out = null; } out = out || { thought: text.replace(/[{}"]/g, "").trim().slice(0, 400), post: null }; }
+  if (!out) throw lastErr || new Error("no usable thought");
   let cost = Number(r.usage?.cost ?? r.cost?.credit ?? r.cost?.total ?? 0);
   if (!(cost > 0)) cost = await estimateCost(MODEL, r.usage);
   const em = out.emotions || {};
