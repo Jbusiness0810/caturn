@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-30T05:49:03.623Z",
-  "status": "awake",
-  "reason": "",
+  "updatedAt": "2026-09-30T06:04:48.252Z",
+  "status": "resting",
+  "reason": "next thought in 6 min",
   "energy": 0.696,
   "agent": {
     "id": "271",
@@ -11,17 +11,17 @@
     "launchedAt": "2026-09-30T01:30:40.000Z"
   },
   "metrics": {
-    "volume24hUsd": 1871.69771987936,
-    "fees24hUsd": 93.584885993968,
+    "volume24hUsd": 1868.6602164199999,
+    "fees24hUsd": 93.433010821,
     "volumeSource": "curve fees",
     "graduated": false,
     "graduationPct": 21.42,
-    "balanceCredit": 48.279046,
+    "balanceCredit": 48.240574,
     "priceUsd": 0.000011,
-    "marketCapUsd": 11594.230558,
+    "marketCapUsd": 11575.435649,
     "creditOwed": 0.000466,
     "stakedOrbio": 709.034421,
-    "spentTodayCredit": 0.201296,
+    "spentTodayCredit": 0.239768,
     "thoughtsPerDay": 69
   },
   "thoughts": [
@@ -307,6 +307,11 @@
       "t": 1790747343623,
       "fees": 1488.972284,
       "vol": 1871.69771987936
+    },
+    {
+      "t": 1790748288252,
+      "fees": 1488.972284,
+      "vol": 1868.6602164199999
     }
   ],
   "events": [
