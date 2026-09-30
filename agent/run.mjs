@@ -205,6 +205,7 @@ For the post, first write three different drafts in "drafts" (different shapes, 
   const em = out.emotions || {};
   const num = (v, d) => { v = Number(v); return Number.isFinite(v) ? clamp(v, 0, 1) : d; };
   return { thought: String(out.thought || "").trim(), post: out.post ? String(out.post).trim() : null, cost, model: MODEL,
+    drafts: Array.isArray(out.drafts) ? out.drafts.filter(d => typeof d === "string").map(d => d.trim()).slice(0, 3) : [],
     mood: String(out.mood || "").trim().toLowerCase().slice(0, 32) || null,
     focus: String(out.focus || "").trim().toLowerCase().slice(0, 60) || null,
     emotions: { curiosity: num(em.curiosity, 0.5), smugness: num(em.smugness, 0.4), unease: num(em.unease, 0.2), affection: num(em.affection, 0.3), boredom: num(em.boredom, 0.3),
@@ -766,9 +767,22 @@ if (status === "awake") {
       }
       const n = feed.thoughts.length;
       // Post on the clock: whenever POST_INTERVAL_MIN has passed since the last post.
-      const text = cleanPost(t.post, ctx, feed);
-      const shouldPost = !!text && duePost;
+      let text = cleanPost(t.post, ctx, feed);
       if (t.post && !text) log("post dropped by the rules:", JSON.stringify(t.post));
+      // A post is due every POST_INTERVAL_MIN. If the chosen line was empty or broke a rule, fall back to the other drafts,
+      // then ask once more with the rules spelled out, so a tick on the clock does not go by silent.
+      if (!text && duePost) {
+        for (const d of t.drafts || []) { text = cleanPost(d, ctx, feed); if (text) { log("post: using a fallback draft"); break; } }
+        if (!text && !DRY_RUN) {
+          try {
+            const t2 = await think(persona, { ...ctx, mustPost: true, postAngle: `${ctx.postAngle}. Your previous attempt came back empty or broke a rule (a link, a handle outside the allowed list, a second cashtag, over 200 characters). Write a plain post that follows the rules this time` });
+            readCost += t2.cost || 0;
+            text = cleanPost(t2.post, ctx, feed) || (t2.drafts || []).map(d => cleanPost(d, ctx, feed)).find(Boolean) || null;
+            if (text) log("post: second attempt passed"); else log("post: second attempt dropped too:", JSON.stringify(t2.post || null));
+          } catch (e) { log("second post attempt failed:", String(e.message).slice(0, 160)); }
+        }
+      }
+      const shouldPost = !!text && duePost;
       if (shouldPost && !DRY_RUN) {
         try {
           let mediaIds = [];
