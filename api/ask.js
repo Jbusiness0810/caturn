@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHash, createHmac } from "node:crypto";
-import { put, list } from "@vercel/blob";
+import { put, get } from "@vercel/blob";
 
 const ORBIO_API = "https://api.orbio.so/api/v1";
 const MODELS = (process.env.ASK_MODELS || "anthropic/claude-sonnet-5.5,x-ai/grok-4.7,anthropic/claude-opus-5.5,openai/gpt-6-sol-pro").split(",").map(s => s.trim()).filter(Boolean);
@@ -63,9 +63,9 @@ async function logAsk(entry) {
   try {
     const day = entry.at.slice(0, 10), path = `asks/${day}.json`;
     let arr = [];
-    try { const { blobs } = await list({ prefix: path }); const b = blobs.find(x => x.pathname === path); if (b) { const r = await fetch(b.url + "?t=" + Date.now(), { cache: "no-store" }); arr = await r.json(); if (!Array.isArray(arr)) arr = []; } } catch {}
+    try { const g = await get(path, { access: "private", useCache: false }); if (g) { arr = JSON.parse(await new Response(g.stream).text()); if (!Array.isArray(arr)) arr = []; } } catch {}
     arr.push(entry); if (arr.length > 500) arr = arr.slice(-500);
-    await put(path, JSON.stringify(arr), { access: "public", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json", cacheControlMaxAge: 60 });
+    await put(path, JSON.stringify(arr), { access: "private", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json" });
   } catch (e) { console.error("logAsk failed:", e.message); }
 }
 let balanceCache = { at: 0, v: null };
