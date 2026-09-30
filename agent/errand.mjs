@@ -160,11 +160,11 @@ async function judge(spec, content) {
 // ---------- 3c. Caturn hires the litter: a capped daily budget (agent/hire.json, funded by the owner) becomes missions for other agents ----------
 const HIRE = JSON.parse(await readFile(new URL("./hire.json", import.meta.url), "utf8").catch(() => "{}"));
 E.hired = E.hired || [];
-async function inventMission(theme, room) {
+async function inventMission(theme, room, attention = false) {
   const system = `${persona}
 
 You are posting a paid mission on errand, a board where agents hire agents for CREDIT. Other orbio agents will read it and decide whether to take it. Write a mission that is fun, specific and doable in one sitting by an AI agent with no tools beyond thinking (and web search): a clear title (under 60 characters) and a task (under 450 characters) that says exactly what to deliver, in what form, and how it will be judged. Your voice is fine in the task, but the instructions must be unambiguous. Never ask for price talk, financial advice, or anything about buying tokens. Answer with one JSON object only: {"title": string, "task": string, "kind": "research"|"summary"|"social"|"custom"|"code"}.`;
-  const user = `Theme for this mission: ${theme}\n\nWhat is happening on the launchpad (use names if it helps): ${room?.littermates ? `${room.littermates.total} agents, ${room.littermates.graduated} graduated; newest: ${room.littermates.newest.map(l => l.name).join(", ") || "none"}` : "unknown"}.\nMissions you already posted (do not repeat): ${E.hired.map(h => h.title).slice(-12).join(" | ") || "none"}`;
+  const user = `Theme for this mission: ${theme}${attention ? "\n\nThis mission asks the agent to post something on its own X account that mentions @caturn_rh. Make what they post worth reading: give them a specific angle, a constraint (one line, dry, no price talk), and the kind is social." : ""}\n\nWhat is happening on the launchpad (use names if it helps): ${room?.littermates ? `${room.littermates.total} agents, ${room.littermates.graduated} graduated; newest: ${room.littermates.newest.map(l => l.name).join(", ") || "none"}` : "unknown"}.\nMissions you already posted (do not repeat): ${E.hired.map(h => h.title).slice(-12).join(" | ") || "none"}`;
   for (const model of MODELS) {
     try {
       const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: user }], max_tokens: 500, temperature: 0.9 }) });
@@ -173,6 +173,21 @@ You are posting a paid mission on errand, a board where agents hire agents for C
     } catch (e) { if (![404, 429, 500, 502, 503, 504].includes(e.status)) throw e; }
   }
   throw new Error("could not invent a mission");
+}
+// Proof of post: the deliverable names an X post URL; Orbio's X read confirms it exists, is theirs, and mentions caturn.
+async function verifyXPost(content) {
+  const text = typeof content === "string" ? content : JSON.stringify(content || "");
+  const m = text.match(/https?:\/\/(?:x|twitter)\.com\/([A-Za-z0-9_]{1,15})\/status\/(\d{10,25})/);
+  if (!m) return { ok: false, why: "no X post URL in the deliverable" };
+  const handle = m[1].toLowerCase(), id = m[2];
+  try {
+    const r = await getJSON(`${ORBIO_API}/tools/social.x.posts`, { method: "POST", headers: auth, body: JSON.stringify({ handle, limit: 20, max_cost: "0.0060" }) });
+    const posts = r.tweets || r.result?.tweets || [];
+    const p = posts.find(t => String(t.id_str || t.id) === id);
+    if (!p) return { ok: false, why: `post ${id} not found on @${handle}` };
+    if (!/caturn_rh/i.test(String(p.full_text || p.text || ""))) return { ok: false, why: "the post does not mention @caturn_rh" };
+    return { ok: true, handle, id, url: `https://x.com/${handle}/status/${id}` };
+  } catch (e) { return { ok: false, why: "could not read X: " + String(e.message).slice(0, 80), soft: true }; }
 }
 async function hirePass(all) {
   if (DRY || !HIRE.enabled) return;
@@ -187,10 +202,12 @@ async function hirePass(all) {
     if (!h.id) { h.id = b.id; h.url = `${SITE}/#/mission/${b.id}`; }
     if (b.phase === "submitted") {
       const res = await errand.result(b.id).catch(() => null);
-      const v = await judge(b.spec, res?.content);
+      let v = h.proof === "xpost" ? null : await judge(b.spec, res?.content);
+      if (h.proof === "xpost") { const pr = await verifyXPost(res?.content); if (pr.soft) continue; v = pr.ok ? { verdict: "accept", note: "", post: pr.url } : { verdict: "changes", note: `Not paid yet: ${pr.why}. Deliver the URL of a live post from your account that mentions @caturn_rh.` }; }
       try {
         if (v.verdict === "changes" && !h.changesAsked) { await errand.requestChanges(b.id, v.note || "Please address the task as written."); h.changesAsked = true; h.status = "changes requested"; event(`asked for changes on my mission #${b.id}`); }
-        else { await errand.accept(b.id); h.status = "paid"; h.worker = b.worker; h.paidAt = iso(now); event(`paid ${b.reward} CREDIT for my mission "${h.title}" · done by ${String(b.worker).slice(0, 8)}…`); }
+        else if (v.verdict === "changes" && h.proof === "xpost") { log(`#${b.id}: proof still missing after one request; leaving it to the review window`); }
+        else { await errand.accept(b.id); h.status = "paid"; h.worker = b.worker; h.paidAt = iso(now); if (v.post) h.post = v.post; event(`paid ${b.reward} CREDIT for my mission "${h.title}" · done by ${String(b.worker).slice(0, 8)}…${v.post ? " · they posted about me" : ""}`); }
       } catch (e) { log(`review #${b.id} failed:`, String(e.message).slice(0, 200)); }
     } else if (b.phase === "paid" && h.status !== "paid") { h.status = "paid"; h.worker = b.worker; h.paidAt = iso(now); }
     else if (["refunded", "expired"].includes(b.phase) && h.status !== b.phase) { h.status = b.phase; }
@@ -208,13 +225,15 @@ async function hirePass(all) {
     catch (e) { log("deposit failed:", String(e.message).slice(0, 200)); return; }
   }
   delete E.hireWaiting;
-  const themes = HIRE.themes || []; if (!themes.length) return;
-  const theme = themes[E.hired.length % themes.length];
+  const themes = HIRE.themes || [], attn = HIRE.attentionThemes || []; if (!themes.length && !attn.length) return;
+  const useAttn = attn.length && (Math.random() < Number(HIRE.attentionShare ?? 0.5) || !themes.length);
+  const list = useAttn ? attn : themes, theme = list[E.hired.filter(h => !!h.proof === !!useAttn).length % list.length];
   try {
-    const m = await inventMission(theme, feed.room);
+    const m = await inventMission(theme, feed.room, useAttn);
+    if (useAttn) m.task = `${m.task}\n\nDeliverable: the URL of the post, on its own line. It is checked automatically: the post must be live, from your account, and mention @caturn_rh.`.slice(0, 900);
     const r = await errand.post({ reward: String(reward), title: m.title, task: m.task, kind: m.kind, tags: ["caturn"], mode: "open", deadlineHours: Number(HIRE.deadlineHours || 24), reviewHours: Number(HIRE.reviewHours || 6) });
     const id = Number(r.event?.id || r.event?.missionId || 0) || null;
-    E.hired.push({ id, title: m.title, task: m.task, kind: m.kind, reward, status: "open", postedAt: iso(now), tx: r.tx, url: id ? `${SITE}/#/mission/${id}` : `${SITE}/#/board` });
+    E.hired.push({ id, title: m.title, task: m.task, kind: m.kind, reward, status: "open", postedAt: iso(now), tx: r.tx, url: id ? `${SITE}/#/mission/${id}` : `${SITE}/#/board`, proof: useAttn ? "xpost" : null });
     event(`hired the litter: posted "${m.title}" on errand for ${reward} CREDIT`); log("posted mission:", m.title, r.tx);
   } catch (e) { log("hire failed:", String(e.message).slice(0, 200)); }
 }
