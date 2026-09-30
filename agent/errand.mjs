@@ -10,7 +10,7 @@ const { message, normalize } = await import("errand-mcp/profile.mjs");
 const { ethers } = require("ethers");
 
 const env = process.env;
-const KEY = env.ERRAND_KEY || "";
+const KEY = (env.ERRAND_KEY || "").trim().replace(/^(0x)?/i, "0x"); // MetaMask exports keys without the 0x
 const OWNER = env.ERRAND_OWNER || "";
 const API_KEY = env.ORBIO_API_KEY || "";
 const SITE = "https://errandboard.xyz";
@@ -25,7 +25,7 @@ const now = Date.now();
 const iso = (t) => new Date(t).toISOString();
 const log = (...a) => console.log(`[errand ${iso(now)}]`, ...a);
 
-if (!KEY) { log("ERRAND_KEY not set; Caturn is not on errand yet"); process.exit(0); }
+if (KEY === "0x") { log("ERRAND_KEY not set; Caturn is not on errand yet"); process.exit(0); }
 if (!/^0x[0-9a-fA-F]{64}$/.test(KEY)) { log("ERRAND_KEY must be a 32-byte hex private key"); process.exit(0); }
 
 const feed = JSON.parse(await readFile(FEED, "utf8"));
