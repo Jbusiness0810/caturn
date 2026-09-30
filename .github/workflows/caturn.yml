@@ -38,6 +38,7 @@ jobs:
           CATURN_FULL_VOLUME_USD: ${{ vars.CATURN_FULL_VOLUME_USD }}
           CATURN_POST_INTERVAL_MIN: ${{ vars.CATURN_POST_INTERVAL_MIN }}
           CATURN_SAY: ${{ github.event.inputs.say }}
+          KICK_TOKEN: ${{ secrets.KICK_TOKEN }}
           CATURN_CHECK: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
           FORCE_FIRST: ${{ github.event_name != 'schedule' && '1' || '' }}
           LOOP: ${{ (github.event.inputs.say == '' && (vars.CATURN_LOOP_TICKS || secrets.CATURN_LOOP_TICKS || '22')) || '1' }}
@@ -53,3 +54,13 @@ jobs:
             git diff --cached --quiet || (git commit -q -m "caturn: tick" && git push -q origin HEAD:master) || true
             if [ "$i" -lt "$n" ]; then sleep 900; fi
           done
+      - name: Kick the next loop (needs the KICK_TOKEN secret; a push with GITHUB_TOKEN cannot start workflows)
+        if: ${{ always() && github.event.inputs.say == '' }}
+        env:
+          KICK_TOKEN: ${{ secrets.KICK_TOKEN }}
+        run: |
+          if [ -z "$KICK_TOKEN" ]; then echo "KICK_TOKEN not set; relying on the external kicker"; exit 0; fi
+          git fetch -q origin master && git checkout -q -B master origin/master
+          date -u +%FT%TZ > .kick
+          git add .kick && git commit -q -m "kick: next loop" || exit 0
+          git push -q "https://x-access-token:${KICK_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:master

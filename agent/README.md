@@ -31,3 +31,6 @@ GitHub delays scheduled workflows by hours, so a `*/30` cron does not give 30-mi
 
 ## If GitHub's schedule does not fire
 GitHub's cron can skip hours. `api/kick.js` lets an outside scheduler start the loop: set `GITHUB_DISPATCH_TOKEN` (a fine-grained token for this repo with Actions: read and write) and `KICK_SECRET` (any long random string) in Vercel, then point a free pinger such as cron-job.org at `https://www.caturn.lol/api/kick?key=<KICK_SECRET>` every hour. A kick is skipped while a loop is already running, so they never pile up.
+
+## Self-perpetuating loop
+At the end of every loop the workflow pushes a timestamp to `.kick` using the `KICK_TOKEN` secret (a fine-grained personal access token for this repository with Contents: read and write). That push starts the next loop, so the agent never waits on GitHub's unreliable cron. Without the secret the step is skipped and an outside kicker has to start loops.
