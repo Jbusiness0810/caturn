@@ -3,14 +3,14 @@
 // Needs ORBIO_API_KEY set in the Vercel project's environment variables.
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 
 const ORBIO_API = "https://api.orbio.so/api/v1";
 const MODELS = (process.env.ASK_MODELS || "anthropic/claude-sonnet-5.5,x-ai/grok-4.7,anthropic/claude-opus-5.5,openai/gpt-6-sol-pro").split(",").map(s => s.trim()).filter(Boolean);
 const MAX_Q = 240, MAX_TOKENS = 220;
 const PER_IP_PER_HOUR = Number(process.env.ASK_PER_IP || 6);
 const PER_IP_PER_DAY = Number(process.env.ASK_PER_IP_DAY || 20);
-const PER_INSTANCE_PER_DAY = Number(process.env.ASK_PER_DAY || 250);
+const PER_INSTANCE_PER_DAY = Number(process.env.ASK_PER_DAY || 150);
 const BALANCE_FLOOR = Number(process.env.ASK_BALANCE_FLOOR || 10);   // CREDIT the terminal must leave for Caturn's own thoughts
 const POW_BITS = Number(process.env.ASK_POW_BITS || 15);             // proof-of-work difficulty: ~2^15 hashes, under a second in a browser
 const MIN_GAP_MS = 8000;                                             // one question per visitor every 8 seconds
@@ -32,6 +32,29 @@ function powOk(q, ts, nonce) {
   if (!ts || !nonce || Math.abs(Date.now() - Number(ts)) > 5 * 60e3) return false;
   const h = createHash("sha256").update(`${q}|${ts}|${nonce}`).digest("hex");
   return leadingZeroBits(h) >= POW_BITS;
+}
+// Replay guard for stamps (per instance) and a signed cookie throttle that travels with the visitor across instances.
+const seenStamps = new Map();
+function replayed(ts, nonce) { const now = Date.now(); for (const [k, t] of seenStamps) if (now - t > 6 * 60e3) seenStamps.delete(k); const k = ts + ":" + nonce; if (seenStamps.has(k)) return true; seenStamps.set(k, now); return false; }
+function cookieSecret() { return createHash("sha256").update("caturn-ask|" + (process.env.ORBIO_API_KEY || "")).digest(); }
+function readTicket(req) {
+  const m = /(?:^|;\s*)caturn_ask=([^;]+)/.exec(req.headers.cookie || ""); if (!m) return null;
+  const [payload, sig] = decodeURIComponent(m[1]).split("."); if (!payload || !sig) return null;
+  if (createHmac("sha256", cookieSecret()).update(payload).digest("base64url") !== sig) return null;
+  try { return JSON.parse(Buffer.from(payload, "base64url").toString()); } catch { return null; }
+}
+function writeTicket(res, t) {
+  const payload = Buffer.from(JSON.stringify(t)).toString("base64url"), sig = createHmac("sha256", cookieSecret()).update(payload).digest("base64url");
+  res.setHeader("Set-Cookie", `caturn_ask=${encodeURIComponent(payload + "." + sig)}; Path=/api/ask; Max-Age=86400; HttpOnly; Secure; SameSite=Strict`);
+}
+function ticketLimited(req, res) {
+  const now = Date.now(), t = readTicket(req) || { h: [], d: 0, ds: now };
+  if (now - t.ds > 86400e3) { t.d = 0; t.ds = now; }
+  t.h = (t.h || []).filter(x => now - x < 3600e3);
+  if (t.h.length && now - t.h[t.h.length - 1] < MIN_GAP_MS) { writeTicket(res, t); return "slower. a cat answers one thing at a time."; }
+  if (t.h.length >= PER_IP_PER_HOUR) { writeTicket(res, t); return "you have asked a lot. cats answer on their own schedule. try again in an hour."; }
+  if (t.d >= PER_IP_PER_DAY) { writeTicket(res, t); return "that is enough for one day. come back tomorrow."; }
+  t.h.push(now); t.d++; writeTicket(res, t); return null;
 }
 let balanceCache = { at: 0, v: null };
 async function balanceOk(key) {
@@ -61,8 +84,9 @@ export default async function handler(req, res) {
   let q = String(b.q ?? "").replace(/\s+/g, " ").trim().slice(0, MAX_Q);
   if (!q) return res.status(400).json({ error: "ask something." });
   if (!powOk(q, b.ts, b.nonce)) return res.status(400).json({ error: "the stamp is missing. reload and ask again." });
+  if (replayed(b.ts, b.nonce)) return res.status(400).json({ error: "that stamp is spent. ask again." });
   const ip = (req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket?.remoteAddress || "?";
-  const lim = limited(ip); if (lim) return res.status(429).json({ error: lim });
+  const lim = limited(ip) || ticketLimited(req, res); if (lim) return res.status(429).json({ error: lim });
   if (!(await balanceOk(key))) return res.status(402).json({ error: "the bowl is low. caturn keeps what is left for its own thoughts. trade, and it refills." });
 
   const messages = [{ role: "system", content: persona + "\n\n" + ANSWER_MODE }, { role: "user", content: q }];

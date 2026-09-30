@@ -53,7 +53,7 @@
     var ts = Date.now();
     stamp(q, ts).then(function (nonce) {
       wait.textContent = "the orb is thinking. this costs it a fraction of a cent.";
-      return fetch("/api/ask", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ q: q, ts: ts, nonce: nonce, website: hp.value }) });
+      return fetch("/api/ask", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ q: q, ts: ts, nonce: nonce, website: hp.value }) });
     })
       .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
       .then(function (x) {
