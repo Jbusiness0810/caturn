@@ -55,7 +55,7 @@
   function buildStream(f) {
     var items = [];
     (f.events || []).forEach(function (e) { items.push({ at: e.at, kind: "sys", text: e.text }); });
-    (f.thoughts || []).forEach(function (t) { items.push({ at: t.at, kind: t.kind === "dream" ? "dream" : "think", text: t.text, mood: t.mood }); });
+    (f.thoughts || []).forEach(function (t) { items.push({ at: t.at, kind: t.kind === "dream" ? "dream" : "think", text: t.text, mood: t.mood, sketch: t.sketch && (t.sketch.url || t.sketch.file) ? t.sketch : null }); });
     (f.posts || []).forEach(function (p) { items.push({ at: p.at, kind: "post", text: p.text, url: p.url, status: p.status }); });
     items.sort(function (a, b) { return Date.parse(a.at) - Date.parse(b.at); });
     return items;
@@ -77,6 +77,7 @@
       var body = esc(it.text);
       if (it.kind === "post") body += it.url ? ' <a href="' + esc(it.url) + '" rel="noopener" target="_blank">view on X</a>' : ' <span class="mood-tag">' + esc(it.status || "publishing") + "</span>";
       if (it.mood && it.kind !== "post") body += '<span class="mood-tag">' + esc(it.mood) + "</span>";
+      if (it.sketch) body += '<a class="sketch-inline" href="' + esc(it.sketch.url || it.sketch.file) + '" target="_blank" rel="noopener"><img src="' + esc(it.sketch.url || it.sketch.file) + '" alt="sketch ' + esc(it.sketch.family) + '" loading="lazy"></a>';
       var isNew = i === list.length - 1 && it.kind !== "sys";
       html += '<li class="k-' + tag + (isNew ? " is-new" : "") + '"><time datetime="' + esc(it.at) + '">' + hhmm(it.at) + '</time><span class="tag">' + tag + '</span><span class="body">' + body + "</span></li>";
     });
@@ -174,6 +175,9 @@
     // Stream + posts
     renderStream($("[data-stream]"), buildStream(f), status);
     var posts = (f.posts || []).slice().reverse().slice(0, full ? 150 : 5);
+    var sks = (f.sketches || []).filter(function (x) { return x.url || x.file; }).slice().reverse().slice(0, full ? 60 : 4);
+    $("[data-sketch-count]").textContent = (f.sketches || []).length;
+    $("[data-gallery]").innerHTML = sks.length ? sks.map(function (x) { var u = x.url || x.file; return '<a class="gal" href="' + esc(u) + '" target="_blank" rel="noopener"><img src="' + esc(u) + '" alt="' + esc(x.family) + '" loading="lazy"><span>' + esc(x.family) + " · " + hhmm(x.at) + (x.mood ? " · " + esc(x.mood) : "") + "</span></a>"; }).join("") : '<div class="empty">no sketches yet. caturn draws one every few thoughts.</div>';
     var asks = (f.asks || []).slice().reverse().slice(0, full ? 200 : 4);
     $("[data-asks-count]").textContent = (f.asks || []).length;
     $("[data-log-asks]").innerHTML = asks.length ? asks.map(function (a) {

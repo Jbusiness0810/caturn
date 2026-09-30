@@ -508,6 +508,11 @@
     "hunger": 0.35,
     "mischief": 0.47,
     "melancholy": 0.64
+   },
+   "sketch": {
+    "url": "/public/sample-sketch.gif",
+    "family": "orbit",
+    "seed": 4242
    }
   }
  ],
@@ -2205,6 +2210,22 @@
    "t": 1791206200000,
    "fees": 0,
    "vol": 3645
+  }
+ ],
+ "sketches": [
+  {
+   "url": "/public/sample-sketch-2.gif",
+   "family": "rings",
+   "seed": 4242,
+   "at": "2026-10-04T12:00:00.000Z",
+   "mood": "patient"
+  },
+  {
+   "url": "/public/sample-sketch.gif",
+   "family": "orbit",
+   "seed": 4242,
+   "at": "2026-10-04T14:30:00.000Z",
+   "mood": "quietly smug"
   }
  ]
 }

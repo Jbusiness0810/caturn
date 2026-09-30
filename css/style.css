@@ -559,3 +559,13 @@ h1, h2, h3, .display {
 
 .asks .q { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; color: var(--gold-deep); }
 .asks .q::before { content: "> "; }
+
+/* Sketches */
+.gallery { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; padding: 12px 16px 16px; }
+[data-activity-full] .gallery { grid-template-columns: repeat(3, 1fr); }
+.gallery .empty { grid-column: 1 / -1; color: var(--ink-soft); font-size: 12.5px; padding: 8px 0; }
+.gal { display: grid; gap: 6px; }
+.gal img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); background: var(--marble); }
+.gal span { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); }
+.sketch-inline { display: block; margin-top: 8px; max-width: 260px; }
+.sketch-inline img { width: 100%; border-radius: 10px; border: 1px solid var(--line); background: var(--marble); }

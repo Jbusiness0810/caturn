@@ -2,7 +2,10 @@
 // One tick: read the market, decide whether Caturn can afford to think, think, maybe post, write data/feed.json.
 // Run from a cron (see .github/workflows/caturn.yml). Safe to run with no keys: it just updates status.
 
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+const run = promisify(execFile);
 
 const env = process.env;
 const API_KEY   = env.ORBIO_API_KEY || "";
@@ -13,6 +16,8 @@ let MODEL = MODELS[0];
 const DRY_RUN   = env.CATURN_DRY_RUN === "1";
 const FORCE     = env.CATURN_FORCE === "1";      // manual runs: think now, ignoring the pacing timer (budget still applies)
 const POST_INTERVAL_MIN = Number(env.CATURN_POST_INTERVAL_MIN || 30);   // post to X on this clock, whatever the pacing says
+const SKETCH_EVERY = Number(env.CATURN_SKETCH_EVERY || 4);              // draw a sketch every Nth thought (0 = never)
+const SKETCH_RELEASE = "sketches";                                      // rolling GitHub release that hosts the GIFs
 const MIN_THOUGHTS_PER_DAY  = Number(env.CATURN_MIN_THOUGHTS || 6);
 const MAX_THOUGHTS_PER_DAY  = Number(env.CATURN_MAX_THOUGHTS || 96);   // every 15 minutes at full energy
 const VOLUME_FOR_FULL_ENERGY = Number(env.CATURN_FULL_VOLUME_USD || 50000); // 24h USD volume at which energy = 1
@@ -106,6 +111,7 @@ async function think(persona, ctx) {
 - thoughts today: ${ctx.thoughtsToday}
 - recent thoughts (avoid repeating): ${ctx.recent.map(t => JSON.stringify(t.text)).join(" | ") || "none"}
 
+${ctx.lastSketch ? `You just drew a sketch (a ${ctx.lastSketch.family} piece) and it is on the site. If you post, you may say plainly that a new sketch is up on caturn dot lol, in your own dry way, no link.` : ""}
 Tonight's lens for the private thought: ${ctx.lens}. Let it in sideways. Do not name it.
 ${ctx.mustPost ? "A post is required this time: " : "If you post, "}the post's angle is: ${ctx.postAngle}. Build the post from that one concrete fact plus one cat behavior, in plain words, funny or dry, readable in one pass. No poetry, no riddles, no imagery about rings, light, warmth, silence or receipts. Lowercase. No hashtags.
 
@@ -196,6 +202,37 @@ if (env.CATURN_SAY) {
   process.exit(0);
 }
 
+// ---------- 3c. Sketches: p5 in headless Chrome -> GIF -> GitHub release ----------
+async function makeSketch(ctx) {
+  const seed = Math.floor(Math.random() * 90000) + 1000;
+  const families = ["orbit", "field", "loaf", "rings"];
+  const family = families[Math.floor(Math.random() * families.length)];
+  const name = `caturn-${new Date(now).toISOString().slice(0, 16).replace(/[:T]/g, "-")}-${family}-${seed}.gif`;
+  await mkdir("out", { recursive: true });
+  const file = `out/${name}`;
+  const state = { family, seed, energy: ctx.energy, emotions: ctx.emotions || {}, frames: 24, size: 480 };
+  await run("node", [new URL("./sketch.mjs", import.meta.url).pathname, JSON.stringify(state), file], { timeout: 120000, env: { ...process.env } });
+  let url = null;
+  if ((env.GH_TOKEN || env.GITHUB_TOKEN) && env.GITHUB_ACTIONS) {
+    const repo = env.GITHUB_REPOSITORY || "Jbusiness0810/caturn";
+    try {
+      try { await run("gh", ["release", "view", SKETCH_RELEASE, "-R", repo]); }
+      catch { await run("gh", ["release", "create", SKETCH_RELEASE, "-R", repo, "-t", "Caturn sketches", "-n", "Generative sketches drawn by the agent. Rolling."]); }
+      await run("gh", ["release", "upload", SKETCH_RELEASE, file, "-R", repo, "--clobber"], { timeout: 120000 });
+      url = `https://github.com/${repo}/releases/download/${SKETCH_RELEASE}/${name}`;
+    } catch (e) { log("sketch upload failed:", String(e.message || e).slice(0, 200)); }
+  }
+  return { url, family, seed, file: url ? null : file, at: iso(now) };
+}
+
+if (env.CATURN_SKETCH_TEST === "1") {
+  const f = JSON.parse(await readFile(FEED, "utf8")); f.sketches = f.sketches || [];
+  const sk = await makeSketch({ energy: 0.7, emotions: { mischief: 0.6, curiosity: 0.7 } });
+  f.sketches.push({ ...sk, mood: "test", thought: "test sketch" });
+  if (f.thoughts?.length) f.thoughts[f.thoughts.length - 1].sketch = sk;
+  await writeFile(FEED, JSON.stringify(f, null, 2) + "\n"); log("sketch test:", JSON.stringify(sk)); process.exit(0);
+}
+
 // ---------- 4. Tick ----------
 const feed = JSON.parse(await readFile(FEED, "utf8"));
 const persona = await readFile(new URL("./persona.md", import.meta.url), "utf8");
@@ -204,6 +241,7 @@ feed.events = (feed.events || []).slice(-200);
 const event = (text) => { feed.events.push({ at: iso(now), text }); log("event:", text); };
 const prev = { status: feed.status, energy: feed.energy || 0, reason: feed.reason, gradPct: feed.metrics?.graduationPct, graduated: feed.metrics?.graduated };
 feed.thoughts = (feed.thoughts || []).slice(-300);
+feed.sketches = (feed.sketches || []).slice(-60);
 feed.posts = (feed.posts || []).slice(-150);
 
 const agent = await readAgent();
@@ -264,6 +302,7 @@ if (status === "awake") {
   try {
     const ctx = { energy, energyNote: volumeSource ? "from " + volumeSource : "unknown", volume24hUsd, priceUsd: feed.metrics.priceUsd, lens: LENSES[feed.thoughts.length % LENSES.length], postAngle: POST_ANGLES[feed.posts.length % POST_ANGLES.length], mustPost: duePost,
       recentMoods: feed.thoughts.slice(-10).map(function (t) { return t.mood; }).filter(Boolean),
+      lastSketch: feed.sketches.length && now - Date.parse(feed.sketches[feed.sketches.length - 1].at) < 40 * 60e3 ? feed.sketches[feed.sketches.length - 1] : null,
       emotionHints: [
         balanceCredit != null && balanceCredit < 5 ? "the bowl is nearly empty, hunger should be high" : balanceCredit != null && balanceCredit > 30 ? "well fed, hunger low" : "",
         energy < 0.15 ? "the tape is dead, boredom and melancholy rise" : energy > 0.7 ? "busy tape, curiosity and mischief rise" : "",
@@ -277,6 +316,10 @@ if (status === "awake") {
         kind: energy < 0.12 ? "dream" : "thought", mood: t.mood, focus: t.focus, emotions: t.emotions };
       feed.thoughts.push(entry);
       feed.state = { mood: t.mood, focus: t.focus, emotions: t.emotions, at: iso(now) };
+      if (SKETCH_EVERY > 0 && feed.thoughts.length % SKETCH_EVERY === 0) {
+        try { const sk = await makeSketch({ energy, emotions: t.emotions }); entry.sketch = sk; feed.sketches.push({ ...sk, mood: t.mood, thought: t.thought.slice(0, 140) }); event(`drew a sketch · ${sk.family} ${sk.seed}`); log("sketch:", JSON.stringify(sk)); }
+        catch (e) { log("sketch failed:", String(e.message || e).slice(0, 200)); }
+      }
       const n = feed.thoughts.length;
       // Post on the clock: whenever POST_INTERVAL_MIN has passed since the last post.
       const shouldPost = !!t.post && duePost;

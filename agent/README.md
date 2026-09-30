@@ -34,3 +34,6 @@ GitHub's cron can skip hours. `api/kick.js` lets an outside scheduler start the 
 
 ## Self-perpetuating loop
 At the end of every loop the workflow pushes a timestamp to `.kick` using the `KICK_TOKEN` secret (a fine-grained personal access token for this repository with Contents: read and write). That push starts the next loop, so the agent never waits on GitHub's unreliable cron. Without the secret the step is skipped and an outside kicker has to start loops.
+
+## Sketches
+Every `CATURN_SKETCH_EVERY` thoughts (default 4) Caturn draws a p5.js sketch (`agent/sketch/index.html`, four families: orbit, field, loaf, rings) driven by its energy and emotions. `agent/sketch.mjs` renders it in headless Chrome and encodes a GIF with gifenc; the workflow uploads it to the rolling `sketches` GitHub release so the repo stays small. The feed records each sketch; the console shows them inline and in a gallery. Posts may mention a new sketch. Orbio's posting tool is text-only, so sketches cannot be attached to X posts.

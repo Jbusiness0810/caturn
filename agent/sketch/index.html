@@ -1,0 +1,59 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>caturn sketch</title>
+<style>html,body{margin:0;background:#F6F1E8}canvas{display:block}</style>
+<script src="../../public/vendor/p5.min.js"></script>
+</head><body>
+<script>
+// Caturn's generative sketches. Deterministic per seed; frames are stepped manually so capture is exact.
+// Params come from the query string: family, seed, energy (0-1), and the eight emotions (0-1).
+const q = new URLSearchParams(location.search);
+const P = { family: q.get("family") || "orbit", seed: Number(q.get("seed") || 1), energy: Number(q.get("energy") || 0.5), size: Number(q.get("size") || 480) };
+["curiosity","smugness","unease","affection","boredom","hunger","mischief","melancholy"].forEach(k => P[k] = Number(q.get(k) || 0.3));
+const CREAM = "#F6F1E8", RAISED = "#FFFBF4", INK = "#1C1915", SOFT = "#6B645B", LINE = "#E4D8C6", GOLD = "#B08A3E", DEEP = "#8C6A2C", MARBLE = "#F3EDE3";
+let S, T = 0, agents = [], noiseZ = 0;
+
+function setup() {
+  S = P.size; createCanvas(S, S); pixelDensity(1); noLoop(); randomSeed(P.seed); noiseSeed(P.seed);
+  if (P.family === "orbit") { const n = 40 + Math.round(P.energy * 160); for (let i = 0; i < n; i++) agents.push({ a: random(TWO_PI), r: random(0.22, 0.46), w: random(0.004, 0.02) * (0.5 + P.energy), tilt: random(-0.35, 0.35), sz: random(1.2, 3.2), gold: random() < 0.6 }); }
+  if (P.family === "field") { const n = 220 + Math.round(P.energy * 500); for (let i = 0; i < n; i++) agents.push({ x: random(S), y: random(S), life: random(40, 140), sz: random(0.6, 1.8), gold: random() < 0.45 }); background(CREAM); }
+  if (P.family === "loaf") { const n = 5 + Math.round(P.mischief * 6); for (let i = 0; i < n; i++) agents.push({ x: random(0.2, 0.8) * S, y: random(0.25, 0.8) * S, r: random(0.08, 0.2) * S, ph: random(TWO_PI), sp: random(0.6, 1.4) }); }
+  if (P.family === "rings") { const n = 6 + Math.round(P.curiosity * 10); for (let i = 0; i < n; i++) agents.push({ r: (0.12 + i / n * 0.36) * S, ph: random(TWO_PI), w: random(0.3, 1.2), seg: Math.floor(random(3, 9)), gap: random(0.1, 0.5) }); }
+  window.renderFrame = (i) => { T = i; redraw(); };
+  window.frameReady = true;
+}
+function paper() { background(CREAM); noStroke(); for (let i = 0; i < 90; i++) { fill(176, 138, 62, 22); circle((noise(i * 7.1) * 1.3 - 0.15) * S, (noise(i * 3.7 + 9) * 1.3 - 0.15) * S, 1.2 + noise(i) * 1.8); } }
+function draw() {
+  const t = T / 24, e = P.energy;
+  if (P.family === "orbit") {
+    paper(); const cx = S / 2, cy = S / 2 + S * 0.02, R = S * 0.16;
+    noFill(); stroke(LINE); strokeWeight(1); circle(cx, cy, R * 2 + S * 0.16 * 2);
+    // the orb
+    noStroke(); fill(MARBLE); circle(cx, cy, R * 2); fill(255, 251, 244); circle(cx - R * 0.3, cy - R * 0.32, R * 0.9);
+    stroke(GOLD); strokeWeight(2.2); noFill(); push(); translate(cx, cy); rotate(-0.25 + sin(t * TWO_PI) * 0.02); ellipse(0, R * 0.25, R * 2.9, R * 0.9); pop();
+    // orbiters
+    for (const a of agents) { const ang = a.a + t * TWO_PI * a.w * 12; const x = cx + cos(ang) * a.r * S, y = cy + sin(ang) * a.r * S * (0.35 + a.tilt); const depth = (sin(ang) + 1) / 2;
+      noStroke(); fill(a.gold ? GOLD : SOFT); circle(x, y, a.sz * (0.6 + depth)); if (a.gold) { stroke(176, 138, 62, 90); strokeWeight(a.sz * 0.6); const x0 = cx + cos(ang - 0.25) * a.r * S, y0 = cy + sin(ang - 0.25) * a.r * S * (0.35 + a.tilt); line(x0, y0, x, y); } }
+  }
+  if (P.family === "field") {
+    // accumulate strokes along a noise field; the field drifts with time so a loop reads as breathing
+    noiseZ = t * 0.35;
+    if (T === 0) paper();
+    fill(246, 241, 232, 6); noStroke(); rect(0, 0, S, S);
+    for (const a of agents) for (let k = 0; k < 6; k++) { const n = noise(a.x * 0.0035, a.y * 0.0035, noiseZ) * TWO_PI * (1.2 + P.unease * 2); const nx = a.x + cos(n) * (1.6 + e * 2.4), ny = a.y + sin(n) * (1.6 + e * 2.4);
+      stroke(a.gold ? color(176, 138, 62, 120) : color(107, 100, 91, 70)); strokeWeight(a.sz); line(a.x, a.y, nx, ny); a.x = nx; a.y = ny; if (--a.life <= 0 || a.x < 0 || a.y < 0 || a.x > S || a.y > S) { a.x = random(S); a.y = random(S); a.life = random(60, 180); } }
+  }
+  if (P.family === "loaf") {
+    paper(); noStroke();
+    for (const b of agents) { const r = b.r * (1 + 0.06 * sin(t * TWO_PI * b.sp + b.ph)); fill(243, 237, 227); circle(b.x, b.y + S * 0.01, r * 2); fill(255, 251, 244); circle(b.x - r * 0.3, b.y - r * 0.3, r * 0.9);
+      stroke(GOLD); strokeWeight(1.4); noFill(); push(); translate(b.x, b.y); rotate(-0.3 + 0.04 * sin(t * TWO_PI + b.ph)); ellipse(0, r * 0.3, r * 2.6, r * 0.7); pop(); noStroke(); fill(INK); circle(b.x - r * 0.22, b.y - r * 0.05, r * 0.1); circle(b.x + r * 0.22, b.y - r * 0.05, r * 0.1); }
+  }
+  if (P.family === "rings") {
+    paper(); noFill(); const cx = S / 2, cy = S / 2;
+    for (const g of agents) { stroke(GOLD); strokeWeight(g.w); const step = TWO_PI / g.seg; for (let s = 0; s < g.seg; s++) { const a0 = g.ph + s * step + t * TWO_PI * (0.05 + P.melancholy * 0.1) * (s % 2 ? 1 : -1); arc(cx, cy, g.r * 2, g.r * 2, a0, a0 + step * (1 - g.gap)); } }
+    noStroke(); fill(MARBLE); circle(cx, cy, S * 0.1); stroke(GOLD); strokeWeight(1.5); noFill(); ellipse(cx, cy + S * 0.012, S * 0.16, S * 0.045);
+  }
+  // signature
+  noStroke(); fill(SOFT); textFont("monospace"); textSize(S * 0.022); textAlign(RIGHT, BOTTOM); text("caturn · " + P.family + " · " + P.seed, S - S * 0.03, S - S * 0.025);
+}
+</script>
+</body></html>

@@ -29,6 +29,8 @@ jobs:
         with: { ref: master }
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
+      - name: Sketch tooling (playwright drives the runner's Chrome; gifenc encodes)
+        run: npm i --no-save --no-audit --no-fund playwright@1.49.1 gifenc@1.0.3
       - name: Think (loops CATURN_LOOP_TICKS times, 15 min apart, committing after each)
         env:
           ORBIO_API_KEY: ${{ secrets.ORBIO_API_KEY }}
