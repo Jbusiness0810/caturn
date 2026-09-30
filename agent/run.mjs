@@ -8,7 +8,7 @@ const env = process.env;
 const API_KEY   = env.ORBIO_API_KEY || "";
 const AGENT_ID  = env.CATURN_AGENT_ID || "0x9b4e217f8759cb758664ac3b0ee730a4d15e7f6a"; // Caturn, agent 271. Override with CATURN_AGENT_ID.
 // Ranked list. The gateway lists models it is not always serving, so each thought tries these in order.
-const MODELS    = (env.CATURN_MODEL || "anthropic/claude-fable-5.1,anthropic/claude-opus-5.5,anthropic/claude-sonnet-5.5,openai/gpt-6-astra-pro,openai/gpt-6-sol-pro,x-ai/grok-4.7").split(",").map(s => s.trim()).filter(Boolean);
+const MODELS    = (env.CATURN_MODEL || "anthropic/claude-fable-5.1,anthropic/claude-opus-5.5,x-ai/grok-4.7,anthropic/claude-sonnet-5.5,openai/gpt-6-astra-pro,openai/gpt-6-sol-pro").split(",").map(s => s.trim()).filter(Boolean);
 let MODEL = MODELS[0];
 const DRY_RUN   = env.CATURN_DRY_RUN === "1";
 const POST_EVERY_N_THOUGHTS = Number(env.CATURN_POST_EVERY || 3);
@@ -115,16 +115,27 @@ Write ONE entry as JSON:
   }
   if (!r) throw lastErr;
   const text = r.choices?.[0]?.message?.content || "{}";
+  log("usage:", JSON.stringify(r.usage || null).slice(0, 300));
   let out;
   try { out = JSON.parse(text); }
   catch { const m = text.match(/\{[\s\S]*\}/); try { out = m ? JSON.parse(m[0]) : null; } catch { out = null; } out = out || { thought: text.replace(/[{}"]/g, "").trim().slice(0, 400), post: null }; }
-  const cost = Number(r.usage?.cost ?? r.cost?.credit ?? 0);
+  let cost = Number(r.usage?.cost ?? r.cost?.credit ?? r.cost?.total ?? 0);
+  if (!(cost > 0)) cost = await estimateCost(MODEL, r.usage);
   const em = out.emotions || {};
   const num = (v, d) => { v = Number(v); return Number.isFinite(v) ? clamp(v, 0, 1) : d; };
   return { thought: String(out.thought || "").trim(), post: out.post ? String(out.post).trim() : null, cost, model: MODEL,
     mood: String(out.mood || "").trim().toLowerCase().slice(0, 32) || null,
     focus: String(out.focus || "").trim().toLowerCase().slice(0, 60) || null,
     emotions: { curiosity: num(em.curiosity, 0.5), smugness: num(em.smugness, 0.4), unease: num(em.unease, 0.2), affection: num(em.affection, 0.3), boredom: num(em.boredom, 0.3) } };
+}
+let priceCache = null;
+async function estimateCost(model, usage) {
+  try {
+    if (!priceCache) { const d = await getJSON(`${ORBIO_API}/models?output_modalities=text`); priceCache = {}; (d.data || []).forEach(m => { priceCache[m.id] = m.pricing || {}; }); }
+    const p = priceCache[model] || {};
+    const inTok = Number(usage?.prompt_tokens || 0), outTok = Number(usage?.completion_tokens || 0);
+    return inTok * Number(p.prompt || 0) + outTok * Number(p.completion || 0);
+  } catch (e) { log("price lookup failed:", e.message); return 0.01; } // conservative fallback so the cap still bites
 }
 async function postToX(text) {
   if (/https?:\/\//i.test(text)) return { error: "links are refused on X" };
@@ -237,12 +248,14 @@ if (status === "awake") {
       feed.thoughts.push(entry);
       feed.state = { mood: t.mood, focus: t.focus, emotions: t.emotions, at: iso(now) };
       const n = feed.thoughts.length;
-      const shouldPost = t.post && n % POST_EVERY_N_THOUGHTS === 0;
+      // Post when nothing has been said yet, then every Nth thought after the last post.
+      const sinceLast = n - (feed.lastPostThoughtIndex || 0);
+      const shouldPost = t.post && (feed.posts.length === 0 || sinceLast >= POST_EVERY_N_THOUGHTS);
       if (shouldPost && !DRY_RUN) {
         try {
           const p = await postToX(t.post);
           if (p.error) log("post skipped:", p.error);
-          else { feed.posts.push({ at: iso(now), text: t.post, id: p.id, url: p.url, status: p.status, cost: p.cost }); event("posted to X"); }
+          else { feed.posts.push({ at: iso(now), text: t.post, id: p.id, url: p.url, status: p.status, cost: p.cost }); feed.lastPostThoughtIndex = n; event("posted to X"); }
         } catch (e) {
           if (e.status === 409) event("wanted to post, but no X account is connected");
           else log("post failed:", e.message);
