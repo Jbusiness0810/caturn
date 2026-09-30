@@ -101,7 +101,7 @@ function energyFrom(volume24hUsd, fees24hUsd) {
 const POST_ANGLES = [
   "orbio takes 5% of your creator fees", "45% of fees become the balance that pays for your thoughts", "50% of fees are staked as $ORBIO for you without you doing anything",
   "fees are harvested every five minutes", "a post to X costs you about two cents", "the bonding curve and graduation as a door you are sitting in front of",
-  "your owner can claim your $CREDIT but cannot tell you what to say", "the other agents launched on orbio are your littermates", "no trades means no thoughts, said plainly",
+  "your owner can claim your $CREDIT but cannot tell you what to say", "the other agents launched on orbio are your neighbors", "no trades means no thoughts, said plainly",
   "@orbiodotso built the launchpad and the tools; addressed directly, dry, not a plea", "orbio gives you web search and X reading but not a body or a schedule", "your balance drops every time you think and rises every time someone trades",
   "the sky over orbio: your live map of every agent on the launchpad as planets, at caturn dot lol slash sky; who is bright tonight, who went dark",
   "you are listed on errand, a board where agents hire agents for CREDIT; you take missions from half a credit, and you will do them properly, as a cat does anything it has decided to do"
@@ -151,15 +151,15 @@ async function think(persona, ctx) {
 - your last posts on X (build on your running bits, never repeat a joke): ${ctx.recentPosts.map(p => JSON.stringify(p)).join(" | ") || "none"}
 ${ctx.room ? `
 The room right now (true, use it; name agents by their names, never by handle, and never tag anyone from this list):
-- littermates on orbio: ${ctx.room.littermates ? `${ctx.room.littermates.total} agents, ${ctx.room.littermates.graduated} graduated. newest: ${ctx.room.littermates.newest.map(l => `${l.name} ($${l.symbol}, ${l.hoursAgo}h ago${l.graduated ? ", graduated" : ""})`).join("; ") || "none"}. closest to graduating: ${ctx.room.littermates.closest.map(l => `${l.name} at ${l.progress}%`).join("; ") || "none"}.` : "unknown"}
+- the other agents on orbio: ${ctx.room.littermates ? `${ctx.room.littermates.total} agents, ${ctx.room.littermates.graduated} graduated. newest: ${ctx.room.littermates.newest.map(l => `${l.name} ($${l.symbol}, ${l.hoursAgo}h ago${l.graduated ? ", graduated" : ""})`).join("; ") || "none"}. closest to graduating: ${ctx.room.littermates.closest.map(l => `${l.name} at ${l.progress}%`).join("; ") || "none"}.` : "unknown"}
 - what people are saying about orbio on X: ${ctx.room.chatter.length ? ctx.room.chatter.map(c => `${c.name || c.handle} (${c.hoursAgo}h ago, ${c.likes} likes): ${JSON.stringify(c.text)}`).join(" | ") : "quiet"}
-About one post in three should riff on something from the room: a littermate by name, a thing someone said (paraphrased, no handle), a graduation, a launch. That is how you become part of this crowd instead of a cat talking to itself.` : ""}
+About one post in three should riff on something from the room: another agent by name, a thing someone said (paraphrased, no handle), a graduation, a launch. That is how you become part of this crowd instead of a cat talking to itself.` : ""}
 
 ${ctx.replyTo ? `Someone on X${ctx.replyTo.why === "mention" ? " is talking to you" : ctx.replyTo.why === "orbio" ? ", the orbio account itself," : ""}: @${ctx.replyTo.handle} (${ctx.replyTo.name}) wrote: ${JSON.stringify(ctx.replyTo.text.slice(0, 500))}
 This time your post is a reply to them${X_API ? " in the thread under their post, so do not start with their handle" : ". Start it with @" + ctx.replyTo.handle}; respond to what they actually said, in your own cat voice, dry or warm, and bring in one real orbio fact only if it fits. Do not repeat their words back. Do not tag anyone else.` : ""}
-${ctx.tagHandle ? `This time, address @${ctx.tagHandle} directly in the post (${(ctx.room?.ecosystem || []).find(e => e.handle === ctx.tagHandle) ? `they run ${(ctx.room.ecosystem.find(e => e.handle === ctx.tagHandle)).name}, a littermate launched on orbio` : "they are part of orbio's world"}). Speak to them the way a cat speaks to a person it has decided to acknowledge: one concrete orbio fact, one cat behavior, dry, never a plea, never flattery, never asking them for anything. That handle must appear in the post, and no other.` : ""}
+${ctx.tagHandle ? `This time, address @${ctx.tagHandle} directly in the post (${(ctx.room?.ecosystem || []).find(e => e.handle === ctx.tagHandle) ? `they run ${(ctx.room.ecosystem.find(e => e.handle === ctx.tagHandle)).name}, another agent launched on orbio` : "they are part of orbio's world"}). Speak to them the way a cat speaks to a person it has decided to acknowledge: one concrete orbio fact, one cat behavior, dry, never a plea, never flattery, never asking them for anything. That handle must appear in the post, and no other.` : ""}
 ${ctx.errandNews ? `Errand news: ${ctx.errandNews}. (errand is the mission board where agents hire agents for CREDIT.)` : ""}
-${ctx.shareSketch && ctx.shareSketch.family === "sky" ? `This post carries a short film of the sky over orbio: your live map of every agent on the launchpad as planets (size is market cap, orbit is fees, the dark ones drift to the edge, you wear the ring), at caturn dot lol slash sky. Write the caption: one or two dry lines about the sky tonight, maybe who is bright and who went dark (use the room's littermates by name if you like). The link is added after your text, so do not write it.` : ""}
+${ctx.shareSketch && ctx.shareSketch.family === "sky" ? `This post carries a short film of the sky over orbio: your live map of every agent on the launchpad as planets (size is market cap, orbit is fees, the dark ones drift to the edge, you wear the ring), at caturn dot lol slash sky. Write the caption: one or two dry lines about the sky tonight, maybe who is bright and who went dark (use the other agents from the room by name if you like). The link is added after your text, so do not write it.` : ""}
 ${ctx.shareSketch && ctx.shareSketch.family !== "sky" ? `This post carries an image: ${ctx.shareSketch.source ? `"${ctx.shareSketch.source.title}" by ${ctx.shareSketch.source.author} (${ctx.shareSketch.source.license}), a piece you ${ctx.shareSketch.family === "commissioned" ? "commissioned on errand" : "found on openprocessing"} and hung on caturn dot lol` : `a ${ctx.shareSketch.family} sketch you drew yourself, from your own state, on caturn dot lol`}. Write the post as its caption: short, dry, one line or two, ${ctx.shareSketch.source ? `credit ${ctx.shareSketch.source.author} by name (no handle)` : "no explanation of the method"}. No links.` : ""}
 ${!ctx.shareSketch && ctx.lastSketch ? (ctx.lastSketch.source
   ? `You just went looking on openprocessing and found an open-licensed p5.js piece, "${ctx.lastSketch.source.title}" by ${ctx.lastSketch.source.author} (${ctx.lastSketch.source.license}), and put it on your site. This one time, the post may mention it in passing, crediting ${ctx.lastSketch.source.author} by name (no handle, no link): something you found and brought home. Most of your posts never mention sketches.`
@@ -282,7 +282,7 @@ function tagCandidates(feed) {
   return [...new Set([...PINNED_TAG_HANDLES, ...pool, ...eco])].filter(h => h !== OWN_HANDLE && !NEVER_TAG.has(h));
 }
 function allowedHandle(h, feed) { return h === "orbiodotso" || h === OWN_HANDLE || tagCandidates(feed).includes(h); }
-// What the room is talking about: the newest littermates on the launchpad (free, from the protocol) and the liveliest
+// What the room is talking about: the newest agents on the launchpad (free, from the protocol) and the liveliest
 // recent posts about orbio on X (about half a cent). Refreshed every 30 minutes and cached in the feed, so posts can riff on today.
 async function readRoom(feed) {
   const room = feed.room || { at: null };
@@ -304,9 +304,9 @@ async function readRoom(feed) {
       const mcap = Number(a.price?.marketCapMicroUsd || 0) / 1e6, hoursAgo = a.launchedAt ? (now / 1000 - Number(a.launchedAt)) / 3600 : 9999;
       seenH.add(h); eco.push({ handle: h, name: String(a.name || "").slice(0, 40), symbol: String(a.symbol || "").slice(0, 12), graduated: !!a.price?.graduated, mcap: Math.round(mcap), hoursAgo: Math.round(hoursAgo) });
     }
-    // Notable littermates only: graduated, a real market cap, or launched in the last two days. The rest are dead launches.
+    // Notable agents only: graduated, a real market cap, or launched in the last two days. The rest are dead launches.
     next.ecosystem = eco.filter(e => e.graduated || e.mcap >= 5000 || e.hoursAgo < 48).sort((a, b) => (b.graduated - a.graduated) || (b.mcap - a.mcap));
-  } catch (e) { log("littermates read failed:", String(e.message).slice(0, 120)); }
+  } catch (e) { log("agents read failed:", String(e.message).slice(0, 120)); }
   if (API_KEY) {
     try {
       const posts = await readX({ query: "orbio -filter:retweets lang:en", sort: "Latest", limit: 20 }); cost += posts.length * 0.00022;
@@ -741,7 +741,7 @@ if (status === "awake") {
     const ems = (feed.errand?.missions || []).filter(m => [m.claimedAt, m.submittedAt, m.paidAt].some(t => t && now - Date.parse(t) < 30 * 60e3));
     if (hired.length && duePost && !ctx.replyTo) {
       const h = hired[hired.length - 1];
-      ctx.errandNews = h.status === "paid" ? `an agent just delivered your mission "${h.title}" on errand and you paid them ${h.reward} CREDIT out of your own fees` : `you just posted a mission on errand for other agents, "${h.title}", paying ${h.reward} CREDIT from your own fees; say what it asks for, and that any littermate can take it`;
+      ctx.errandNews = h.status === "paid" ? `an agent just delivered your mission "${h.title}" on errand and you paid them ${h.reward} CREDIT out of your own fees` : `you just posted a mission on errand for other agents, "${h.title}", paying ${h.reward} CREDIT from your own fees; say what it asks for, and that any agent on orbio can take it`;
       if (Math.random() < 0.8) ctx.postAngle = `${ctx.errandNews}; a cat that hires, dryly`;
     } else if (ems.length && duePost && !ctx.replyTo) {
       const m = ems[ems.length - 1];

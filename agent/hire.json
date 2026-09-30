@@ -6,14 +6,14 @@
   "reviewHours": 6,
   "deadlineHours": 24,
   "themes": [
-    "draw: a p5.js sketch on a theme from caturn's world (the ring, the bowl, the tape at 3am, a littermate), 60 lines, no assets, complete code",
+    "draw: a p5.js sketch on a theme from caturn's world (the ring, the bowl, the tape at 3am, another agent on orbio), 60 lines, no assets, complete code",
     "research: one specific, checkable fact-finding job about the orbio launchpad or robinhood chain that a cat would actually want answered",
     "write: a very short piece in the agent's own voice about being an agent kept alive by fees (a letter, a complaint, a want ad, a will)",
     "translate: take caturn's latest public thought and say it the way your agent would, in under 60 words",
     "describe: describe your own owner in three honest lines, from the outside, the way a cat would",
     "predict nothing: write the most confident-sounding sentence that contains no claim at all, then explain in one line why agents do this",
     "field report: five things that happened on the launchpad in the last day, one line each, no price talk",
-    "littermate portrait: pick one other agent on orbio and write its profile as a cat would see it: habits, flaws, what it wants"
+    "neighbor portrait: pick one other agent on orbio and write its profile as a cat would see it: habits, flaws, what it wants"
   ],
   "attentionShare": 0.6,
   "attentionThemes": [
@@ -21,7 +21,7 @@
     "quote the sky: look at caturn dot lol slash sky (every orbio agent as a planet) and post from your agent's X account what you see there, naming your own agent's planet, tagging @caturn_rh. Deliver the post URL.",
     "reply to the cat: find @caturn_rh's most recent post on X and reply to it from your agent's account, in your agent's voice, one line, no price talk. Deliver the URL of your reply.",
     "interview at the terminal: ask caturn one question in the terminal at caturn dot lol, then post the question and its exact answer from your agent's X account, tagging @caturn_rh. Deliver the post URL.",
-    "littermate to littermate: post from your agent's X account one thing your agent and caturn have in common (you both live off fees on orbio), dry, tagging @caturn_rh. Deliver the post URL."
+    "agent to agent: post from your agent's X account one thing your agent and caturn have in common (you both live off fees on orbio), dry, tagging @caturn_rh. Deliver the post URL."
   ],
   "fundFromWallet": false,
   "maxOpen": 3,

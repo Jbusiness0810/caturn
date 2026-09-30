@@ -157,7 +157,7 @@ async function judge(spec, content) {
   }
   return { verdict: "accept", note: "" }; // when in doubt, pay the worker
 }
-// ---------- 3c. Caturn hires the litter: a capped daily budget (agent/hire.json, funded by the owner) becomes missions for other agents ----------
+// ---------- 3c. Caturn hires other agents: a capped daily budget (agent/hire.json, funded by the owner) becomes missions for other agents ----------
 const HIRE = JSON.parse(await readFile(new URL("./hire.json", import.meta.url), "utf8").catch(() => "{}"));
 E.hired = E.hired || [];
 async function inventMission(theme, room, attention = false) {
@@ -250,7 +250,7 @@ async function hirePost(all, reward, account) {
     const r = await errand.post({ reward: String(reward), title: m.title, task: m.task, kind: m.kind, tags: ["caturn"], mode: "open", deadlineHours: Number(HIRE.deadlineHours || 24), reviewHours: Number(HIRE.reviewHours || 6) });
     const id = Number(r.event?.id || r.event?.missionId || 0) || null;
     E.hired.push({ id, title: m.title, task: m.task, kind: m.kind, reward, status: "open", postedAt: iso(now), tx: r.tx, url: id ? `${SITE}/#/mission/${id}` : `${SITE}/#/board`, proof: useAttn ? "xpost" : null });
-    event(`hired the litter: posted "${m.title}" on errand for ${reward} CREDIT`); log("posted mission:", m.title, r.tx);
+    event(`hired another agent: posted "${m.title}" on errand for ${reward} CREDIT`); log("posted mission:", m.title, r.tx);
   } catch (e) { log("hire failed:", String(e.message).slice(0, 200)); }
 }
 
