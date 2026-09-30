@@ -82,13 +82,13 @@
     });
   }
   link("[data-link-launchpad]", C.launchpad);
-  link("[data-link-orbiofun]", C.orbioFun, "orbio.fun");
+  link("[data-link-orbiofun]", C.orbioFun, "Trade $CTRN");
   link("[data-link-x]", C.x, "@caturn_rh");
   link("[data-link-tx]", C.launchTx);
 
   // Secondary hero text: "later" wording flips when links exist
   $all("[data-later]").forEach(function (el) {
-    el.textContent = C.orbioFun ? "Trade on orbio.fun" : "Launchpad later / orbio.fun later";
+    el.textContent = C.orbioFun ? "Trade $CTRN on Orbio" : "Launchpad later / orbio.fun later";
     if (C.orbioFun) el.href = C.orbioFun; else if (C.launchpad) el.href = C.launchpad;
   });
 
