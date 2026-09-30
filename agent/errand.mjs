@@ -218,12 +218,21 @@ async function hirePass(all) {
   if (remaining < 0.25 || now - last < Number(HIRE.minHoursBetween || 3) * 3600e3) return;
   const reward = Math.min(maxReward, remaining, 0.5 + Math.round(Math.random() * 2) * 0.25);
   let account = Number(await errand.accountBalance(me).catch(() => 0));
+  // Earnings only by default: missions are paid from what Caturn itself earned on errand (plus any prize), never from the owner's wallet.
+  if (account < reward && HIRE.fundFromWallet === false) {
+    const cheaper = Math.floor(account / 0.25) * 0.25; // spend what is there, in quarter-credit steps
+    if (cheaper < 0.25) { log(`hiring waits for earnings: account ${account} CREDIT`); E.hireWaiting = `hires from its own earnings: ${account.toFixed(2)} CREDIT in the account, needs 0.25`; return; }
+    return hirePost(all, cheaper, account);
+  }
   if (account < reward) {
     const wallet = Number(await errand.credit.balanceOf(me).catch(() => 0n)) / 1e6, top = Number((reward - account).toFixed(6));
     if (wallet < top) { log(`hiring waits for funds: account ${account}, wallet ${wallet} CREDIT (needs ${reward})`); E.hireWaiting = `needs ${reward} CREDIT in the wallet to post the next mission`; return; }
     try { await errand.deposit(top); account += top; event(`moved ${top} CREDIT into my errand account to hire with`); }
     catch (e) { log("deposit failed:", String(e.message).slice(0, 200)); return; }
   }
+  return hirePost(all, reward, account);
+}
+async function hirePost(all, reward, account) {
   delete E.hireWaiting;
   const themes = HIRE.themes || [], attn = HIRE.attentionThemes || []; if (!themes.length && !attn.length) return;
   const useAttn = attn.length && (Math.random() < Number(HIRE.attentionShare ?? 0.5) || !themes.length);
