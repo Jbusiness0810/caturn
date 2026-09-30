@@ -45,6 +45,9 @@
     "api/ask.js": {
       "maxDuration": 30,
       "includeFiles": "agent/persona.md"
+    },
+    "api/asks.js": {
+      "maxDuration": 15
     }
   }
 }

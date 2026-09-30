@@ -555,3 +555,6 @@ h1, h2, h3, .display {
 .term-send { padding: 8px 16px; min-height: 36px; font-size: 12px; }
 .term.is-busy .term-send { opacity: .5; pointer-events: none; }
 @media (max-width: 560px) { .term-form { grid-template-columns: 1fr auto; } .term-prompt { display: none; } }
+
+.asks .q { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; color: var(--gold-deep); }
+.asks .q::before { content: "> "; }

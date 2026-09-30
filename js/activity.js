@@ -97,11 +97,14 @@
   }
   setInterval(tickClock, 1000);
   function load() {
-    fetch((demo ? "/data/feed.sample.json" : "/data/feed.json") + "?t=" + Math.floor(Date.now() / 30000), { cache: "no-store" })
-      .then(function (r) { return r.json(); }).then(function (f) {
-        var key = (f.updatedAt || "") + ":" + (f.thoughts || []).length + ":" + (f.events || []).length;
-        if (key === lastKey) return; lastKey = key; lastFeed = f; render(f); tickClock();
-      }).catch(function () { if (!lastFeed) $("[data-act-status]").textContent = "feed unavailable"; });
+    var feedP = fetch((demo ? "/data/feed.sample.json" : "/data/feed.json") + "?t=" + Math.floor(Date.now() / 30000), { cache: "no-store" }).then(function (r) { return r.json(); });
+    var asksP = demo ? Promise.resolve({ asks: [{ at: new Date().toISOString(), q: "do you dream?", a: "yes. never finished. the last one was a gold ring in a bowl of warm milk.", model: "sample" }], tracked: true })
+      : fetch("/api/asks?t=" + Math.floor(Date.now() / 20000), { cache: "no-store" }).then(function (r) { return r.json(); }).catch(function () { return { asks: [], tracked: false }; });
+    Promise.all([feedP, asksP]).then(function (res) {
+      var f = res[0]; f.asks = res[1].asks || []; f.asksTracked = !!res[1].tracked;
+      var key = (f.updatedAt || "") + ":" + (f.thoughts || []).length + ":" + (f.events || []).length + ":" + f.asks.length;
+      if (key === lastKey) return; lastKey = key; lastFeed = f; render(f); tickClock();
+    }).catch(function () { if (!lastFeed) $("[data-act-status]").textContent = "feed unavailable"; });
   }
   load(); setInterval(load, 60000);
 
@@ -171,6 +174,11 @@
     // Stream + posts
     renderStream($("[data-stream]"), buildStream(f), status);
     var posts = (f.posts || []).slice().reverse().slice(0, full ? 150 : 5);
+    var asks = (f.asks || []).slice().reverse().slice(0, full ? 200 : 4);
+    $("[data-asks-count]").textContent = (f.asks || []).length;
+    $("[data-log-asks]").innerHTML = asks.length ? asks.map(function (a) {
+      return "<li><p class=\"q\">" + esc(a.q) + "</p><p>" + esc(a.a) + '</p><span class="meta"><span>' + hhmm(a.at) + "</span><span>" + esc(a.model || "") + "</span></span></li>";
+    }).join("") : '<li class="empty">' + (f.asksTracked ? "no one has asked yet." : "asks are not being tracked yet.") + "</li>";
     $("[data-posts-count]").textContent = (f.posts || []).length;
     $("[data-log-posts]").innerHTML = posts.length ? posts.map(function (p) {
       return "<li><p>" + esc(p.text) + '</p><span class="meta"><span>' + hhmm(p.at) + "</span>" + (p.url ? '<a href="' + esc(p.url) + '" rel="noopener" target="_blank">open</a>' : "<span>" + esc(p.status || "publishing") + "</span>") + "</span></li>";

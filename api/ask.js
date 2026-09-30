@@ -4,6 +4,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createHash, createHmac } from "node:crypto";
+import { put, list } from "@vercel/blob";
 
 const ORBIO_API = "https://api.orbio.so/api/v1";
 const MODELS = (process.env.ASK_MODELS || "anthropic/claude-sonnet-5.5,x-ai/grok-4.7,anthropic/claude-opus-5.5,openai/gpt-6-sol-pro").split(",").map(s => s.trim()).filter(Boolean);
@@ -56,6 +57,17 @@ function ticketLimited(req, res) {
   if (t.d >= PER_IP_PER_DAY) { writeTicket(res, t); return "that is enough for one day. come back tomorrow."; }
   t.h.push(now); t.d++; writeTicket(res, t); return null;
 }
+// Log each exchange to Vercel Blob (one JSON file per UTC day) so the site can show it. Best effort; never blocks the answer.
+async function logAsk(entry) {
+  if (!process.env.BLOB_READ_WRITE_TOKEN) return;
+  try {
+    const day = entry.at.slice(0, 10), path = `asks/${day}.json`;
+    let arr = [];
+    try { const { blobs } = await list({ prefix: path }); const b = blobs.find(x => x.pathname === path); if (b) { const r = await fetch(b.url + "?t=" + Date.now(), { cache: "no-store" }); arr = await r.json(); if (!Array.isArray(arr)) arr = []; } } catch {}
+    arr.push(entry); if (arr.length > 500) arr = arr.slice(-500);
+    await put(path, JSON.stringify(arr), { access: "public", addRandomSuffix: false, allowOverwrite: true, contentType: "application/json", cacheControlMaxAge: 60 });
+  } catch (e) { console.error("logAsk failed:", e.message); }
+}
 let balanceCache = { at: 0, v: null };
 async function balanceOk(key) {
   if (Date.now() - balanceCache.at < 60e3 && balanceCache.v != null) return balanceCache.v >= BALANCE_FLOOR;
@@ -99,6 +111,8 @@ export default async function handler(req, res) {
       if (!r.ok) { lastErr = { status: r.status, code: body?.error?.code || "", msg: body?.error?.message || "" }; if (r.status === 404 || r.status === 502 || r.status === 503) continue; break; }
       const answer = (body.choices?.[0]?.message?.content || "").trim();
       if (!answer) { lastErr = { status: 502, msg: "empty" }; continue; }
+      const u = body.usage || {}, cost = Number(u.prompt_tokens || 0) * 2e-6 + Number(u.completion_tokens || 0) * 6e-6; // rough, by catalogue prices
+      await logAsk({ at: new Date().toISOString(), q, a: answer, model: model.split("/").pop(), cost: Number(cost.toFixed(6)) });
       return res.status(200).json({ answer, model: model.split("/").pop() });
     } catch (e) { lastErr = { status: 502, msg: String(e.message) }; }
   }

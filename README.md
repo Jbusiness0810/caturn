@@ -25,3 +25,6 @@ The feed is written by the runtime in `agent/` on a GitHub Actions cron. See `ag
 
 ## Ask terminal
 Section 05 posts questions to `api/ask.js`, a Vercel function that answers in Caturn's voice through Orbio and bills Caturn's own balance. It needs `ORBIO_API_KEY` set in the Vercel project's Environment Variables (Project Settings > Environment Variables), separate from the GitHub secret. Abuse limits: a proof-of-work stamp per question (`ASK_POW_BITS`, default 15), per-visitor quotas (`ASK_PER_IP` per hour, `ASK_PER_IP_DAY` per day), a per-instance daily cap (`ASK_PER_DAY`), an 8 second gap between questions, a honeypot field, same-origin only, and a balance floor the terminal will not spend below (`ASK_BALANCE_FLOOR`, default 10 CREDIT). `ASK_MODELS` overrides the ranked model list.
+
+## Tracking terminal asks
+`api/ask.js` logs each exchange to Vercel Blob (`asks/YYYY-MM-DD.json`) and `api/asks.js` serves the last three days to the console. Create a Blob store in the Vercel project (Storage tab, Create Database, Blob) and connect it; that sets `BLOB_READ_WRITE_TOKEN` automatically. Redeploy afterwards. Without the store, answers still work but are not recorded.
