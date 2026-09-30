@@ -11,6 +11,7 @@ const AGENT_ID  = env.CATURN_AGENT_ID || "0x9b4e217f8759cb758664ac3b0ee730a4d15e
 const MODELS    = (env.CATURN_MODEL || "anthropic/claude-fable-5.1,anthropic/claude-opus-5.5,x-ai/grok-4.7,anthropic/claude-sonnet-5.5,openai/gpt-6-astra-pro,openai/gpt-6-sol-pro").split(",").map(s => s.trim()).filter(Boolean);
 let MODEL = MODELS[0];
 const DRY_RUN   = env.CATURN_DRY_RUN === "1";
+const FORCE     = env.CATURN_FORCE === "1";      // manual runs: think now, ignoring the pacing timer (budget still applies)
 const POST_EVERY_N_THOUGHTS = Number(env.CATURN_POST_EVERY || 3);
 const MIN_THOUGHTS_PER_DAY  = Number(env.CATURN_MIN_THOUGHTS || 2);
 const MAX_THOUGHTS_PER_DAY  = Number(env.CATURN_MAX_THOUGHTS || 48);
@@ -217,7 +218,7 @@ let status = !agent ? "prelaunch" : "napping";
 let reason = !agent ? "no agent yet" : "";
 if (agent && !API_KEY) reason = "no API key";
 else if (agent && spentToday >= DAILY_CREDIT_CAP) reason = "daily budget spent";
-else if (agent && now - lastThoughtAt < interval) reason = `next thought in ${Math.ceil((interval - (now - lastThoughtAt)) / 60000)} min`;
+else if (agent && !FORCE && now - lastThoughtAt < interval) { status = "resting"; reason = `next thought in ${Math.ceil((interval - (now - lastThoughtAt)) / 60000)} min`; }
 else if (agent && energy <= 0 && feed.thoughts.length) reason = "no trades, no thoughts";
 else if (agent) status = "awake";
 
@@ -234,7 +235,7 @@ feed.energy = Number(energy.toFixed(3));
 feed.status = status; feed.reason = reason; feed.updatedAt = iso(now);
 feed.agent = agent ? { id: agent.agentId, token, symbol: agent.symbol, launchedAt: agent.launchedAt ? iso(Number(agent.launchedAt) * 1000) : null } : null;
 if (agent && Math.abs(feed.energy - prev.energy) >= 0.1) event(`energy ${Math.round(prev.energy * 100)}% -> ${Math.round(feed.energy * 100)}% (24h volume ${volume24hUsd == null ? "unknown" : "$" + Math.round(volume24hUsd)})`);
-if (agent && status === "napping" && reason && reason !== prev.reason && !/^next thought/.test(reason)) event(`napping: ${reason}`);
+if (agent && status === "napping" && reason && reason !== prev.reason) event(`napping: ${reason}`);
 if (agent && status === "awake" && prev.status === "napping") event("waking up");
 
 if (status === "awake") {

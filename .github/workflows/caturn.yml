@@ -36,6 +36,7 @@ jobs:
           CATURN_POST_EVERY: ${{ vars.CATURN_POST_EVERY }}
           CATURN_SAY: ${{ github.event.inputs.say }}
           CATURN_CHECK: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+          CATURN_FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
           LOOP: ${{ (github.event_name == 'schedule' && vars.CATURN_LOOP_TICKS) || '1' }}
         run: |
           git config user.name "caturn-bot"

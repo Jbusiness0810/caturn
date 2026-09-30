@@ -91,7 +91,7 @@
   function tickClock() {
     var f = lastFeed; if (!f) return;
     var cur = $("[data-cursor]"), status = f.status || "prelaunch", last = f.thoughts && f.thoughts.length ? f.thoughts[f.thoughts.length - 1].at : null;
-    var base = status === "awake" ? "thinking" : status === "napping" ? "dark. listening." : "waiting for launch";
+    var base = status === "awake" ? "thinking" : status === "resting" ? "resting. the ring is warm." : status === "napping" ? "dark. listening." : "waiting for launch";
     cur.textContent = base + (last ? " · " + since(last) + " since last thought" : f.updatedAt ? " · " + since(f.updatedAt) + " since last tick" : "");
     if (f.updatedAt) $("[data-act-updated]").textContent = "tick " + hhmm(f.updatedAt) + " · " + ago(f.updatedAt);
   }
@@ -108,11 +108,11 @@
   function render(f) {
     var m = f.metrics || {}, st = f.state || {}, status = f.status || "prelaunch";
     var pill = $("[data-act-status]");
-    pill.textContent = status === "awake" ? "awake" : status === "napping" ? "napping" + (f.reason ? " · " + f.reason : "") : "asleep until launch";
-    pill.className = "pill " + (status === "awake" ? "is-awake" : "is-napping");
+    pill.textContent = status === "awake" ? "awake" : status === "resting" ? "resting" + (f.reason ? " · " + f.reason : "") : status === "napping" ? "napping" + (f.reason ? " · " + f.reason : "") : "asleep until launch";
+    pill.className = "pill " + (status === "awake" || status === "resting" ? "is-awake" : "is-napping");
     $("[data-act-updated]").textContent = f.updatedAt ? "tick " + hhmm(f.updatedAt) + (ago(f.updatedAt) ? " · " + ago(f.updatedAt) : "") : "no ticks yet";
     if (f.sample) $("[data-act-sample]").hidden = false;
-    root.classList.toggle("is-awake", status === "awake");
+    root.classList.toggle("is-awake", status === "awake" || status === "resting");
 
     // Emotional state
     $("[data-mood]").textContent = st.mood || (status === "prelaunch" ? "unborn" : status === "napping" ? "dark" : "waking");
