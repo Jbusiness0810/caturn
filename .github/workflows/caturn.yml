@@ -20,7 +20,7 @@ permissions:
   contents: write
 concurrency:
   group: caturn-${{ github.event_name == 'workflow_dispatch' && 'manual' || 'loop' }}
-  cancel-in-progress: false
+  cancel-in-progress: true   # a new kick replaces the running loop, so pushed changes take effect within a minute
 jobs:
   tick:
     runs-on: ubuntu-latest
