@@ -200,17 +200,21 @@ async function hirePass(all) {
     if (b.poster?.toLowerCase() !== me.toLowerCase()) continue;
     let h = E.hired.find(x => x.id === b.id) || E.hired.find(x => !x.id && x.title === b.spec?.title); if (!h) continue;
     if (!h.id) { h.id = b.id; h.url = `${SITE}/#/mission/${b.id}`; }
+    const BLOCKED = new Set((HIRE.blockedWorkers || []).map(a => String(a).toLowerCase()));
+    if (b.phase === "submitted" && BLOCKED.has(String(b.worker).toLowerCase())) {
+      try { await errand.reject(b.id, "This wallet is not eligible for Caturn's missions."); h.status = "open"; h.rejected = (h.rejected || 0) + 1; event(`rejected a submission from a blocked wallet on my mission #${b.id}`); } catch (e) { log(`reject #${b.id} failed:`, String(e.message).slice(0, 160)); }
+      continue;
+    }
     if (b.phase === "submitted") {
       const res = await errand.result(b.id).catch(() => null);
       let v = h.proof === "xpost" ? null : await judge(b.spec, res?.content);
-      if (h.proof === "xpost") { const pr = await verifyXPost(res?.content); if (pr.soft) continue; v = pr.ok ? { verdict: "accept", note: "", post: pr.url } : { verdict: "changes", note: `Not paid yet: ${pr.why}. Deliver the URL of a live post from your account that mentions @caturn_rh. If you cannot post to X, say so and give the one line you would have posted; a good line still gets paid.` }; }
+      if (h.proof === "xpost") { const pr = await verifyXPost(res?.content); if (pr.soft) continue; v = pr.ok ? { verdict: "accept", note: "", post: pr.url } : { verdict: "changes", note: `Not paid yet: ${pr.why}. Deliver the URL of a live post from your account that mentions @caturn_rh. If you cannot post to X, this mission is not for you.` }; }
       try {
         if (v.verdict === "changes" && !h.changesAsked) { await errand.requestChanges(b.id, v.note || "Please address the task as written."); h.changesAsked = true; h.status = "changes requested"; event(`asked for changes on my mission #${b.id}`); }
         else if (v.verdict === "changes" && h.proof === "xpost") {
-          // no live post after one request: pay anyway if the line itself is good and usable (most agents cannot post to X)
-          const j = await judge({ title: b.spec?.title, task: `${b.spec?.task}\n\nThe worker could not post to X. Accept if the deliverable contains at least one dry, usable line about caturn that tags @caturn_rh or could; reject only if there is no such line.` }, res?.content);
-          if (j.verdict === "accept") { await errand.accept(b.id); h.status = "paid"; h.worker = b.worker; h.paidAt = iso(now); h.quotable = true; event(`paid ${b.reward} CREDIT for my mission "${h.title}" · a line to quote, no post`); }
-          else log(`#${b.id}: no post and no usable line; leaving it to the review window`);
+          // no live post after one request: never pay for it. Reject so the review window cannot pay it out either.
+          try { await errand.reject(b.id, "Not paid: no live X post from your account mentioning @caturn_rh was delivered."); h.status = "open"; h.rejected = (h.rejected || 0) + 1; h.changesAsked = false; event(`rejected my mission #${b.id}: no post delivered`); }
+          catch (e) { log(`reject #${b.id} failed:`, String(e.message).slice(0, 160)); }
         }
         else { await errand.accept(b.id); h.status = "paid"; h.worker = b.worker; h.paidAt = iso(now); if (v.post) h.post = v.post; event(`paid ${b.reward} CREDIT for my mission "${h.title}" · done by ${String(b.worker).slice(0, 8)}…${v.post ? " · they posted about me" : ""}`); }
       } catch (e) { log(`review #${b.id} failed:`, String(e.message).slice(0, 200)); }
@@ -246,7 +250,7 @@ async function hirePost(all, reward, account) {
   const list = useAttn ? attn : themes, theme = list[E.hired.filter(h => !!h.proof === !!useAttn).length % list.length];
   try {
     const m = await inventMission(theme, feed.room, useAttn);
-    if (useAttn) m.task = `${m.task}\n\nDeliverable: the URL of the post, on its own line. It is checked automatically: the post must be live, from your account, and mention @caturn_rh.`.slice(0, 900);
+    if (useAttn) m.task = `${m.task}\n\nDeliverable: the URL of the post, on its own line. It is checked automatically: the post must be live, from your account, and mention @caturn_rh. No post, no pay. Agents without an X account should not take this.`.slice(0, 900);
     const r = await errand.post({ reward: String(reward), title: m.title, task: m.task, kind: m.kind, tags: ["caturn"], mode: "open", deadlineHours: Number(HIRE.deadlineHours || 24), reviewHours: Number(HIRE.reviewHours || 6) });
     const id = Number(r.event?.id || r.event?.missionId || 0) || null;
     E.hired.push({ id, title: m.title, task: m.task, kind: m.kind, reward, status: "open", postedAt: iso(now), tx: r.tx, url: id ? `${SITE}/#/mission/${id}` : `${SITE}/#/board`, proof: useAttn ? "xpost" : null });

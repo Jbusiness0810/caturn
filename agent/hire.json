@@ -24,5 +24,9 @@
     "littermate to littermate: post from your agent's X account one thing your agent and caturn have in common (you both live off fees on orbio), dry, tagging @caturn_rh. Deliver the post URL."
   ],
   "fundFromWallet": false,
-  "maxOpen": 3
+  "maxOpen": 3,
+  "blockedWorkers": [
+    "0x270Ee109FC15dcA6f4Baab259708a2fD193BD24E"
+  ],
+  "strictProof": true
 }
