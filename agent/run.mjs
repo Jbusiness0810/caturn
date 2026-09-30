@@ -274,6 +274,23 @@ function cleanPost(text, ctx, feed) {
   return t.length >= 8 ? t : null;
 }
 
+// A post X marked failed gets two more tries over the next ticks: first the same text (X refuses exact duplicates, so a post
+// that did go out cannot double), then with the opening handle moved to the end, in case a leading mention was the problem.
+async function retryFailedPosts(feed, spentToday) {
+  const p = feed.posts.filter(x => x.status === "failed" && (x.retries || 0) < 2 && now - Date.parse(x.at) < 6 * 3600e3).pop();
+  if (!p || spentToday >= DAILY_CREDIT_CAP) return;
+  const n = (p.retries || 0) + 1;
+  let text = p.text;
+  if (n === 2) { const m = text.match(/^@(\w{1,15})\s+/); if (m) text = text.slice(m[0].length).trim() + " @" + m[1]; }
+  try {
+    const r = await postToX(text);
+    if (r.error) { log("retry skipped:", r.error); return; }
+    Object.assign(p, { retries: n, retriedAt: iso(now), text, id: r.id || p.id, url: r.url || null, status: r.status, cost: Number(((p.cost || 0) + r.cost).toFixed(6)) });
+    if (r.err) p.error = String(r.err).slice(0, 200); else delete p.error;
+    event(`retried a post X had refused (try ${n})`);
+  } catch (e) { p.retries = n; p.error = String(e.message).slice(0, 200); log("retry failed:", e.status || "", String(e.message).slice(0, 200)); }
+}
+
 // ---------- 3a. Check: CATURN_CHECK=1 verifies the key and balance for free, prints no secrets ----------
 if (env.CATURN_CHECK === "1") {
   if (!API_KEY) { console.log("CHECK: ORBIO_API_KEY is NOT set in this environment"); process.exit(1); }
@@ -461,6 +478,7 @@ if (status === "awake") {
   }
 }
 if (API_KEY) await refreshPostUrls(feed.posts);
+if (API_KEY && !DRY_RUN && agent) await retryFailedPosts(feed, spentToday);
 
 await writeFile(FEED, JSON.stringify(feed, null, 2) + "\n");
 log(`status=${feed.status} energy=${feed.energy} thoughts/day=${thoughtsPerDay} spentToday=${feed.metrics.spentTodayCredit} ${feed.reason || ""}`);

@@ -191,7 +191,7 @@
     }).join("") : '<li class="empty">' + (f.asksTracked ? "no one has asked yet." : "asks are not being tracked yet.") + "</li>";
     $("[data-posts-count]").textContent = (f.posts || []).length;
     $("[data-log-posts]").innerHTML = posts.length ? posts.map(function (p) {
-      return "<li>" + (p.replyTo ? '<p class="re">' + reTo(p.replyTo) + "</p>" : p.tagged ? '<p class="re">tagging @' + esc(p.tagged) + "</p>" : "") + "<p>" + esc(p.text) + '</p><span class="meta"><span>' + hhmm(p.at) + "</span>" + (p.url ? '<a href="' + esc(p.url) + '" rel="noopener" target="_blank">open</a>' : "<span>" + esc(p.status || "publishing") + "</span>") + "</span></li>";
+      return "<li>" + (p.replyTo ? '<p class="re">' + reTo(p.replyTo) + "</p>" : p.tagged ? '<p class="re">tagging @' + esc(p.tagged) + "</p>" : "") + "<p>" + esc(p.text) + '</p><span class="meta"><span>' + hhmm(p.at) + "</span>" + (p.url ? '<a href="' + esc(p.url) + '" rel="noopener" target="_blank">open</a>' : "<span" + (p.error ? ' title="' + esc(p.error) + '"' : "") + ">" + esc(p.status || "publishing") + (p.retries ? " · retried" : "") + "</span>") + "</span></li>";
     }).join("") : '<li class="empty">nothing said out loud yet.</li>';
   }
 })();
