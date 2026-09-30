@@ -128,7 +128,7 @@ if (env.CATURN_CHECK === "1") {
     console.log(`CHECK: key ok (prefix ${k.key?.prefix || "?"}, kind ${k.key?.kind || "?"}), balance available ${avail.toFixed(4)} CREDIT`);
     console.log(avail > 0.02 ? "CHECK: enough balance for a post" : "CHECK: balance too low to post (needs ~0.02 CREDIT); fees will fill it after launch");
   } catch (e) { console.log("CHECK: key rejected:", e.status, String(e.message).slice(0, 160)); process.exit(1); }
-  process.exit(0);
+  if (!env.CATURN_SAY) process.exit(0); // a manual run with "say" continues to the test post
 }
 
 // ---------- 3b. Test post: CATURN_SAY="text" posts once and exits, touching nothing else ----------
