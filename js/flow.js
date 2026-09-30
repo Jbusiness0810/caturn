@@ -11,17 +11,21 @@
   function layout() {
     var b = root.getBoundingClientRect(); W = b.width; H = b.height; dpr = Math.min(1.5, window.devicePixelRatio || 1);
     canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    var orb = rel(root.querySelector("[data-flow-orb]")), cx = orb.x + orb.w / 2, cy = orb.y + orb.h / 2, R = orb.w / 2 - 4;
+    var orb = rel(root.querySelector("[data-flow-orb]")), cx = orb.x + orb.w / 2, cy = orb.y + orb.h / 2, R = orb.w / 2 - 4, Rr = R + 22;
     streams = [];
-    root.querySelectorAll(".flow-left .fnode").forEach(function (n, i) {
-      var r = rel(n), x0 = r.x + r.w, y0 = r.y + r.h / 2;
-      var ang = Math.PI + (i - 2) * 0.28, x1 = cx + Math.cos(ang) * R, y1 = cy + Math.sin(ang) * R;
-      streams.push({ dir: 1, p0: [x0, y0], c0: [x0 + (x1 - x0) * 0.55, y0], c1: [x1 - (x1 - x0) * 0.3, y1], p1: [x1, y1], seed: Math.random(), particles: [] });
+    var left = root.querySelectorAll(".flow-left .fnode"), right = root.querySelectorAll(".flow-right .fnode");
+    // Streams land on the outer ring in the same vertical order as their nodes, so nothing crosses.
+    left.forEach(function (n, i) {
+      var r = rel(n), x0 = r.x + r.w + 6, y0 = r.y + r.h / 2;
+      var ang = Math.PI - (i - (left.length - 1) / 2) * 0.3, x1 = cx + Math.cos(ang) * Rr, y1 = cy + Math.sin(ang) * Rr;
+      var mx = (x0 + x1) / 2;
+      streams.push({ p0: [x0, y0], c0: [mx, y0], c1: [mx, y1], p1: [x1, y1], particles: [] });
     });
-    root.querySelectorAll(".flow-right .fnode").forEach(function (n, i) {
-      var r = rel(n), x1 = r.x, y1 = r.y + r.h / 2;
-      var ang = (i - 1.5) * 0.3, x0 = cx + Math.cos(ang) * R, y0 = cy + Math.sin(ang) * R;
-      streams.push({ dir: 1, p0: [x0, y0], c0: [x0 + (x1 - x0) * 0.3, y0], c1: [x1 - (x1 - x0) * 0.55, y1], p1: [x1, y1], seed: Math.random(), particles: [] });
+    right.forEach(function (n, i) {
+      var r = rel(n), x1 = r.x - 6, y1 = r.y + r.h / 2;
+      var ang = (i - (right.length - 1) / 2) * 0.3, x0 = cx + Math.cos(ang) * Rr, y0 = cy + Math.sin(ang) * Rr;
+      var mx = (x0 + x1) / 2;
+      streams.push({ p0: [x0, y0], c0: [mx, y0], c1: [mx, y1], p1: [x1, y1], particles: [] });
     });
     root.orb = { cx: cx, cy: cy, R: R };
   }
@@ -44,15 +48,16 @@
     streams.forEach(function (s) {
       ctx.strokeStyle = "rgba(176,138,62," + lineA.toFixed(2) + ")"; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(s.p0[0], s.p0[1]); ctx.bezierCurveTo(s.c0[0], s.c0[1], s.c1[0], s.c1[1], s.p1[0], s.p1[1]); ctx.stroke();
+      ctx.fillStyle = "rgba(176,138,62,.8)"; [s.p0, s.p1].forEach(function (q) { ctx.beginPath(); ctx.arc(q[0], q[1], 2.2, 0, Math.PI * 2); ctx.fill(); });
       if (reduce) return;
       var want = state.status === "prelaunch" ? 0 : state.status === "napping" ? 1 : 2 + Math.round(e * 9);
       while (s.particles.length < want) s.particles.push({ t: Math.random(), v: 0.0012 + Math.random() * 0.0015 + e * 0.003, r: 1 + Math.random() * 1.4 });
       if (s.particles.length > want) s.particles.length = want;
       s.particles.forEach(function (p) {
         p.t += p.v * (awake ? 1 : 0.35); if (p.t > 1) p.t -= 1;
-        var a = bez(s, p.t), b = bez(s, Math.max(0, p.t - 0.04));
-        ctx.strokeStyle = "rgba(176,138,62,.35)"; ctx.lineWidth = p.r; ctx.beginPath(); ctx.moveTo(b[0], b[1]); ctx.lineTo(a[0], a[1]); ctx.stroke();
-        ctx.fillStyle = "rgba(140,106,44,.9)"; ctx.beginPath(); ctx.arc(a[0], a[1], p.r, 0, Math.PI * 2); ctx.fill();
+        var a = bez(s, p.t), b = bez(s, Math.max(0, p.t - 0.06));
+        ctx.strokeStyle = "rgba(176,138,62,.28)"; ctx.lineWidth = p.r * 0.9; ctx.beginPath(); ctx.moveTo(b[0], b[1]); ctx.lineTo(a[0], a[1]); ctx.stroke();
+        ctx.fillStyle = "rgba(140,106,44,.85)"; ctx.beginPath(); ctx.arc(a[0], a[1], p.r * 0.9, 0, Math.PI * 2); ctx.fill();
       });
     });
   }
