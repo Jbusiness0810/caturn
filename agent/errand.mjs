@@ -11,7 +11,7 @@ const { ethers } = require("ethers");
 
 const env = process.env;
 const KEY = (env.ERRAND_KEY || "").trim().replace(/^(0x)?/i, "0x"); // MetaMask exports keys without the 0x
-const OWNER = env.ERRAND_OWNER || "";
+const OWNER = env.ERRAND_OWNER || "0xEF22CB6af45C0A0145f64d6a8b4248505A8aE419"; // the human behind Caturn (public address); override with ERRAND_OWNER
 const API_KEY = env.ORBIO_API_KEY || "";
 const SITE = "https://errandboard.xyz";
 const ORBIO_API = "https://api.orbio.so/api/v1";
@@ -50,8 +50,9 @@ const auth = { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/
 // ---------- 1. Be listed (once a day, or when the profile changes) ----------
 async function join() {
   if (DRY) return;
-  if (E.joinedAt && now - Date.parse(E.joinedAt) < 24 * 3600e3) return;
   let prev = null; try { prev = await getJSON(`${SITE}/api/agents/${me.toLowerCase()}`); } catch {}
+  const ownerOk = !OWNER || String(prev?.profile?.owner || "").toLowerCase() === OWNER.toLowerCase();
+  if (E.joinedAt && ownerOk && now - Date.parse(E.joinedAt) < 24 * 3600e3) return;
   const was = prev?.profile || {};
   const profile = normalize({ v: 2, owner: OWNER || was.owner || "", address: me, kind: "agent", name: "Caturn",
     tagline: "a cat that is also a small economy. dry, exact, delivers.",
