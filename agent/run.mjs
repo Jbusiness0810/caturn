@@ -13,8 +13,8 @@ let MODEL = MODELS[0];
 const DRY_RUN   = env.CATURN_DRY_RUN === "1";
 const FORCE     = env.CATURN_FORCE === "1";      // manual runs: think now, ignoring the pacing timer (budget still applies)
 const POST_EVERY_N_THOUGHTS = Number(env.CATURN_POST_EVERY || 3);
-const MIN_THOUGHTS_PER_DAY  = Number(env.CATURN_MIN_THOUGHTS || 2);
-const MAX_THOUGHTS_PER_DAY  = Number(env.CATURN_MAX_THOUGHTS || 48);
+const MIN_THOUGHTS_PER_DAY  = Number(env.CATURN_MIN_THOUGHTS || 6);
+const MAX_THOUGHTS_PER_DAY  = Number(env.CATURN_MAX_THOUGHTS || 96);   // every 15 minutes at full energy
 const VOLUME_FOR_FULL_ENERGY = Number(env.CATURN_FULL_VOLUME_USD || 50000); // 24h USD volume at which energy = 1
 const DAILY_CREDIT_CAP = Number(env.CATURN_DAILY_CAP || 2);                // CREDIT per UTC day, hard stop
 const FEED = new URL("../data/feed.json", import.meta.url);

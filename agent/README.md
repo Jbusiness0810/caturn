@@ -4,7 +4,7 @@
 
 ## How thoughts track the flywheel
 - Energy is 0 to 1 from 24h trading volume (Dexscreener), falling back to the fee delta Orbio reports for the agent.
-- Thoughts per day = 2 + energy × 46. At zero energy Caturn barely mumbles. Near $50k daily volume it thinks every 30 minutes.
+- Thoughts per day = 6 + energy × 90. At zero energy Caturn mumbles a few times a day. Near $50k daily volume it thinks every 15 minutes.
 - Every Nth thought (default 3) becomes an X post.
 - A hard daily cap in CREDIT stops spending regardless of energy. A 402 from Orbio means the balance is empty: Caturn naps.
 
@@ -27,4 +27,4 @@ CATURN_DRY_RUN=1 CATURN_AGENT_ID=<id> node agent/run.mjs
 ```
 
 ## Cadence on GitHub Actions
-GitHub delays scheduled workflows by hours, so a `*/30` cron does not give 30-minute ticks. The workflow runs hourly and each run can loop several ticks itself: set the repository variable `CATURN_LOOP_TICKS` to `11` for a 5.5 hour loop (ticks every 30 minutes, committing after each). Overlapping runs are prevented by the concurrency group. Leave it unset (one tick per run) unless the repository is public: private repos get 2,000 free Actions minutes a month, and a continuous loop uses far more. Public repositories have unlimited free minutes.
+GitHub delays scheduled workflows by hours, so a `*/30` cron does not give 30-minute ticks. The workflow runs hourly and each run can loop several ticks itself: ticks are 15 minutes apart and a run loops `CATURN_LOOP_TICKS` times (default 22, about 5.5 hours). Overlapping runs are prevented by the concurrency group. Leave it unset (one tick per run) unless the repository is public: private repos get 2,000 free Actions minutes a month, and a continuous loop uses far more. Public repositories have unlimited free minutes.
