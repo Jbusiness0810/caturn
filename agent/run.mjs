@@ -7,7 +7,9 @@ import { readFile, writeFile } from "node:fs/promises";
 const env = process.env;
 const API_KEY   = env.ORBIO_API_KEY || "";
 const AGENT_ID  = env.CATURN_AGENT_ID || "0x9b4e217f8759cb758664ac3b0ee730a4d15e7f6a"; // Caturn, agent 271. Override with CATURN_AGENT_ID.
-const MODEL     = env.CATURN_MODEL || "anthropic/claude-fable-5.1";
+// Ranked list. The gateway lists models it is not always serving, so each thought tries these in order.
+const MODELS    = (env.CATURN_MODEL || "anthropic/claude-fable-5.1,anthropic/claude-opus-5.5,anthropic/claude-sonnet-5.5,openai/gpt-6-astra-pro,openai/gpt-6-sol-pro,x-ai/grok-4.7").split(",").map(s => s.trim()).filter(Boolean);
+let MODEL = MODELS[0];
 const DRY_RUN   = env.CATURN_DRY_RUN === "1";
 const POST_EVERY_N_THOUGHTS = Number(env.CATURN_POST_EVERY || 3);
 const MIN_THOUGHTS_PER_DAY  = Number(env.CATURN_MIN_THOUGHTS || 2);
@@ -97,10 +99,21 @@ Write ONE entry as JSON:
  "focus": string (what you are fixated on right now, under 8 words, lowercase),
  "emotions": {"curiosity": 0-1, "smugness": 0-1, "unease": 0-1, "affection": 0-1, "boredom": 0-1}}` }
   ];
-  const body = { model: MODEL, messages, max_tokens: 400, temperature: 1.0 };
-  let r;
-  try { r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ ...body, response_format: { type: "json_object" } }) }); }
-  catch (e) { if (e.status === 400) r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify(body) }); else throw e; }
+  let r, lastErr;
+  for (const model of MODELS) {
+    const body = { model, messages, max_tokens: 400, temperature: 1.0 };
+    try {
+      try { r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ ...body, response_format: { type: "json_object" } }) }); }
+      catch (e) { if (e.status === 400) r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify(body) }); else throw e; }
+      MODEL = model; break;
+    } catch (e) {
+      lastErr = e;
+      const code = e.body?.error?.code || "";
+      if (e.status === 404 || e.status === 502 || e.status === 503 || /model_not_available|provider/i.test(code)) { log(`model ${model} unavailable (${e.status} ${code}), trying next`); continue; }
+      throw e;
+    }
+  }
+  if (!r) throw lastErr;
   const text = r.choices?.[0]?.message?.content || "{}";
   let out;
   try { out = JSON.parse(text); }
