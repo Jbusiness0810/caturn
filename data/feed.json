@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-30T08:03:24.011Z",
+  "updatedAt": "2026-09-30T08:18:37.174Z",
   "status": "awake",
   "reason": "",
   "energy": 0.698,
@@ -11,15 +11,15 @@
     "launchedAt": "2026-09-30T01:30:40.000Z"
   },
   "metrics": {
-    "volume24hUsd": 1910.7958317819798,
-    "fees24hUsd": 95.539791589099,
+    "volume24hUsd": 1906.3456429406397,
+    "fees24hUsd": 95.31728214703199,
     "volumeSource": "curve fees",
     "graduated": false,
     "graduationPct": 15.88,
-    "balanceCredit": 50.942304,
+    "balanceCredit": 50.919564,
     "priceUsd": 0.000009,
-    "marketCapUsd": 9668.810156,
-    "creditOwed": 0.000686,
+    "marketCapUsd": 9646.31096,
+    "creditOwed": 0.000969,
     "stakedOrbio": 762.279692,
     "spentTodayCredit": 0.26266,
     "thoughtsPerDay": 69
@@ -372,6 +372,11 @@
       "t": 1790755404011,
       "fees": 1600.787353,
       "vol": 1910.7958317819798
+    },
+    {
+      "t": 1790756317174,
+      "fees": 1600.787353,
+      "vol": 1906.3456429406397
     }
   ],
   "events": [
