@@ -15,7 +15,9 @@ on:
         default: false
 permissions:
   contents: write
-concurrency: { group: caturn-tick, cancel-in-progress: false }
+concurrency:
+  group: caturn-${{ github.event_name }}
+  cancel-in-progress: false
 jobs:
   tick:
     runs-on: ubuntu-latest
