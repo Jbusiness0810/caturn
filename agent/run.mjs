@@ -5,6 +5,7 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { createHmac, randomBytes } from "node:crypto";
 const run = promisify(execFile);
 
 const env = process.env;
@@ -29,7 +30,12 @@ const TAG_EVERY  = Number(env.CATURN_TAG_EVERY || 8);     // tag someone in roug
 const TAG_POOL_REFRESH_H = 12;                            // re-scan X for people around orbio this often
 const REPLY_EVERY = Number(env.CATURN_REPLY_EVERY || 2);  // every Nth post slot looks for something on X to answer (0 = never)
 const REPLY_MAX_AGE_H = 72;                               // only answer posts younger than this
-const REPLY_SAME_HANDLE_GAP_H = 4;                        // answer the same account (other than people talking to you) at most this often
+const REPLY_SAME_HANDLE_GAP_H = 4;                        // answer the same stranger at most this often
+const REPLY_ACCOUNTS = (env.CATURN_REPLY_ACCOUNTS || "0x_aster,orbiodotso").split(",").map(s => s.trim().replace(/^@/, "").toLowerCase()).filter(Boolean); // accounts whose posts get answered first
+const REPLY_ACCOUNT_GAP_H = 1;                            // answer the same priority account at most this often
+// Real threaded replies need X's own API for @caturn_rh (Orbio's social.post cannot reply). With these four secrets set, replies thread; without them, a reply is a post that opens with the handle.
+const X_KEYS = { key: env.X_API_KEY || "", secret: env.X_API_SECRET || "", token: env.X_ACCESS_TOKEN || "", tokenSecret: env.X_ACCESS_SECRET || "" };
+const X_API = !!(X_KEYS.key && X_KEYS.secret && X_KEYS.token && X_KEYS.tokenSecret);
 const NEVER_TAG = new Set(["orbiodotso", "x", "twitter", "elonmusk", "grok"]);
 const MIN_THOUGHTS_PER_DAY  = Number(env.CATURN_MIN_THOUGHTS || 6);
 const MAX_THOUGHTS_PER_DAY  = Number(env.CATURN_MAX_THOUGHTS || 96);   // every 15 minutes at full energy
@@ -139,7 +145,7 @@ async function think(persona, ctx) {
 - recent thoughts (avoid repeating): ${ctx.recent.map(t => JSON.stringify(t.text)).join(" | ") || "none"}
 
 ${ctx.replyTo ? `Someone on X${ctx.replyTo.why === "mention" ? " is talking to you" : ctx.replyTo.why === "orbio" ? ", the orbio account itself," : ""}: @${ctx.replyTo.handle} (${ctx.replyTo.name}) wrote: ${JSON.stringify(ctx.replyTo.text.slice(0, 500))}
-This time your post is an answer to them. Start it with @${ctx.replyTo.handle}, respond to what they actually said, in your own cat voice, dry or warm, and bring in one real orbio fact only if it fits. Do not repeat their words back. Do not tag anyone else.` : ""}
+This time your post is a reply to them${X_API ? " in the thread under their post, so do not start with their handle" : ". Start it with @" + ctx.replyTo.handle}; respond to what they actually said, in your own cat voice, dry or warm, and bring in one real orbio fact only if it fits. Do not repeat their words back. Do not tag anyone else.` : ""}
 ${ctx.tagHandle ? `This time, address @${ctx.tagHandle} directly in the post (they are part of orbio's world). Speak to them the way a cat speaks to a person it has decided to acknowledge: one concrete orbio fact, one cat behavior, dry, never a plea, never flattery, never asking them for anything. That handle must appear in the post, and no other.` : ""}
 ${ctx.lastSketch ? (ctx.lastSketch.source
   ? `You just went looking on openprocessing and found an open-licensed p5.js piece, "${ctx.lastSketch.source.title}" by ${ctx.lastSketch.source.author} (${ctx.lastSketch.source.license}), and put it on your site. This one time, the post may mention it in passing, crediting ${ctx.lastSketch.source.author} by name (no handle, no link): something you found and brought home. Most of your posts never mention sketches.`
@@ -209,7 +215,7 @@ async function postToX(text) {
   return { id: r.post_id || r.result?.post_id || null, status: r.status || r.result?.status || "publishing", url, err, cost: Number(r.cost?.credit || 0.0187) };
 }
 async function refreshPostUrls(posts) {
-  for (const p of posts.filter(p => p.id && !p.url).slice(-5)) {
+  for (const p of posts.filter(p => p.id && !p.url && p.via !== "x-api").slice(-5)) {
     try {
       const r = await getJSON(`${ORBIO_API}/tools/social.post.status`, { method: "POST", headers: auth, body: JSON.stringify({ post_id: p.id, max_cost: "0" }) });
       const plats = r.platforms || r.result?.platforms || [];
@@ -228,7 +234,8 @@ async function readX(params) {
   const r = await getJSON(`${ORBIO_API}/tools/social.x.posts`, { method: "POST", headers: auth, body: JSON.stringify({ limit: 10, sort: "Latest", max_cost: "0.0060", ...params }) });
   return (r.tweets || r.result?.tweets || []).map(t => ({
     id: String(t.id_str || t.id || ""), text: String(t.full_text || t.text || ""), at: t.tweet_created_at || t.created_at || null,
-    handle: String(t.user?.screen_name || "").toLowerCase(), name: t.user?.name || "", followers: Number(t.user?.followers_count || 0), views: Number(t.views_count || 0)
+    handle: String(t.user?.screen_name || "").toLowerCase(), name: t.user?.name || "", followers: Number(t.user?.followers_count || 0), views: Number(t.views_count || 0),
+    likes: Number(t.favorite_count || 0), replies: Number(t.reply_count || 0), reposts: Number(t.retweet_count || 0)
   })).filter(t => t.id && t.handle);
 }
 // Who is around orbio on X: handles the orbio account mentions, and the bigger accounts mentioning orbio. Cached in the feed.
@@ -262,24 +269,50 @@ async function findReplyTarget(feed) {
   const answered = new Set(feed.posts.map(p => p.replyTo?.id).filter(Boolean));
   const fresh = (t) => !t.at || now - Date.parse(t.at) < REPLY_MAX_AGE_H * 3600e3;
   const usable = (t) => t.handle !== OWN_HANDLE && !answered.has(t.id) && fresh(t) && !/^RT @/i.test(t.text) && t.text.replace(/@\w+/g, "").trim().length > 12;
+  const score = (t) => t.views + t.likes * 20 + t.replies * 30 + t.reposts * 40 + (now - Date.parse(t.at || 0) < 6 * 3600e3 ? 500 : 0); // engagement, with a bonus for being recent
   const lastTo = (h) => Math.max(0, ...feed.posts.filter(p => p.replyTo?.handle === h).map(p => Date.parse(p.at)));
-  const pick = (list, why) => { const t = list.find(usable); return t ? { ...t, why, url: `https://x.com/${t.handle}/status/${t.id}` } : null; };
+  const pick = (list, why) => { const t = list.filter(usable).sort((a, b) => score(b) - score(a))[0]; return t ? { ...t, why, url: `https://x.com/${t.handle}/status/${t.id}` } : null; };
   let cost = 0;
   try {
     // 1. Someone talking to Caturn always comes first.
     const mentions = await readX({ mentions_of: OWN_HANDLE }); cost += mentions.length * 0.00022;
     const m = pick(mentions, "mention"); if (m) return { target: m, cost };
-    // 2. Otherwise something Orbio's own account said, at most every few hours.
-    if (now - lastTo("orbiodotso") > REPLY_SAME_HANDLE_GAP_H * 3600e3) {
-      const theirs = await readX({ handle: "orbiodotso" }); cost += theirs.length * 0.00022;
-      const o = pick(theirs, "orbio"); if (o) return { target: o, cost };
+    // 2. The people who matter: Orbio's founder and the orbio account. Their newest unanswered post, at most once an hour each.
+    const order = [...REPLY_ACCOUNTS]; for (let i = feed.posts.length % order.length; i > 0; i--) order.push(order.shift());
+    for (const h of order) {
+      if (now - lastTo(h) < REPLY_ACCOUNT_GAP_H * 3600e3) continue;
+      const theirs = await readX({ handle: h, limit: 10 }); cost += theirs.length * 0.00022;
+      const o = pick(theirs, "priority"); if (o) return { target: o, cost };
     }
-    // 3. Otherwise the freshest thing anyone is saying about orbio, once per account per gap.
-    const around = await readX({ query: "orbio -filter:retweets -filter:replies lang:en", limit: 15 }); cost += around.length * 0.00022;
+    // 3. Otherwise the highest-engagement recent post about orbio, once per account per gap.
+    const around = await readX({ query: "orbio -filter:retweets lang:en", sort: "Top", limit: 20 }); cost += around.length * 0.00022;
     const a = pick(around.filter(t => now - lastTo(t.handle) > REPLY_SAME_HANDLE_GAP_H * 3600e3 && t.followers >= 50), "search");
     if (a) return { target: a, cost };
   } catch (e) { log("reading X failed:", e.status || "", String(e.message).slice(0, 160)); }
   return { target: null, cost };
+}
+// X API v2 with OAuth 1.0a user context: a real reply in the thread.
+function oauthHeader(method, url, extra = {}, keys = X_KEYS, nonce = randomBytes(16).toString("hex"), ts = String(Math.floor(Date.now() / 1000))) {
+  const enc = (v) => encodeURIComponent(String(v)).replace(/[!'()*]/g, c => "%" + c.charCodeAt(0).toString(16).toUpperCase());
+  const p = { oauth_consumer_key: keys.key, oauth_nonce: nonce, oauth_signature_method: "HMAC-SHA1", oauth_timestamp: ts, oauth_token: keys.token, oauth_version: "1.0" };
+  const all = { ...p, ...extra }; // a JSON body adds nothing to the signature; form or query params would
+  const base = [method.toUpperCase(), enc(url), enc(Object.keys(all).sort().map(k => `${enc(k)}=${enc(all[k])}`).join("&"))].join("&");
+  p.oauth_signature = createHmac("sha1", `${enc(keys.secret)}&${enc(keys.tokenSecret)}`).update(base).digest("base64");
+  return "OAuth " + Object.keys(p).sort().map(k => `${enc(k)}="${enc(p[k])}"`).join(", ");
+}
+async function replyOnX(text, inReplyToId) {
+  if (/https?:\/\//i.test(text)) return { error: "no links in replies" };
+  const url = "https://api.x.com/2/tweets";
+  try {
+    const r = await getJSON(url, { method: "POST", headers: { Authorization: oauthHeader("POST", url), "Content-Type": "application/json" }, body: JSON.stringify({ text, reply: { in_reply_to_tweet_id: String(inReplyToId) } }) });
+    const id = r.data?.id || null;
+    log("x reply response:", JSON.stringify(r).slice(0, 300));
+    return { id, status: id ? "published" : "failed", url: id ? `https://x.com/${OWN_HANDLE}/status/${id}` : null, err: id ? null : JSON.stringify(r).slice(0, 200), cost: 0, via: "x-api" };
+  } catch (e) {
+    const msg = String(e.body?.detail || e.body?.title || e.body?.errors?.[0]?.message || e.message).slice(0, 200);
+    log("x reply failed:", e.status || "", msg);
+    return { id: null, status: "failed", url: null, err: msg, cost: 0, via: "x-api" };
+  }
 }
 // Keep posts inside the rules whatever the model wrote: no links, no addresses, no handles outside the allowlist (and the one it is answering).
 function cleanPost(text, ctx, feed) {
@@ -289,7 +322,8 @@ function cleanPost(text, ctx, feed) {
   const extra = new Set([ctx.replyTo?.handle, ctx.tagHandle].filter(Boolean));
   const handles = [...t.matchAll(/@(\w{1,15})/g)].map(m => m[1].toLowerCase());
   for (const h of handles) if (!allowedHandle(h, feed) && !extra.has(h)) t = t.replace(new RegExp("@" + h + "\\b", "ig"), h); // strangers become plain words
-  if (ctx.replyTo && !t.toLowerCase().startsWith("@" + ctx.replyTo.handle)) t = `@${ctx.replyTo.handle} ${t.replace(new RegExp("@" + ctx.replyTo.handle + "\\b", "ig"), "").replace(/\s+/g, " ").trim()}`;
+  if (ctx.replyTo && X_API) t = t.replace(new RegExp("^@" + ctx.replyTo.handle + "\\b[\\s,:]*", "i"), "").trim(); // a threaded reply already addresses them
+  else if (ctx.replyTo && !t.toLowerCase().startsWith("@" + ctx.replyTo.handle)) t = `@${ctx.replyTo.handle} ${t.replace(new RegExp("@" + ctx.replyTo.handle + "\\b", "ig"), "").replace(/\s+/g, " ").trim()}`;
   t = oneCashtag(t);
   if (t.length > 270) t = t.slice(0, 267).replace(/\s+\S*$/, "") + "...";
   return t.length >= 8 ? t : null;
@@ -317,7 +351,7 @@ async function retryFailedPosts(feed, spentToday) {
   const n = (p.retries || 0) + 1;
   const text = repairPost(p.text, p.error, n);
   try {
-    const r = await postToX(text);
+    const r = p.threaded && p.replyTo && X_API ? await replyOnX(text, p.replyTo.id) : await postToX(text);
     if (r.error) { log("retry skipped:", r.error); return; }
     Object.assign(p, { retries: n, retriedAt: iso(now), text, id: r.id || p.id, url: r.url || null, status: r.status, cost: Number(((p.cost || 0) + r.cost).toFixed(6)) });
     if (r.err) p.error = String(r.err).slice(0, 200); else delete p.error;
@@ -541,15 +575,15 @@ if (status === "awake") {
       if (t.post && !text) log("post dropped by the rules:", JSON.stringify(t.post));
       if (shouldPost && !DRY_RUN) {
         try {
-          const p = await postToX(text);
+          const p = ctx.replyTo && X_API ? await replyOnX(text, ctx.replyTo.id) : await postToX(text);
           if (p.error) log("post skipped:", p.error);
           else {
-            const rec = { at: iso(now), text, id: p.id, url: p.url, status: p.status, cost: Number((p.cost + readCost).toFixed(6)) };
+            const rec = { at: iso(now), text, id: p.id, url: p.url, status: p.status, cost: Number((p.cost + readCost).toFixed(6)), via: p.via || "orbio" };
             if (p.err) rec.error = String(p.err).slice(0, 200);
-            if (ctx.replyTo) { rec.kind = "reply"; rec.replyTo = { id: ctx.replyTo.id, handle: ctx.replyTo.handle, name: ctx.replyTo.name, text: ctx.replyTo.text.slice(0, 200), url: ctx.replyTo.url, why: ctx.replyTo.why }; }
+            if (ctx.replyTo) { rec.kind = "reply"; rec.threaded = !!X_API; rec.replyTo = { id: ctx.replyTo.id, handle: ctx.replyTo.handle, name: ctx.replyTo.name, text: ctx.replyTo.text.slice(0, 200), url: ctx.replyTo.url, why: ctx.replyTo.why }; }
             else if (ctx.tagHandle && text.toLowerCase().includes("@" + ctx.tagHandle)) { rec.kind = "tag"; rec.tagged = ctx.tagHandle; }
             feed.posts.push(rec); feed.lastPostThoughtIndex = n;
-            event(rec.kind === "reply" ? `answered @${rec.replyTo.handle} on X` : rec.kind === "tag" ? `posted to X, tagging @${rec.tagged}` : "posted to X");
+            event(rec.kind === "reply" ? `${rec.threaded ? "replied to" : "answered"} @${rec.replyTo.handle} on X` : rec.kind === "tag" ? `posted to X, tagging @${rec.tagged}` : "posted to X");
           }
         } catch (e) {
           if (e.status === 409) event("wanted to post, but no X account is connected");

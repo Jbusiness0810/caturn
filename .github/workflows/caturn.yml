@@ -43,6 +43,11 @@ jobs:
           CATURN_TAG_HANDLES: ${{ vars.CATURN_TAG_HANDLES }}      # comma-separated handles to tag now and then, on top of what Caturn finds itself
           CATURN_TAG_EVERY: ${{ vars.CATURN_TAG_EVERY }}          # tag someone in one post in N (default 8)
           CATURN_REPLY_EVERY: ${{ vars.CATURN_REPLY_EVERY }}      # look for something to answer every N posts (default 2)
+          CATURN_REPLY_ACCOUNTS: ${{ vars.CATURN_REPLY_ACCOUNTS }} # accounts answered first (default 0x_aster,orbiodotso)
+          X_API_KEY: ${{ secrets.X_API_KEY }}                      # X developer app for @caturn_rh: with all four set, replies thread for real
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
           CATURN_FOUND_SKETCHES: ${{ vars.CATURN_FOUND_SKETCHES }} # 0 turns off the openprocessing art experiment
           CATURN_FOUND_ARTISTS: ${{ vars.CATURN_FOUND_ARTISTS }}   # openprocessing user ids to look at first (takawo is 6533)
           CATURN_FOUND_LICENSES: ${{ vars.CATURN_FOUND_LICENSES }} # default cc0,by,by-sa; add by-nc-sa only if you accept non-commercial terms

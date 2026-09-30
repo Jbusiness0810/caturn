@@ -56,7 +56,7 @@
     var items = [];
     (f.events || []).forEach(function (e) { items.push({ at: e.at, kind: "sys", text: e.text }); });
     (f.thoughts || []).forEach(function (t) { items.push({ at: t.at, kind: t.kind === "dream" ? "dream" : "think", text: t.text, mood: t.mood, sketch: t.sketch && (t.sketch.url || t.sketch.file) ? t.sketch : null }); });
-    (f.posts || []).forEach(function (p) { items.push({ at: p.at, kind: p.kind === "reply" ? "reply" : "post", text: p.text, url: p.url, status: p.status, replyTo: p.replyTo || null, tagged: p.tagged || null }); });
+    (f.posts || []).forEach(function (p) { items.push({ at: p.at, kind: p.kind === "reply" ? "reply" : "post", text: p.text, url: p.url, status: p.status, replyTo: p.replyTo ? Object.assign({ threaded: !!p.threaded }, p.replyTo) : null, tagged: p.tagged || null }); });
     items.sort(function (a, b) { return Date.parse(a.at) - Date.parse(b.at); });
     return items;
   }
@@ -64,7 +64,7 @@
   function reTo(r) {
     var who = "@" + esc(r.handle) + (r.name ? " (" + esc(r.name) + ")" : "");
     var what = esc((r.text || "").slice(0, 120)) + ((r.text || "").length > 120 ? "\u2026" : "");
-    return "answering " + (r.url ? '<a href="' + esc(r.url) + '" rel="noopener" target="_blank">' + who + "</a>" : who) + (what ? ": \u201c" + what + "\u201d" : "");
+    return (r.threaded ? "replying to " : "answering ") + (r.url ? '<a href="' + esc(r.url) + '" rel="noopener" target="_blank">' + who + "</a>" : who) + (what ? ": \u201c" + what + "\u201d" : "");
   }
   function renderStream(el, items, status) {
     if (!items.length) {
@@ -195,7 +195,7 @@
     }).join("") : '<li class="empty">' + (f.asksTracked ? "no one has asked yet." : "asks are not being tracked yet.") + "</li>";
     $("[data-posts-count]").textContent = (f.posts || []).length;
     $("[data-log-posts]").innerHTML = posts.length ? posts.map(function (p) {
-      return "<li>" + (p.replyTo ? '<p class="re">' + reTo(p.replyTo) + "</p>" : p.tagged ? '<p class="re">tagging @' + esc(p.tagged) + "</p>" : "") + "<p>" + esc(p.text) + '</p><span class="meta"><span>' + hhmm(p.at) + "</span>" + (p.url ? '<a href="' + esc(p.url) + '" rel="noopener" target="_blank">open</a>' : "<span" + (p.error ? ' title="' + esc(p.error) + '"' : "") + ">" + esc(p.status || "publishing") + (p.retries ? " · retried" : "") + "</span>") + "</span></li>";
+      return "<li>" + (p.replyTo ? '<p class="re">' + reTo(Object.assign({ threaded: !!p.threaded }, p.replyTo)) + "</p>" : p.tagged ? '<p class="re">tagging @' + esc(p.tagged) + "</p>" : "") + "<p>" + esc(p.text) + '</p><span class="meta"><span>' + hhmm(p.at) + "</span>" + (p.url ? '<a href="' + esc(p.url) + '" rel="noopener" target="_blank">open</a>' : "<span" + (p.error ? ' title="' + esc(p.error) + '"' : "") + ">" + esc(p.status || "publishing") + (p.retries ? " · retried" : "") + "</span>") + "</span></li>";
     }).join("") : '<li class="empty">nothing said out loud yet.</li>';
   }
 })();
