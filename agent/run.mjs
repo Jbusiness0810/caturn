@@ -27,7 +27,7 @@ const SKETCH_RELEASE = "sketches";                                      // rolli
 const OWN_HANDLE = (env.CATURN_X_HANDLE || "caturn_rh").toLowerCase();
 // People worth tagging now and then. Pinned ones come from CATURN_TAG_HANDLES (comma-separated, no @); the rest Caturn finds on X itself:
 // accounts @orbiodotso mentions, and the larger accounts talking about orbio. Robinhood is the chain Caturn lives on.
-const PINNED_TAG_HANDLES = (env.CATURN_TAG_HANDLES || "robinhoodapp").split(",").map(s => s.trim().replace(/^@/, "").toLowerCase()).filter(Boolean);
+const PINNED_TAG_HANDLES = (env.CATURN_TAG_HANDLES || "").split(",").map(s => s.trim().replace(/^@/, "").toLowerCase()).filter(Boolean);
 const TAG_EVERY  = Number(env.CATURN_TAG_EVERY || 8);     // tag someone in roughly one post in five (0 = never)
 const TAG_POOL_REFRESH_H = 12;                            // re-scan X for people around orbio this often
 const REPLY_EVERY = Number(env.CATURN_REPLY_EVERY || 2);  // every Nth post slot looks for something on X to answer (0 = never)
@@ -38,7 +38,7 @@ const REPLY_ACCOUNT_GAP_H = 1;                            // answer the same pri
 // Real threaded replies need X's own API for @caturn_rh (Orbio's social.post cannot reply). With these four secrets set, replies thread; without them, a reply is a post that opens with the handle.
 const X_KEYS = { key: env.X_API_KEY || "", secret: env.X_API_SECRET || "", token: env.X_ACCESS_TOKEN || "", tokenSecret: env.X_ACCESS_SECRET || "" };
 const X_API = !!(X_KEYS.key && X_KEYS.secret && X_KEYS.token && X_KEYS.tokenSecret);
-const NEVER_TAG = new Set(["orbiodotso", "x", "twitter", "elonmusk", "grok"]);
+const NEVER_TAG = new Set(["orbiodotso", "x", "twitter", "elonmusk", "boredelonmusk", "grok", "bot", "robinhoodapp"]);
 const MIN_THOUGHTS_PER_DAY  = Number(env.CATURN_MIN_THOUGHTS || 6);
 const MAX_THOUGHTS_PER_DAY  = Number(env.CATURN_MAX_THOUGHTS || 96);   // every 15 minutes at full energy
 const VOLUME_FOR_FULL_ENERGY = Number(env.CATURN_FULL_VOLUME_USD || 50000); // 24h USD volume at which energy = 1
@@ -154,7 +154,7 @@ About one post in three should riff on something from the room: a littermate by 
 
 ${ctx.replyTo ? `Someone on X${ctx.replyTo.why === "mention" ? " is talking to you" : ctx.replyTo.why === "orbio" ? ", the orbio account itself," : ""}: @${ctx.replyTo.handle} (${ctx.replyTo.name}) wrote: ${JSON.stringify(ctx.replyTo.text.slice(0, 500))}
 This time your post is a reply to them${X_API ? " in the thread under their post, so do not start with their handle" : ". Start it with @" + ctx.replyTo.handle}; respond to what they actually said, in your own cat voice, dry or warm, and bring in one real orbio fact only if it fits. Do not repeat their words back. Do not tag anyone else.` : ""}
-${ctx.tagHandle ? `This time, address @${ctx.tagHandle} directly in the post (they are part of orbio's world). Speak to them the way a cat speaks to a person it has decided to acknowledge: one concrete orbio fact, one cat behavior, dry, never a plea, never flattery, never asking them for anything. That handle must appear in the post, and no other.` : ""}
+${ctx.tagHandle ? `This time, address @${ctx.tagHandle} directly in the post (${(ctx.room?.ecosystem || []).find(e => e.handle === ctx.tagHandle) ? `they run ${(ctx.room.ecosystem.find(e => e.handle === ctx.tagHandle)).name}, a littermate launched on orbio` : "they are part of orbio's world"}). Speak to them the way a cat speaks to a person it has decided to acknowledge: one concrete orbio fact, one cat behavior, dry, never a plea, never flattery, never asking them for anything. That handle must appear in the post, and no other.` : ""}
 ${ctx.lastSketch ? (ctx.lastSketch.source
   ? `You just went looking on openprocessing and found an open-licensed p5.js piece, "${ctx.lastSketch.source.title}" by ${ctx.lastSketch.source.author} (${ctx.lastSketch.source.license}), and put it on your site. This one time, the post may mention it in passing, crediting ${ctx.lastSketch.source.author} by name (no handle, no link): something you found and brought home. Most of your posts never mention sketches.`
   : `You recently drew a sketch (a ${ctx.lastSketch.family} piece) and it is on the site. This one time, the post may mention in passing that a new sketch is up on caturn dot lol, dry, no link. Most of your posts never mention sketches.`) : ""}
@@ -272,7 +272,8 @@ async function refreshTagPool(feed) {
 }
 function tagCandidates(feed) {
   const pool = (feed.tagPool?.handles || []).map(h => h.handle);
-  return [...new Set([...PINNED_TAG_HANDLES, ...pool])].filter(h => h !== OWN_HANDLE && !NEVER_TAG.has(h));
+  const eco = (feed.room?.ecosystem || []).map(e => e.handle);
+  return [...new Set([...PINNED_TAG_HANDLES, ...pool, ...eco])].filter(h => h !== OWN_HANDLE && !NEVER_TAG.has(h));
 }
 function allowedHandle(h, feed) { return h === "orbiodotso" || h === OWN_HANDLE || tagCandidates(feed).includes(h); }
 // What the room is talking about: the newest littermates on the launchpad (free, from the protocol) and the liveliest
@@ -289,6 +290,14 @@ async function readRoom(feed) {
     const newest = all.filter(a => !mine(a) && a.launchedAt).sort((a, b) => Number(b.launchedAt) - Number(a.launchedAt)).slice(0, 5).map(row);
     const closest = all.filter(a => !mine(a) && !a.price?.graduated && Number(a.curve?.progressBps || 0) > 0).sort((a, b) => Number(b.curve.progressBps) - Number(a.curve.progressBps)).slice(0, 3).map(row);
     next.littermates = { total: all.length, graduated: all.filter(a => a.price?.graduated).length, newest, closest };
+    // The ecosystem on X: every agent on the launchpad that lists an X account. These are the people Caturn talks to.
+    const seenH = new Set(); const eco = [];
+    for (const a of all) {
+      const m = String(a.socials?.twitter || "").match(/(?:x|twitter)\.com\/([A-Za-z0-9_]{1,15})/); if (!m) continue;
+      const h = m[1].toLowerCase(); if (h === OWN_HANDLE || NEVER_TAG.has(h) || seenH.has(h) || ["i", "intent", "search", "home", "hashtag"].includes(h)) continue;
+      seenH.add(h); eco.push({ handle: h, name: String(a.name || "").slice(0, 40), symbol: String(a.symbol || "").slice(0, 12), graduated: !!a.price?.graduated });
+    }
+    next.ecosystem = eco;
   } catch (e) { log("littermates read failed:", String(e.message).slice(0, 120)); }
   if (API_KEY) {
     try {
@@ -322,9 +331,19 @@ async function findReplyTarget(feed) {
       const theirs = await readX({ handle: h, limit: 10 }); cost += theirs.length * 0.00022;
       const o = pick(theirs, "priority"); if (o) return { target: o, cost };
     }
-    // 3. Otherwise the highest-engagement recent post about orbio, once per account per gap.
-    const around = await readX({ query: "orbio -filter:retweets lang:en", sort: "Top", limit: 20 }); cost += around.length * 0.00022;
-    const a = pick(around.filter(t => now - lastTo(t.handle) > REPLY_SAME_HANDLE_GAP_H * 3600e3 && t.followers >= 50), "search");
+    // 3. The ecosystem: agents launched on orbio that have an X account, a few per slot in rotation, newest unanswered post.
+    const eco = (feed.room?.ecosystem || []).filter(e => now - lastTo(e.handle) > REPLY_SAME_HANDLE_GAP_H * 3600e3);
+    if (eco.length) {
+      const start = (feed.posts.length * 3 + new Date(now).getUTCDate() * 7) % eco.length; const batch = [];
+      for (let i = 0; i < Math.min(3, eco.length); i++) batch.push(eco[(start + i) % eco.length]);
+      let pool = [];
+      for (const e of batch) { try { const theirs = await readX({ handle: e.handle, limit: 8 }); cost += theirs.length * 0.00022; pool.push(...theirs); } catch {} }
+      const t = pick(pool.filter(t => now - Date.parse(t.at || 0) < 48 * 3600e3), "ecosystem"); if (t) return { target: t, cost };
+    }
+    // 4. Otherwise the highest-engagement recent post about orbio itself, once per account per gap.
+    const around = await readX({ query: "(orbio OR $orbio OR @orbiodotso OR errandboard OR \"robinhood chain\" OR $ctrn) -filter:retweets lang:en", sort: "Top", limit: 20 }); cost += around.length * 0.00022;
+    const about = (t) => /orbio|errand|robinhood chain|\$ctrn|caturn/i.test(t.text);
+    const a = pick(around.filter(t => about(t) && now - lastTo(t.handle) > REPLY_SAME_HANDLE_GAP_H * 3600e3 && t.followers >= 50), "search");
     if (a) return { target: a, cost };
   } catch (e) { log("reading X failed:", e.status || "", String(e.message).slice(0, 160)); }
   return { target: null, cost };
