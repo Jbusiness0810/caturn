@@ -170,11 +170,13 @@ const persona = await readFile(new URL("./persona.md", import.meta.url), "utf8")
 feed.samples = (feed.samples || []).filter(s => s.t > now - 8 * 86400e3);
 feed.events = (feed.events || []).slice(-200);
 const event = (text) => { feed.events.push({ at: iso(now), text }); log("event:", text); };
-const prev = { status: feed.status, energy: feed.energy || 0, reason: feed.reason };
+const prev = { status: feed.status, energy: feed.energy || 0, reason: feed.reason, gradPct: feed.metrics?.graduationPct, graduated: feed.metrics?.graduated };
 feed.thoughts = (feed.thoughts || []).slice(-300);
 feed.posts = (feed.posts || []).slice(-150);
 
 const agent = await readAgent();
+let balanceCredit = null;
+if (API_KEY) { try { const k = await getJSON(`${ORBIO_API}/key`, { headers: auth }); balanceCredit = Number(BigInt(k.balance?.available_micro_usd || "0")) / 1e6; } catch (e) { log("balance read failed:", e.message); } }
 const token = agent?.token || null;
 const orbioUsd = agent?.orbioMicroUsd ? atoms(agent.orbioMicroUsd) : null;
 const graduated = !!agent?.price?.graduated;
@@ -184,6 +186,12 @@ const { feesNow, fees24hUsd } = fees24hFromSamples(feed.samples, agent, orbioUsd
 const feeVolume = fees24hUsd != null ? fees24hUsd / 0.05 : null;                 // 5% creator fee -> implied volume
 const volume24hUsd = dexVolume != null ? Math.max(dexVolume, feeVolume || 0) : feeVolume;
 const volumeSource = dexVolume != null ? "dexscreener" : fees24hUsd != null ? "curve fees" : null;
+const lastSample = feed.samples[feed.samples.length - 1];
+const offeringUsd = lastSample && orbioUsd ? Math.max(0, feesNow - lastSample.fees) * orbioUsd : 0;
+if (agent && offeringUsd >= 0.05) event(`offering received · $${offeringUsd.toFixed(2)} in fees since last tick`);
+const gradPct = agent?.price?.graduated ? 100 : Number(agent?.curve?.progressBps || 0) / 100;
+if (agent && !agent.price?.graduated && Math.floor(gradPct / 10) > Math.floor(Number(prev.gradPct || 0) / 10)) event(`curve at ${gradPct.toFixed(0)}% to graduation`);
+if (agent && agent.price?.graduated && !prev.graduated) event("graduated. the curve is behind me now");
 feed.samples.push({ t: now, fees: feesNow, vol: volume24hUsd });
 
 const energy = agent ? energyFrom(volume24hUsd, fees24hUsd) : 0;
@@ -203,7 +211,7 @@ else if (agent && energy <= 0 && feed.thoughts.length) reason = "no trades, no t
 else if (agent) status = "awake";
 
 feed.metrics = {
-  volume24hUsd, fees24hUsd, volumeSource, graduated,
+  volume24hUsd, fees24hUsd, volumeSource, graduated, graduationPct: gradPct, balanceCredit,
   priceUsd: agent?.price?.priceMicroUsd ? atoms(agent.price.priceMicroUsd) : null,
   marketCapUsd: agent?.price?.marketCapMicroUsd ? atoms(agent.price.marketCapMicroUsd) : null,
   creditOwed: agent?.credit?.owedAtoms ? atoms(agent.credit.owedAtoms) : null,

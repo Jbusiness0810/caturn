@@ -86,7 +86,26 @@
     if (!full) el.scrollTop = el.scrollHeight;
   }
 
-  fetch(url, { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (f) {
+  var lastFeed = null, lastKey = "";
+  function since(iso) { var s = (Date.now() - Date.parse(iso)) / 1000; if (!(s >= 0)) return ""; var m = Math.floor(s / 60), h = Math.floor(m / 60); return h ? h + "h " + (m % 60) + "m" : m + "m " + Math.floor(s % 60) + "s"; }
+  function tickClock() {
+    var f = lastFeed; if (!f) return;
+    var cur = $("[data-cursor]"), status = f.status || "prelaunch", last = f.thoughts && f.thoughts.length ? f.thoughts[f.thoughts.length - 1].at : null;
+    var base = status === "awake" ? "thinking" : status === "napping" ? "dark. listening." : "waiting for launch";
+    cur.textContent = base + (last ? " · " + since(last) + " since last thought" : f.updatedAt ? " · " + since(f.updatedAt) + " since last tick" : "");
+    if (f.updatedAt) $("[data-act-updated]").textContent = "tick " + hhmm(f.updatedAt) + " · " + ago(f.updatedAt);
+  }
+  setInterval(tickClock, 1000);
+  function load() {
+    fetch((demo ? "/data/feed.sample.json" : "/data/feed.json") + "?t=" + Math.floor(Date.now() / 30000), { cache: "no-store" })
+      .then(function (r) { return r.json(); }).then(function (f) {
+        var key = (f.updatedAt || "") + ":" + (f.thoughts || []).length + ":" + (f.events || []).length;
+        if (key === lastKey) return; lastKey = key; lastFeed = f; render(f); tickClock();
+      }).catch(function () { if (!lastFeed) $("[data-act-status]").textContent = "feed unavailable"; });
+  }
+  load(); setInterval(load, 60000);
+
+  function render(f) {
     var m = f.metrics || {}, st = f.state || {}, status = f.status || "prelaunch";
     var pill = $("[data-act-status]");
     pill.textContent = status === "awake" ? "awake" : status === "napping" ? "napping" + (f.reason ? " · " + f.reason : "") : "asleep until launch";
@@ -138,6 +157,8 @@
 
     // Vitals
     $("[data-m-fees]").textContent = fmtUsd(m.fees24hUsd, 2);
+    $("[data-m-balance]").textContent = m.balanceCredit != null ? fmtNum(m.balanceCredit, 2) + " CREDIT" : "—";
+    $("[data-m-grad]").textContent = m.graduated ? "graduated" : m.graduationPct != null ? Math.round(m.graduationPct) + "% to graduation" : "—";
     $("[data-m-credit]").textContent = fmtNum(m.creditOwed, 3) + (m.stakedOrbio != null ? " · " + fmtNum(m.stakedOrbio, 0) + " ORBIO staked" : "");
     $("[data-m-spent]").textContent = fmtNum(m.spentTodayCredit, 4) + " CREDIT";
     $("[data-m-mcap]").textContent = fmtUsd(m.marketCapUsd) + (m.priceUsd != null ? " · $" + Number(m.priceUsd).toPrecision(3) : "");
@@ -150,7 +171,5 @@
     $("[data-log-posts]").innerHTML = posts.length ? posts.map(function (p) {
       return "<li><p>" + esc(p.text) + '</p><span class="meta"><span>' + hhmm(p.at) + "</span>" + (p.url ? '<a href="' + esc(p.url) + '" rel="noopener" target="_blank">open</a>' : "<span>" + esc(p.status || "publishing") + "</span>") + "</span></li>";
     }).join("") : '<li class="empty">nothing said out loud yet.</li>';
-    var cur = $("[data-cursor]");
-    cur.textContent = status === "awake" ? "thinking" + (m.thoughtsPerDay ? " · next in ~" + Math.max(1, Math.round(1440 / m.thoughtsPerDay)) + " min" : "") : status === "napping" ? "dark. listening." : "waiting for launch";
-  }).catch(function () { $("[data-act-status]").textContent = "feed unavailable"; });
+  }
 })();

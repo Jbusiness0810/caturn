@@ -490,3 +490,10 @@ h1, h2, h3, .display {
 .temper-mid { position: absolute; left: 50%; top: 2px; bottom: 2px; width: 1px; background: var(--line); }
 .temper-dot { position: absolute; top: 50%; left: 50%; width: 10px; height: 10px; border-radius: 50%; background: var(--gold); border: 2px solid var(--bg-raised); box-shadow: 0 0 0 1px var(--gold); transform: translate(-50%, -50%); transition: left .9s cubic-bezier(.2,.7,.2,1); }
 .temper.is-empty .temper-dot { background: var(--line); box-shadow: 0 0 0 1px var(--line); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .console.is-awake .orbit img { animation: breathe 4s ease-in-out infinite; }
+  @keyframes breathe { 0%, 100% { transform: translate(-50%, -50%) scale(1); } 50% { transform: translate(-50%, -50%) scale(1.04); } }
+  .console.is-awake .energy-num .hero-num { animation: glow 4s ease-in-out infinite; }
+  @keyframes glow { 0%, 100% { color: var(--ink); } 50% { color: var(--gold-deep); } }
+}
