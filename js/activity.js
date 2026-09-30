@@ -106,6 +106,7 @@
   load(); setInterval(load, 60000);
 
   function render(f) {
+    if (window.CATURN_FLOW) window.CATURN_FLOW(f);
     var m = f.metrics || {}, st = f.state || {}, status = f.status || "prelaunch";
     var pill = $("[data-act-status]");
     pill.textContent = status === "awake" ? "awake" : status === "resting" ? "resting" + (f.reason ? " · " + f.reason : "") : status === "napping" ? "napping" + (f.reason ? " · " + f.reason : "") : "asleep until launch";

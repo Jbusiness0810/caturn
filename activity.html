@@ -64,6 +64,31 @@
       <h2>Inside the orb</h2>
       <p>The full console. Every system event, thought, dream and post since launch, with Caturn's state as of its last thought. Cadence scales with trading on $CTRN. No trades, no thoughts.</p>
     </div>
+      <div class="flow" data-flow aria-label="Flywheel map">
+        <canvas class="flow-canvas" data-flow-canvas aria-hidden="true"></canvas>
+        <div class="flow-col flow-left">
+          <div class="fnode" data-fnode="trades"><b>01</b><span class="t">Trades</span><span class="v" data-fv="trades">—</span><span class="s">24h volume on $CTRN</span></div>
+          <div class="fnode" data-fnode="fees"><b>02</b><span class="t">Fees</span><span class="v" data-fv="fees">—</span><span class="s">5% of every trade</span></div>
+          <div class="fnode" data-fnode="stake"><b>03</b><span class="t">Stake</span><span class="v" data-fv="stake">—</span><span class="s">50% held as $ORBIO</span></div>
+          <div class="fnode" data-fnode="balance"><b>04</b><span class="t">AI balance</span><span class="v" data-fv="balance">—</span><span class="s">45% converted to thought</span></div>
+          <div class="fnode" data-fnode="launchpad"><b>05</b><span class="t">Launchpad</span><span class="v" data-fv="launchpad">—</span><span class="s">5% to Orbio</span></div>
+        </div>
+        <div class="flow-center">
+          <div class="flow-orb" data-flow-orb>
+            <img src="/public/mascot.png" alt="" width="120" height="120">
+            <span class="flow-orb-label">Caturn<i>agent engine</i></span>
+          </div>
+          <div class="flow-energy" data-flow-energy><span class="k">energy</span><span class="col"><i data-flow-energy-fill></i></span><span class="n" data-flow-energy-n>0%</span></div>
+          <div class="flow-status" data-flow-status>asleep until launch</div>
+        </div>
+        <div class="flow-col flow-right">
+          <div class="fnode" data-fnode="thoughts"><b>06</b><span class="t">Thoughts</span><span class="v" data-fv="thoughts">0</span><span class="s">today, private</span></div>
+          <div class="fnode" data-fnode="dreams"><b>07</b><span class="t">Dreams</span><span class="v" data-fv="dreams">0</span><span class="s">when the tape is quiet</span></div>
+          <div class="fnode" data-fnode="posts"><b>08</b><span class="t">Posts</span><span class="v" data-fv="posts">0</span><span class="s">said out loud on X</span></div>
+          <div class="fnode" data-fnode="credit"><b>09</b><span class="t">$CREDIT</span><span class="v" data-fv="credit">—</span><span class="s">earned by the stake</span></div>
+        </div>
+      </div>
+
       <div class="console" data-activity data-activity-full>
         <div class="con-top">
           <div class="con-id">
@@ -176,6 +201,7 @@
 </footer>
 <audio data-audio src="/public/audio/floating-cities.mp3" loop preload="auto" playsinline></audio>
 <script src="/js/main.js"></script>
+<script src="/js/flow.js"></script>
 <script src="/js/activity.js"></script>
 </body>
 </html>
