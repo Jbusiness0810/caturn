@@ -105,17 +105,22 @@ async function render(c) {
       frames.push(png);
     }
     // Square, resized in the page so nothing else is needed.
-    const scaled = await page.evaluate(async ({ pngs, size }) => {
+    const scaled = await page.evaluate(async ({ pngs, size, credit }) => {
       const outc = document.createElement("canvas"); outc.width = size; outc.height = size; const g = outc.getContext("2d");
       const res = [];
       for (const b64 of pngs) {
         const img = new Image(); await new Promise((ok, no) => { img.onload = ok; img.onerror = no; img.src = "data:image/png;base64," + b64; });
         const side = Math.min(img.width, img.height); g.fillStyle = "#f3ecdd"; g.fillRect(0, 0, size, size);
         g.drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, size, size);
+        if (credit) { // a faint credit line along the bottom edge, so the artist's name travels with the image
+          g.font = "10px ui-monospace, Menlo, monospace"; g.textBaseline = "bottom";
+          g.fillStyle = "rgba(255,250,240,0.55)"; g.fillText(credit, 9, size - 6);
+          g.fillStyle = "rgba(70,52,22,0.42)"; g.fillText(credit, 8, size - 7);
+        }
         const d = g.getImageData(0, 0, size, size).data; let s = ""; for (let j = 0; j < d.length; j += 0x8000) s += String.fromCharCode.apply(null, d.subarray(j, j + 0x8000)); res.push(btoa(s));
       }
       return res;
-    }, { pngs: frames.map(f => f.toString("base64")), size: SIZE });
+    }, { pngs: frames.map(f => f.toString("base64")), size: SIZE, credit: c.id ? `${c.title} · ${c.author} · ${c.license} · openprocessing`.slice(0, 90) : "" });
     // Reject a blank or frozen result.
     const first = Buffer.from(scaled[0], "base64"), last = Buffer.from(scaled[scaled.length - 1], "base64");
     let varSum = 0; for (let j = 0; j < first.length; j += 64) varSum += Math.abs(first[j] - first[first.length - 1 - j]);

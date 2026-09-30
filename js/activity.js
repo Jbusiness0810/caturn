@@ -83,7 +83,7 @@
       if (it.replyTo) body = '<span class="re">' + reTo(it.replyTo) + "</span>" + body;
       if (it.kind === "post" || it.kind === "reply") body += it.url ? ' <a href="' + esc(it.url) + '" rel="noopener" target="_blank">view on X</a>' : ' <span class="mood-tag">' + esc(it.status || "publishing") + "</span>";
       if (it.mood && it.kind !== "post") body += '<span class="mood-tag">' + esc(it.mood) + "</span>";
-      if (it.sketch) body += '<a class="sketch-inline" href="' + esc(it.sketch.source ? it.sketch.source.url : (it.sketch.url || it.sketch.file)) + '" target="_blank" rel="noopener"><img src="' + esc(it.sketch.url || it.sketch.file) + '" alt="sketch ' + esc(it.sketch.family) + '" loading="lazy"></a>' + (it.sketch.source ? '<span class="mood-tag">found: ' + esc(it.sketch.source.title) + " by " + esc(it.sketch.source.author) + " · " + esc(it.sketch.source.license || "") + "</span>" : "");
+      if (it.sketch) body += '<a class="sketch-inline" href="' + esc(it.sketch.source ? it.sketch.source.url : (it.sketch.url || it.sketch.file)) + '" target="_blank" rel="noopener"><img src="' + esc(it.sketch.url || it.sketch.file) + '" alt="sketch ' + esc(it.sketch.family) + '" loading="lazy"></a>' + (it.sketch.source ? '<span class="credit">' + esc(it.sketch.source.author) + " · " + esc(it.sketch.source.license || "") + "</span>" : "");
       var isNew = i === list.length - 1 && it.kind !== "sys";
       html += '<li class="k-' + tag + (isNew ? " is-new" : "") + '"><time datetime="' + esc(it.at) + '">' + hhmm(it.at) + '</time><span class="tag">' + tag + '</span><span class="body">' + body + "</span></li>";
     });
