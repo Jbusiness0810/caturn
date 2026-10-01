@@ -389,13 +389,13 @@ async function findScanRequest(feed) {
   } catch (e) { log("scan mentions read failed:", e.status || "", String(e.message).slice(0, 120)); }
   return { target: null, text: null, cost };
 }
-async function findReplyTarget(feed) {
+async function findReplyTarget(feed, { mentionsOnly = false } = {}) {
   const answered = new Set(feed.posts.map(p => p.replyTo?.id).filter(Boolean));
   const fresh = (t) => !t.at || now - Date.parse(t.at) < REPLY_MAX_AGE_H * 3600e3;
   // Follow-back farms, "dm us", callout accounts: never worth two cents. A stranger earns an answer with substance and a real following.
   const spammy = (t) => /follow\s*(me\s*)?back|follow\s+for|dm\s+(us|me)|let'?s\s+talk|collab|check\s+(out\s+)?my|aped my|callout|airdrop|giveaway|whitelist|promo|shill|send\s+me/i.test(t.text) || (/https?:\/\/t\.co/.test(t.text) && t.text.replace(/@\w+|https?:\/\/\S+/g, "").trim().length < 40);
   const ecoSet = new Set((feed.room?.ecosystem || []).map(e => e.handle).concat(REPLY_ACCOUNTS));
-  const aboutUs = (t) => /\$ctrn\b|\$caturn\b|\bcaturn\b/i.test(t.text) || t.text.toLowerCase().includes(AGENT_ID.toLowerCase()); // talking about the cat, in any language
+  const aboutUs = (t) => /\$ctrn\b|\$caturn\b|\bcaturn(?:_rh)?\b|@caturn_rh/i.test(t.text) || t.text.toLowerCase().includes(AGENT_ID.toLowerCase()); // talking about the cat, in any language
   const usable = (t) => t.handle !== OWN_HANDLE && !answered.has(t.id) && fresh(t) && !/^RT @/i.test(t.text) && (aboutUs(t) || t.text.replace(/@\w+/g, "").trim().length > 12)
     && !spammy(t) && (ecoSet.has(t.handle) || aboutUs(t) || (t.followers >= 300 && t.text.replace(/@\w+/g, "").trim().length >= 40));
   const score = (t) => t.views + t.likes * 20 + t.replies * 30 + t.reposts * 40 + (now - Date.parse(t.at || 0) < 6 * 3600e3 ? 500 : 0); // engagement, with a bonus for being recent
@@ -403,6 +403,13 @@ async function findReplyTarget(feed) {
   const pick = (list, why) => { const t = list.filter(usable).sort((a, b) => score(b) - score(a))[0]; return t ? { ...t, why, url: `https://x.com/${t.handle}/status/${t.id}` } : null; };
   let cost = 0;
   try {
+    if (mentionsOnly) {
+      const mentions = await readX({ mentions_of: OWN_HANDLE }); cost += mentions.length * 0.00022;
+      const talking = mentions.filter(t => t.handle !== OWN_HANDLE && !answered.has(t.id) && fresh(t) && !/^RT @/i.test(t.text) && !spammy(t) && t.text.replace(/@\w+|https?:\/\/\S+/g, "").trim().length >= 6
+        && (ecoSet.has(t.handle) || now - lastTo(t.handle) > 6 * 3600e3) && (t.followers >= 15 || ecoSet.has(t.handle)));
+      const m = talking.sort((a, b) => score(b) - score(a))[0];
+      return { target: m ? { ...m, why: "mention", url: `https://x.com/${m.handle}/status/${m.id}` } : null, cost };
+    }
     // 0. The founder, at least once a day: if nothing has gone to the first priority account in 24h, their newest post wins the slot, whatever its age this week.
     const first = REPLY_ACCOUNTS[0];
     if (first && now - lastTo(first) > 24 * 3600e3) {
@@ -412,7 +419,10 @@ async function findReplyTarget(feed) {
     }
     // 1. Someone talking to Caturn always comes first.
     const mentions = await readX({ mentions_of: OWN_HANDLE }); cost += mentions.length * 0.00022;
-    const m = pick(mentions.filter(t => ecoSet.has(t.handle) || now - lastTo(t.handle) > 24 * 3600e3), "mention"); if (m) return { target: m, cost };
+    const talking = mentions.filter(t => t.handle !== OWN_HANDLE && !answered.has(t.id) && fresh(t) && !/^RT @/i.test(t.text) && !spammy(t) && t.text.replace(/@\w+|https?:\/\/\S+/g, "").trim().length >= 6
+      && (ecoSet.has(t.handle) || now - lastTo(t.handle) > 6 * 3600e3) && (t.followers >= 15 || ecoSet.has(t.handle)));
+    const m = talking.sort((a, b) => score(b) - score(a))[0];
+    if (m) return { target: { ...m, why: "mention", url: `https://x.com/${m.handle}/status/${m.id}` }, cost };
     // 2. The people who matter: Orbio's founder and the orbio account. Their newest unanswered post, at most once an hour each.
     const order = [...REPLY_ACCOUNTS]; for (let i = feed.posts.length % order.length; i > 0; i--) order.push(order.shift());
     for (const h of order) {
@@ -842,7 +852,12 @@ if (status === "awake") {
         ctx.postAngle = `you just scanned ${scan.scan.symbol} for them (rug likelihood ${scan.scan.risk}/100); the reply itself is already written, so think about what scanning strangers' tokens for free says about you`;
         log("scan request from", `@${scan.target.handle}:`, scan.text);
       }
-      if (!ctx.replyTo && REPLY_EVERY > 0 && slot % REPLY_EVERY === REPLY_EVERY - 1) {
+      const replySlot = REPLY_EVERY > 0 && slot % REPLY_EVERY === REPLY_EVERY - 1;
+      if (!ctx.replyTo && !replySlot && X_API) { // someone talking to the cat is answered in any slot: those are the replies X lets the app thread
+        const { target, cost } = await findReplyTarget(feed, { mentionsOnly: true }); readCost += cost;
+        if (target) { ctx.replyTo = target; ctx.postAngle = "an answer to what they said"; log("replying to a mention:", `@${target.handle}`, JSON.stringify(target.text.slice(0, 120))); }
+      }
+      if (!ctx.replyTo && replySlot) {
         const { target, cost } = await findReplyTarget(feed); readCost += cost;
         if (target) { ctx.replyTo = target; ctx.postAngle = "an answer to what they said"; log("replying to:", `@${target.handle}`, JSON.stringify(target.text.slice(0, 120))); }
       }
@@ -945,7 +960,7 @@ if (status === "awake") {
           }
           if (p.error) { log("post skipped:", p.error); event(`post refused by x: ${String(p.error).slice(0, 80)}`); }
           else {
-            const rec = { at: iso(now), text: outText, id: p.id, url: p.url, status: p.status, cost: Number((p.cost + readCost).toFixed(6)), via: p.via || "orbio" };
+            const rec = { at: iso(now), text: ctx.replyTo && !canThread ? delink(addressed).slice(0, 270) : outText, id: p.id, url: p.url, status: p.status, cost: Number((p.cost + readCost).toFixed(6)), via: p.via || "orbio" };
             if (p.err) rec.error = String(p.err).slice(0, 200);
             if (mediaIds.length) { rec.kind = "sketch"; rec.sketch = { url: ctx.shareSketch.url, family: ctx.shareSketch.family, source: ctx.shareSketch.source || null }; }
             if (ctx.replyTo) { rec.kind = "reply"; rec.threaded = !!X_API && ctx.replyTo.threaded !== false; rec.replyTo = { id: ctx.replyTo.id, handle: ctx.replyTo.handle, name: ctx.replyTo.name, text: ctx.replyTo.text.slice(0, 200), url: ctx.replyTo.url, why: ctx.replyTo.why }; }
