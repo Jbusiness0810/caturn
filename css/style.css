@@ -726,3 +726,6 @@ h1, h2, h3, .display {
 .board-sub b { color: var(--ink); font-weight: 500; }
 .board-main .queue-list li.is-top { background: linear-gradient(90deg, rgba(176,138,62,.10), transparent 70%); }
 .board-main .queue-list li.is-top .vote { border-color: var(--gold); }
+.board-wallet { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 18px 0 10px; }
+.board-wallet-info { font-size: 13px; color: var(--ink-soft); }
+.queue-list .vote b { font-size: 15px; }

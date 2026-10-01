@@ -1,15 +1,23 @@
 // The board: people suggest what Caturn does next and vote; once a day the top one gets done (by Claude, in public).
-// GET  /api/board  -> today's pick (if one is in progress), the queue by votes, and everything done so far
-// POST /api/board {action:"submit", text} | {action:"vote", id}
+// GET  /api/board            -> today's pick (if one is in progress), the queue by CTRN weight, and everything done so far
+// GET  /api/board?wallet=0x… -> that wallet's CTRN balance
+// POST /api/board {action:"submit", text, wallet, time, sig} | {action:"vote", id, wallet, time, sig}
+// Every write is signed by the wallet (personal_sign of a fixed message), and a vote weighs whatever CTRN that wallet
+// holds at the moment the board is read: weights are recomputed from live balances, so moving tokens to a second wallet
+// moves the weight instead of doubling it.
 // board/log.json is written by the daily run and shipped with this function; it is the record of what was picked and done,
 // and every GET folds it back into the database so the queue never shows a finished suggestion.
-import { createHash, randomBytes } from "node:crypto";
+import { secp256k1 } from "@noble/curves/secp256k1";
+import { keccak_256 } from "@noble/hashes/sha3";
 import { readFile } from "node:fs/promises";
 
 const SB_URL = (process.env.SUPABASE_URL || "").replace(/\/$/, ""), SB_KEY = process.env.SUPABASE_SERVICE_KEY || "";
 const ORBIO_API = "https://api.orbio.so/api/v1";
 const MODELS = (process.env.ASK_MODELS || "anthropic/claude-sonnet-5.5,x-ai/grok-4.7,anthropic/claude-opus-5.5").split(",").map(s => s.trim()).filter(Boolean);
-const MAX_TEXT = 280, PER_PERSON_PER_DAY = 3, PICK_HOUR_UTC = 17;
+const MAX_TEXT = 280, PER_WALLET_PER_DAY = 3, PICK_HOUR_UTC = 17;
+const RPC = "https://rpc.mainnet.chain.robinhood.com", CTRN = "0x9b4e217f8759cb758664ac3b0ee730a4d15e7f6a";
+const MIN_SUBMIT = Number(process.env.BOARD_MIN_SUBMIT_CTRN || 1000); // a floor against spam; any balance can vote
+const SIG_WINDOW_MS = 10 * 60e3;
 const hits = new Map();
 const now = () => Date.now();
 
@@ -19,7 +27,42 @@ async function sb(path, init = {}) {
   if (!r.ok) { const e = new Error(`supabase ${r.status}: ${typeof body === "string" ? body : JSON.stringify(body)}`.slice(0, 300)); e.status = r.status; throw e; }
   return body;
 }
-const hash = (s) => createHash("sha256").update("caturn-board|" + s + "|" + SB_KEY.slice(0, 24)).digest("hex").slice(0, 32);
+
+// The exact text a wallet signs; js/board.js builds the same string.
+function message(b) {
+  const head = `caturn board\naction: ${b.action === "vote" ? "vote" : "suggest"}\n`;
+  const body = b.action === "vote" ? `suggestion: ${Number(b.id)}\n` : `text: ${b.text}\n`;
+  return head + body + `wallet: ${b.wallet}\ntime: ${b.time}`;
+}
+const hexToBytes = (h) => Uint8Array.from(Buffer.from(String(h).replace(/^0x/, ""), "hex"));
+function recover(msg, sigHex) {
+  const sig = hexToBytes(sigHex); if (sig.length !== 65) throw new Error("bad signature");
+  const m = Buffer.from(msg, "utf8"), digest = keccak_256(Buffer.concat([Buffer.from(`\x19Ethereum Signed Message:\n${m.length}`), m]));
+  let v = sig[64]; if (v >= 27) v -= 27; if (v > 1) throw new Error("bad signature");
+  const pub = secp256k1.Signature.fromCompact(sig.slice(0, 64)).addRecoveryBit(v).recoverPublicKey(digest).toRawBytes(false);
+  return "0x" + Buffer.from(keccak_256(pub.slice(1)).slice(-20)).toString("hex");
+}
+function verify(b) {
+  const wallet = String(b.wallet || "").toLowerCase();
+  if (!/^0x[a-f0-9]{40}$/.test(wallet)) return "connect a wallet first.";
+  const t = Date.parse(b.time); if (!Number.isFinite(t) || Math.abs(Date.now() - t) > SIG_WINDOW_MS) return "that signature is stale. try again.";
+  try { if (recover(message({ ...b, wallet }), b.sig) !== wallet) return "the signature does not match that wallet."; } catch { return "the signature did not check out."; }
+  return null;
+}
+
+// CTRN balances, read straight from the chain in batches; cached a minute so a busy board does not hammer the RPC.
+const balCache = new Map();
+async function balances(wallets) {
+  const out = {}, need = [];
+  for (const w of new Set(wallets)) { const c = balCache.get(w); if (c && now() - c.t < 60e3) out[w] = c.v; else need.push(w); }
+  for (let i = 0; i < need.length; i += 100) {
+    const chunk = need.slice(i, i + 100);
+    const r = await fetch(RPC, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(chunk.map((w, k) => ({ jsonrpc: "2.0", id: k, method: "eth_call", params: [{ to: CTRN, data: "0x70a08231" + w.slice(2).padStart(64, "0") }, "latest"] }))) });
+    const res = await r.json(); const arr = Array.isArray(res) ? res : [res];
+    for (const x of arr) { const w = chunk[x.id]; if (w == null || !x.result) continue; const v = Number(BigInt(x.result) / 10n ** 14n) / 1e4; out[w] = v; balCache.set(w, { v, t: now() }); }
+  }
+  return out;
+}
 async function readLog() { try { return JSON.parse(await readFile(new URL("../board/log.json", import.meta.url), "utf8")); } catch { return []; } }
 
 async function moderate(text) {
@@ -53,46 +96,59 @@ export default async function handler(req, res) {
   try {
     const log = await readLog();
     const closed = new Set(log.filter(e => e.status !== "queued").map(e => Number(e.id)));
+    if (req.method === "GET" && req.query.wallet) {
+      const w = String(req.query.wallet).toLowerCase(); if (!/^0x[a-f0-9]{40}$/.test(w)) return res.status(400).json({ error: "not a wallet." });
+      const bal = (await balances([w]))[w] ?? null;
+      res.setHeader("Cache-Control", "no-store");
+      return res.status(200).json({ wallet: w, ctrn: bal, minSubmit: MIN_SUBMIT });
+    }
     if (req.method === "GET") {
       await sync(log).catch(e => console.error("board sync:", e.message));
-      const [queued, done] = await Promise.all([
-        sb(`suggestions?status=eq.queued&order=votes.desc,created_at.asc&limit=40&select=id,text,title,votes,created_at`),
+      const [rawQueued, done] = await Promise.all([
+        sb(`suggestions?status=eq.queued&order=created_at.asc&limit=200&select=id,text,title,votes,created_at`),
         sb(`suggestions?status=eq.done&order=done_at.desc&limit=60&select=id,text,title,votes,done_at,result_url,result_note`)
       ]);
+      // weigh every queued suggestion by the CTRN its voters hold right now
+      const open = rawQueued.filter(q => !closed.has(q.id));
+      const votes = open.length ? await sb(`suggestion_votes?suggestion_id=in.(${open.map(q => q.id).join(",")})&select=suggestion_id,wallet&limit=5000`) : [];
+      const bal = await balances(votes.map(v => v.wallet)).catch(() => ({}));
+      const queued = open.map(q => { const vs = votes.filter(v => v.suggestion_id === q.id); return { ...q, votes: Math.round(vs.reduce((a, v) => a + (bal[v.wallet] || 0), 0)), voters: vs.length }; })
+        .sort((a, b) => b.votes - a.votes || Date.parse(a.created_at) - Date.parse(b.created_at)).slice(0, 40);
       const doing = [...log].reverse().find(e => e.status === "doing") || null;
       const next = new Date(); next.setUTCHours(PICK_HOUR_UTC, 0, 0, 0); if (next.getTime() <= now()) next.setUTCDate(next.getUTCDate() + 1);
       res.setHeader("Cache-Control", "public, max-age=15");
-      return res.status(200).json({ queued: queued.filter(q => !closed.has(q.id)), doing, done, log: log.slice(-30).reverse(), nextPick: next.toISOString(), at: new Date().toISOString() });
+      return res.status(200).json({ queued, doing, minSubmit: MIN_SUBMIT, done, log: log.slice(-30).reverse(), nextPick: next.toISOString(), at: new Date().toISOString() });
     }
     if (req.method !== "POST") return res.status(405).json({ error: "method" });
     const ip = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || "?";
     const h = (hits.get(ip) || []).filter(t => now() - t < 60e3); if (h.length >= 10) return res.status(429).json({ error: "slow down. the cat is one cat." }); h.push(now()); hits.set(ip, h);
     const b = typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body || {});
-    let cv = (String(req.headers.cookie || "").match(/(?:^|;\s*)bv=([a-f0-9]{24})/) || [])[1];
-    if (!cv) { cv = randomBytes(12).toString("hex"); res.setHeader("Set-Cookie", `bv=${cv}; Path=/api/board; Max-Age=31536000; SameSite=Lax; HttpOnly; Secure`); }
-    const who = hash(cv + "|" + ip.split(".").slice(0, 2).join("."));
+    const bad = verify(b); if (bad) return res.status(401).json({ error: bad });
+    const wallet = String(b.wallet).toLowerCase();
+    const held = (await balances([wallet]))[wallet] || 0;
     if (b.action === "vote") {
       const id = Number(b.id); if (!Number.isFinite(id) || closed.has(id)) return res.status(400).json({ error: "that one is closed." });
-      try { await sb("suggestion_votes", { method: "POST", body: JSON.stringify({ suggestion_id: id, ip_hash: who }), prefer: "return=minimal" }); }
+      if (!(held > 0)) return res.status(403).json({ error: "that wallet holds no $CTRN. votes are weighed in CTRN." });
+      try { await sb("suggestion_votes", { method: "POST", body: JSON.stringify({ suggestion_id: id, wallet }), prefer: "return=minimal" }); }
       catch (e) { if (e.status === 409) return res.status(200).json({ ok: true, already: true }); throw e; }
-      const cur = await sb(`suggestions?id=eq.${id}&select=votes`); const votes = Number(cur?.[0]?.votes || 0) + 1;
-      await sb(`suggestions?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ votes }), prefer: "return=minimal" });
-      return res.status(200).json({ ok: true, votes });
+      return res.status(200).json({ ok: true, weight: held });
     }
     if (b.action === "submit") {
       const text = String(b.text || "").replace(/\s+/g, " ").trim().slice(0, MAX_TEXT);
       if (text.length < 8) return res.status(400).json({ error: "say a little more than that." });
+      if (text !== String(b.text || "")) return res.status(400).json({ error: "sign the suggestion exactly as typed." });
       if (/0x[a-f0-9]{40}/i.test(text)) return res.status(400).json({ error: "no addresses. describe the thing." });
+      if (held < MIN_SUBMIT) return res.status(403).json({ error: `suggesting takes at least ${MIN_SUBMIT.toLocaleString("en-US")} $CTRN in the wallet. this one holds ${held.toLocaleString("en-US")}. anyone holding any can vote.` });
       const since = new Date(now() - 86400e3).toISOString();
-      const mine = await sb(`suggestions?ip_hash=eq.${who}&created_at=gte.${encodeURIComponent(since)}&select=id`);
-      if (mine.length >= PER_PERSON_PER_DAY) return res.status(429).json({ error: "three suggestions a day per person. vote for the others." });
+      const mine = await sb(`suggestions?wallet=eq.${wallet}&created_at=gte.${encodeURIComponent(since)}&select=id`);
+      if (mine.length >= PER_WALLET_PER_DAY) return res.status(429).json({ error: "three suggestions a day per wallet. vote for the others." });
       const dup = await sb(`suggestions?status=eq.queued&text=ilike.${encodeURIComponent("%" + text.slice(0, 40).replace(/[%_*,()]/g, "") + "%")}&select=id&limit=1`);
       if (dup.length) return res.status(409).json({ error: "that one is already on the board. vote for it instead." });
       const m = await moderate(text);
-      const row = await sb("suggestions", { method: "POST", body: JSON.stringify({ text, ip_hash: who, status: m.ok ? "queued" : "rejected", reject_reason: m.ok ? null : m.reason, title: m.title }) });
+      const row = await sb("suggestions", { method: "POST", body: JSON.stringify({ text, wallet, status: m.ok ? "queued" : "rejected", reject_reason: m.ok ? null : m.reason, title: m.title }) });
       if (!m.ok) return res.status(200).json({ ok: false, rejected: true, reason: m.reason || "not that one." });
       const id = row?.[0]?.id;
-      if (id) await sb("suggestion_votes", { method: "POST", body: JSON.stringify({ suggestion_id: id, ip_hash: who }), prefer: "return=minimal" }).then(() => sb(`suggestions?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ votes: 1 }), prefer: "return=minimal" })).catch(() => {});
+      if (id) await sb("suggestion_votes", { method: "POST", body: JSON.stringify({ suggestion_id: id, wallet }), prefer: "return=minimal" }).catch(() => {});
       return res.status(200).json({ ok: true, id, title: m.title });
     }
     return res.status(400).json({ error: "what?" });

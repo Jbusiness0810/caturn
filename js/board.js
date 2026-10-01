@@ -7,32 +7,60 @@
   var ago = function (iso) { var m = Math.round((Date.now() - Date.parse(iso)) / 60000); return m < 1 ? "now" : m < 60 ? m + "m ago" : m < 1440 ? Math.round(m / 60) + "h ago" : Math.round(m / 1440) + "d ago"; };
   var safeUrl = function (u) { return /^https:\/\/(www\.)?caturn\.lol\//.test(String(u || "")) ? u : ""; };
   var voted = {}; try { voted = JSON.parse(localStorage.getItem("caturn:boardvoted") || "{}"); } catch (e) {}
-  var nextPick = null;
+  var nextPick = null, wallet = null;
+  var fmt = function (n) { n = Number(n) || 0; return n >= 1e6 ? (n / 1e6).toFixed(n >= 1e7 ? 0 : 1) + "M" : n >= 1e3 ? (n / 1e3).toFixed(n >= 1e4 ? 0 : 1) + "k" : String(Math.round(n)); };
+  var wbtn = $("[data-wallet-btn]"), winfo = $("[data-wallet-info]");
+  var eth = function () { return window.ethereum; };
+
+  function showWallet(ctrn) {
+    wbtn.textContent = wallet.slice(0, 6) + "…" + wallet.slice(-4);
+    winfo.textContent = ctrn == null ? "could not read your balance" : fmt(ctrn) + " $CTRN · your vote weighs " + fmt(ctrn);
+  }
+  function connect() {
+    if (!eth()) { showErr("no wallet found in this browser. open caturn.lol/board in your wallet app's browser (MetaMask, Rabby, Coinbase Wallet) to vote."); return Promise.reject(); }
+    return eth().request({ method: "eth_requestAccounts" }).then(function (a) {
+      wallet = String(a[0] || "").toLowerCase(); if (!wallet) throw new Error("no account");
+      return fetch("/api/board?wallet=" + wallet).then(function (r) { return r.json(); }).then(function (j) { showWallet(j.ctrn); return wallet; });
+    });
+  }
+  wbtn.addEventListener("click", function () { err.hidden = true; connect().catch(function () {}); });
+  if (eth() && eth().on) eth().on("accountsChanged", function (a) { wallet = null; if (a && a[0]) connect().catch(function () {}); else { wbtn.textContent = "Connect wallet"; winfo.textContent = "votes are weighed by the $CTRN in your wallet"; } });
+
+  // the exact text the API rebuilds and checks (api/board.js message())
+  function sign(b) {
+    return (wallet ? Promise.resolve(wallet) : connect()).then(function (w) {
+      b.wallet = w; b.time = new Date().toISOString();
+      var msg = "caturn board\naction: " + (b.action === "vote" ? "vote" : "suggest") + "\n" + (b.action === "vote" ? "suggestion: " + b.id : "text: " + b.text) + "\nwallet: " + w + "\ntime: " + b.time;
+      var hex = "0x" + Array.prototype.map.call(new TextEncoder().encode(msg), function (x) { return ("0" + x.toString(16)).slice(-2); }).join("");
+      return eth().request({ method: "personal_sign", params: [hex, w] }).then(function (sig) { b.sig = sig; return b; });
+    });
+  }
 
   function showErr(m) { err.textContent = m; err.hidden = false; }
   function post(body) { return fetch("/api/board", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); }); }
 
   form.addEventListener("submit", function (e) {
     e.preventDefault(); err.hidden = true;
-    var text = input.value.trim(); if (text.length < 8) return showErr("say a little more than that.");
-    btn.disabled = true; btn.textContent = "telling…";
-    post({ action: "submit", text: text }).then(function (x) {
+    var text = input.value.replace(/\s+/g, " ").trim(); if (text.length < 8) return showErr("say a little more than that.");
+    btn.disabled = true; btn.textContent = "sign in your wallet…";
+    sign({ action: "submit", text: text }).then(function (b) { btn.textContent = "telling…"; return post(b); }).then(function (x) {
       if (!x.ok || x.j.error) return showErr(x.j.error || "something went wrong.");
       if (x.j.rejected) return showErr("not that one. " + (x.j.reason || ""));
       if (x.j.id) { voted[x.j.id] = 1; try { localStorage.setItem("caturn:boardvoted", JSON.stringify(voted)); } catch (e) {} }
       input.value = ""; note.textContent = "on the board as “" + (x.j.title || text) + "”. your vote is in. get people to vote for it: the top one at 17:00 UTC is what happens.";
       load();
-    }).catch(function () { showErr("the board did not answer. try again in a moment."); })
+    }).catch(function (e) { if (e && (e.code === 4001 || /reject|denied/i.test(e.message || ""))) showErr("signature cancelled. nothing was sent."); else if (e) showErr("the board did not answer. try again in a moment."); })
       .then(function () { btn.disabled = false; btn.textContent = "Tell the cat"; });
   });
 
   function vote(id, el) {
     if (voted[id]) return;
-    post({ action: "vote", id: id }).then(function (x) {
-      if (!x.ok || x.j.error) return;
+    err.hidden = true;
+    sign({ action: "vote", id: id }).then(post).then(function (x) {
+      if (!x.ok || x.j.error) return showErr(x.j.error || "that vote did not go through.");
       voted[id] = 1; try { localStorage.setItem("caturn:boardvoted", JSON.stringify(voted)); } catch (e) {}
-      el.classList.add("is-voted"); if (x.j.votes != null) el.querySelector("b").textContent = x.j.votes;
-    });
+      el.classList.add("is-voted"); load();
+    }).catch(function (e) { if (e && (e.code === 4001 || /reject|denied/i.test(e.message || ""))) showErr("signature cancelled. no vote sent."); });
   }
 
   function tick() {
@@ -44,23 +72,24 @@
 
   function render(d) {
     nextPick = d.nextPick;
+    if (d.minSubmit != null) { var ms = $("[data-min-submit]"); if (ms) ms.textContent = Number(d.minSubmit).toLocaleString("en-US"); }
     var count = $("[data-countdown]"), q = d.queued || [];
     if (d.doing) {
       $("[data-today-label]").textContent = "doing it now";
       $("[data-today-when]").textContent = d.doing.at ? "picked " + ago(d.doing.at) : "";
       count.setAttribute("data-fixed", "1"); count.textContent = d.doing.title || d.doing.text;
-      $("[data-today-sub]").innerHTML = "“" + esc(d.doing.text) + "” · " + (d.doing.votes != null ? d.doing.votes + " votes · " : "") + "being built right now. the result lands here and on X.";
+      $("[data-today-sub]").innerHTML = "“" + esc(d.doing.text) + "” · " + (d.doing.votes != null ? fmt(d.doing.votes) + " CTRN behind it · " : "") + "being built right now. the result lands here and on X.";
     } else {
       count.removeAttribute("data-fixed");
       $("[data-today-label]").textContent = "next pick";
       $("[data-today-when]").textContent = "17:00 UTC";
-      $("[data-today-sub]").innerHTML = q.length ? "on top right now: <b>" + esc(q[0].title || q[0].text) + "</b> with " + q[0].votes + " vote" + (q[0].votes === 1 ? "" : "s") + ". it could still lose." : "nothing on the board yet. if it stays empty, the cat picks.";
+      $("[data-today-sub]").innerHTML = q.length ? "on top right now: <b>" + esc(q[0].title || q[0].text) + "</b> with " + fmt(q[0].votes) + " $CTRN behind it from " + q[0].voters + " wallet" + (q[0].voters === 1 ? "" : "s") + ". it could still lose." : "nothing on the board yet. if it stays empty, the cat picks.";
       tick();
     }
 
     $("[data-queue-count]").textContent = q.length ? q.length + " waiting" : "empty";
     $("[data-queue]").innerHTML = q.map(function (i, k) {
-      return '<li' + (k === 0 ? ' class="is-top"' : '') + '><button class="vote' + (voted[i.id] ? " is-voted" : "") + '" data-vote="' + i.id + '" aria-label="vote"><b>' + i.votes + '</b></button><div><span class="q-title">' + esc(i.title || i.text) + '</span><span class="q-text">' + esc(i.text) + '</span><span class="q-meta">' + (k === 0 ? "on top · " : "#" + (k + 1) + " · ") + ago(i.created_at) + '</span></div></li>';
+      return '<li' + (k === 0 ? ' class="is-top"' : '') + '><button class="vote' + (voted[i.id] ? " is-voted" : "") + '" data-vote="' + i.id + '" aria-label="vote"><b>' + fmt(i.votes) + '</b></button><div><span class="q-title">' + esc(i.title || i.text) + '</span><span class="q-text">' + esc(i.text) + '</span><span class="q-meta">' + (k === 0 ? "on top · " : "#" + (k + 1) + " · ") + fmt(i.votes) + " CTRN · " + i.voters + " wallet" + (i.voters === 1 ? "" : "s") + " · " + ago(i.created_at) + '</span></div></li>';
     }).join("") || "<li class='empty'>nothing yet. be the first to tell a cat what to do.</li>";
     document.querySelectorAll("[data-vote]").forEach(function (b) { b.addEventListener("click", function () { vote(Number(b.getAttribute("data-vote")), b); }); });
 
@@ -68,7 +97,7 @@
     $("[data-done-count]").textContent = done.length ? done.length + " done" : "none yet";
     $("[data-done]").innerHTML = done.map(function (i) {
       var u = safeUrl(i.url);
-      return '<li><div class="s-row"><div class="s-main"><span class="s-title">' + esc(i.title || i.text) + '</span><span class="s-text">' + esc(i.summary || i.text) + '</span><span class="s-meta">done ' + ago(i.at) + (i.votes != null ? ' · ' + i.votes + ' votes' : '') + (i.by === "cat" ? ' · the cat picked (empty board)' : '') + '</span></div>' + (u ? '<span class="s-actions"><a class="btn btn--small" href="' + esc(u) + '" target="_blank" rel="noopener">see it</a></span>' : '') + '</div></li>';
+      return '<li><div class="s-row"><div class="s-main"><span class="s-title">' + esc(i.title || i.text) + '</span><span class="s-text">' + esc(i.summary || i.text) + '</span><span class="s-meta">done ' + ago(i.at) + (i.votes != null ? ' · ' + fmt(i.votes) + ' CTRN behind it' : '') + (i.by === "cat" ? ' · the cat picked (empty board)' : '') + '</span></div>' + (u ? '<span class="s-actions"><a class="btn btn--small" href="' + esc(u) + '" target="_blank" rel="noopener">see it</a></span>' : '') + '</div></li>';
     }).join("") || "<li class='empty'>the first one gets done at 17:00 UTC.</li>";
   }
 

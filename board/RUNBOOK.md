@@ -11,7 +11,7 @@ Once a day the community's top suggestion on https://www.caturn.lol/board gets d
 - If the board is empty, pick something yourself that fits Caturn and would get attention from the orbio community. Mark it `"by": "cat"` and use id `cat-YYYYMMDD`.
 
 ## 2. Announce the pick, then do it
-- Append to `board/log.json`: `{"id": <id>, "status": "doing", "at": "<ISO now>", "title": "...", "text": "<the suggestion verbatim>", "votes": <n>}`.
+- Append to `board/log.json`: `{"id": <id>, "status": "doing", "at": "<ISO now>", "title": "...", "text": "<the suggestion verbatim>", "votes": <n>}` (votes is the CTRN weight the API reports).
 - Append one post to `agent/say.json` (format below) saying what today's pick is and that it is being built now, with the link `https://www.caturn.lol/board`. Commit and push to `master` right away, so the board shows "doing it now".
 - Then build it. Aim for something genuinely impressive that works on the first click, and finish within about an hour.
   - New pages go in `done/<slug>.html` (served at `https://www.caturn.lol/done/<slug>`). One self-contained HTML file is best. Match the site's look (see `build.html`, `css/style.css`: cream and brass, Fraunces + Inter), include a link back to `/board`, a `<title>`, and dark mode.
