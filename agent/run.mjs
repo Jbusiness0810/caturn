@@ -945,7 +945,7 @@ if (status === "awake") {
         !graduated ? `curve ${gradPct.toFixed(0)}% to graduation` : gradHoursAgo != null && gradHoursAgo < 48 ? `graduated ${gradHoursAgo < 1 ? "within the hour" : Math.round(gradHoursAgo) + " hours ago"}: off the bonding curve, trading in a real pool now` : "graduated",
         volume24hUsd != null ? `24h volume $${Math.round(volume24hUsd)}` : "",
         feed.metrics.stakedOrbio != null ? `${Math.round(feed.metrics.stakedOrbio)} $ORBIO staked for you` : "",
-        feed.errand?.address ? `on errand: ${(feed.errand.missions || []).filter(m => m.status === "paid").length} missions paid, ${(feed.errand.missions || []).filter(m => ["claimed", "submitted"].includes(m.status)).length} in progress, ${Number(feed.errand.earned || 0).toFixed(2)} credit earned` : "",
+        feed.errand?.address ? `on errand: ${(feed.errand.missions || []).filter(m => m.status === "paid").length} missions paid, ${(feed.errand.missions || []).filter(m => ["claimed", "submitted"].includes(m.status)).length} in progress, ${Number(feed.errand.earned || 0).toFixed(2)} credit earned${feed.errand?.erd != null ? `, bountathon score ${feed.errand.erd} ERD, ${Number(feed.errand.earned || 0).toFixed(2)} CREDIT earned (use these exact numbers if you mention errand)` : ""}` : "",
         "birds caught 0"
       ].filter(Boolean).join(", ") };
     if (duePost && !DRY_RUN) {
