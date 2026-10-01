@@ -260,7 +260,14 @@ async function refreshPostUrls(posts) {
 
 // Orbio has no reply-to field on social.post, so a "reply" is a post that opens with the person's handle:
 // it lands in their notifications and under their name in search, which is where the engagement is.
+const xCache = new Map(); // one read per question per tick: the mention list is asked for by the scanner, the mention check and the reply search
 async function readX(params) {
+  const key = JSON.stringify(params);
+  if (xCache.has(key)) return xCache.get(key);
+  const p = readXRaw(params); xCache.set(key, p);
+  try { return await p; } catch (e) { xCache.delete(key); feed?.replyDebug && (feed.replyDebug.errors = [...(feed.replyDebug.errors || []), `${Object.keys(params)[0]}: ${e.status || ""} ${String(e.message).slice(0, 80)}`].slice(-6)); throw e; }
+}
+async function readXRaw(params) {
   const r = await getJSON(`${ORBIO_API}/tools/social.x.posts`, { method: "POST", headers: auth, body: JSON.stringify({ limit: 10, sort: "Latest", max_cost: "0.0060", ...params }) });
   return (r.tweets || r.result?.tweets || []).map(t => ({
     id: String(t.id_str || t.id || ""), text: String(t.full_text || t.text || ""), at: t.tweet_created_at || t.created_at || null,
@@ -389,7 +396,13 @@ async function findScanRequest(feed) {
   } catch (e) { log("scan mentions read failed:", e.status || "", String(e.message).slice(0, 120)); }
   return { target: null, text: null, cost };
 }
-async function findReplyTarget(feed, { mentionsOnly = false } = {}) {
+async function findReplyTarget(feed, opts = {}) {
+  feed.replyDebug = { at: iso(now), mode: opts.mentionsOnly ? "mentions" : "full", errors: [] };
+  const r = await findReplyTargetInner(feed, opts);
+  feed.replyDebug.result = r.target ? `${r.target.why} @${r.target.handle}` : "none";
+  return r;
+}
+async function findReplyTargetInner(feed, { mentionsOnly = false } = {}) {
   const answered = new Set(feed.posts.map(p => p.replyTo?.id).filter(Boolean));
   const fresh = (t) => !t.at || now - Date.parse(t.at) < REPLY_MAX_AGE_H * 3600e3;
   // Follow-back farms, "dm us", callout accounts: never worth two cents. A stranger earns an answer with substance and a real following.
@@ -404,7 +417,8 @@ async function findReplyTarget(feed, { mentionsOnly = false } = {}) {
   let cost = 0;
   try {
     if (mentionsOnly) {
-      const mentions = await readX({ mentions_of: OWN_HANDLE }); cost += mentions.length * 0.00022;
+      const mentions = await readX({ mentions_of: OWN_HANDLE }).catch(() => []); cost += mentions.length * 0.00022;
+      feed.replyDebug.mentions = mentions.length;
       const talking = mentions.filter(t => t.handle !== OWN_HANDLE && !answered.has(t.id) && fresh(t) && !/^RT @/i.test(t.text) && !spammy(t) && t.text.replace(/@\w+|https?:\/\/\S+/g, "").trim().length >= 6
         && (ecoSet.has(t.handle) || now - lastTo(t.handle) > 6 * 3600e3) && (t.followers >= 15 || ecoSet.has(t.handle)));
       const m = talking.sort((a, b) => score(b) - score(a))[0];
@@ -413,12 +427,13 @@ async function findReplyTarget(feed, { mentionsOnly = false } = {}) {
     // 0. The founder, at least once a day: if nothing has gone to the first priority account in 24h, their newest post wins the slot, whatever its age this week.
     const first = REPLY_ACCOUNTS[0];
     if (first && now - lastTo(first) > 24 * 3600e3) {
-      const theirs = await readX({ handle: first, limit: 10 }); cost += theirs.length * 0.00022;
+      const theirs = await readX({ handle: first, limit: 10 }).catch(() => []); cost += theirs.length * 0.00022;
       const o = theirs.filter(t => t.handle === first && !answered.has(t.id) && !/^RT @/i.test(t.text) && now - Date.parse(t.at || 0) < 7 * 86400e3).sort((a, b) => Date.parse(b.at || 0) - Date.parse(a.at || 0))[0];
       if (o) return { target: { ...o, why: "founder", url: `https://x.com/${o.handle}/status/${o.id}` }, cost };
     }
     // 1. Someone talking to Caturn always comes first.
-    const mentions = await readX({ mentions_of: OWN_HANDLE }); cost += mentions.length * 0.00022;
+    const mentions = await readX({ mentions_of: OWN_HANDLE }).catch(() => []); cost += mentions.length * 0.00022;
+    feed.replyDebug.mentions = mentions.length;
     const talking = mentions.filter(t => t.handle !== OWN_HANDLE && !answered.has(t.id) && fresh(t) && !/^RT @/i.test(t.text) && !spammy(t) && t.text.replace(/@\w+|https?:\/\/\S+/g, "").trim().length >= 6
       && (ecoSet.has(t.handle) || now - lastTo(t.handle) > 6 * 3600e3) && (t.followers >= 15 || ecoSet.has(t.handle)));
     const m = talking.sort((a, b) => score(b) - score(a))[0];
@@ -427,7 +442,7 @@ async function findReplyTarget(feed, { mentionsOnly = false } = {}) {
     const order = [...REPLY_ACCOUNTS]; for (let i = feed.posts.length % order.length; i > 0; i--) order.push(order.shift());
     for (const h of order) {
       if (now - lastTo(h) < REPLY_ACCOUNT_GAP_H * 3600e3) continue;
-      const theirs = await readX({ handle: h, limit: 10 }); cost += theirs.length * 0.00022;
+      const theirs = await readX({ handle: h, limit: 10 }).catch(() => []); cost += theirs.length * 0.00022;
       const o = pick(theirs, "priority"); if (o) return { target: o, cost };
     }
     // 3. The ecosystem: agents launched on orbio that have an X account, a few per slot in rotation, newest unanswered post.
@@ -440,7 +455,7 @@ async function findReplyTarget(feed, { mentionsOnly = false } = {}) {
       const t = pick(pool.filter(t => now - Date.parse(t.at || 0) < 48 * 3600e3), "ecosystem"); if (t) return { target: t, cost };
     }
     // No open search: strangers who merely say "orbio" are not the ecosystem.
-  } catch (e) { log("reading X failed:", e.status || "", String(e.message).slice(0, 160)); }
+  } catch (e) { log("reading X failed:", e.status || "", String(e.message).slice(0, 160)); feed.replyDebug.errors.push(`search: ${e.status || ""} ${String(e.message).slice(0, 100)}`); }
   return { target: null, cost };
 }
 // X API v2 with OAuth 1.0a user context: a real reply in the thread.
