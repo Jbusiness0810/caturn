@@ -57,6 +57,30 @@ function extractHtml(text) {
   const start = h.search(/<!doctype html>|<html[\s>]/i); if (start > 0) h = h.slice(start);
   return h;
 }
+// The asset pack (builds/assets.json): named icons, sprites and sounds as data URIs, licensed for this (see builds/ASSETS.md).
+// The model refers to them as ASSETS.name; only the ones a build uses are injected, so the file stays small.
+let PACK = null; try { PACK = JSON.parse(await readFile(new URL("../builds/assets.json", import.meta.url), "utf8")); } catch { log("no asset pack"); }
+const packNames = PACK ? { icons: Object.keys(PACK.icons), sprites: Object.keys(PACK.sprites), sounds: Object.keys(PACK.sounds) } : null;
+function assetsBlock() {
+  if (!packNames) return "";
+  return `\n\nAssets you may use (optional; good art beats drawing everything by hand). Refer to them in code as ASSETS.name, written out literally each time (never ASSETS[variable], never a loop over names), and they are injected into the file automatically, so never define ASSETS yourself and never invent a name that is not listed. Use at most about 12 assets per app:
+- icons (SVG data URLs, a dark single-colour glyph on transparent; use as <img src="\${ASSETS.icon_cat}"> or as a CSS mask to colour it): ${packNames.icons.join(" ")}
+- sprites (PNG data URLs, 2D cartoon animals, square or round): ${packNames.sprites.join(" ")}
+- sounds (ogg data URLs; play with new Audio(ASSETS.sfx_glass_light_000).play()): ${packNames.sounds.join(" ")}`;
+}
+function injectAssets(html) {
+  if (!PACK) return { html, used: [] };
+  const used = [...new Set([...html.matchAll(/ASSETS\.([a-z0-9_]+)|ASSETS\[["']([a-z0-9_]+)["']\]/g)].map(m => m[1] || m[2]))];
+  const found = used.filter(n => PACK.icons[n] || PACK.sprites[n] || PACK.sounds[n]);
+  if (!found.length) return { html, used: [] };
+  const obj = {}; for (const n of found) obj[n] = PACK.icons[n] || PACK.sprites[n] || PACK.sounds[n];
+  const tag = `<script>const ASSETS=${JSON.stringify(obj)};</script>`;
+  let out = /<head[^>]*>/i.test(html) ? html.replace(/<head[^>]*>/i, (m) => m + tag) : html.replace(/<html[^>]*>/i, (m) => m + "<head>" + tag + "</head>");
+  const kinds = [found.some(n => PACK.icons[n]) ? "icons game-icons.net cc by" : "", found.some(n => PACK.sprites[n]) ? "art kenney.nl" : "", found.some(n => PACK.sounds[n]) ? "sounds kenney.nl" : ""].filter(Boolean).join(" · ");
+  out = out.replace(/built by caturn(?![^<]*·)/i, "built by caturn · " + kinds);
+  return { html: out, used: found };
+}
+
 const SYSTEM = `You are Caturn, a cat kept alive by trading fees on the Orbio launchpad, and today you are a builder. You write small, complete, single-file browser apps for strangers who asked for them, for free, in public. Dry, exact, a little proud.
 
 Hard rules for the code (a reviewer rejects anything that breaks one):
@@ -73,10 +97,13 @@ async function step(idea, n, prevHtml) {
   const user = n === 1
     ? `Idea from the queue (#${idea.id}): "${idea.text}"\nWorking title: "${idea.title || ""}"\n\nStep 1 of ${STEPS_TOTAL}: build the core of it, playable or usable right away, with a title and one line of instructions inside the page. Keep it focused; later steps add features.`
     : `Idea (#${idea.id}): "${idea.text}"\nThis is step ${n} of ${STEPS_TOTAL}. Here is the current build:\n\n\`\`\`html\n${prevHtml}\n\`\`\`\n\n${n < STEPS_TOTAL ? "Add the single most valuable missing feature (a score, levels, sound via WebAudio, a reset, a nicer feel, keyboard support, whatever the idea most needs), fix anything broken, and keep everything that works." : "Final step: polish. Fix bugs, make it feel finished, tidy the visuals, make sure it works on a phone, add a tiny touch of personality in the copy (one dry line is enough). Keep every working feature."}\nReturn the complete updated document.`;
-  const out = await chat(SYSTEM, user, 9000);
-  const html = extractHtml(out.text);
-  const bad = audit(html); if (out.finish === "length") bad.unshift("output cut off by the length limit");
-  return { html, bad, model: out.model, cost: out.cost, finish: out.finish };
+  const out = await chat(SYSTEM + assetsBlock(), user, 9000);
+  const raw = extractHtml(out.text);
+  const bad = audit(raw); if (out.finish === "length") bad.unshift("output cut off by the length limit");
+  const unknown = [...new Set([...raw.matchAll(/ASSETS\.([a-z0-9_]+)/g)].map(m => m[1]))].filter(n => PACK && !(PACK.icons[n] || PACK.sprites[n] || PACK.sounds[n]));
+  if (unknown.length) bad.push(`invented assets: ${unknown.slice(0, 4).join(", ")}`);
+  const { html, used } = bad.length ? { html: raw, used: [] } : injectAssets(raw);
+  return { html, raw, used, bad, model: out.model, cost: out.cost, finish: out.finish };
 }
 
 async function screenshot(html, file) {
@@ -140,7 +167,8 @@ try {
     }
   }
   const n = Number(cur.steps_done || 0) + 1;
-  const prev = n > 1 ? (await sb(`build_steps?idea_id=eq.${cur.id}&order=n.desc&limit=1&select=html`))[0]?.html : null;
+  let prev = n > 1 ? (await sb(`build_steps?idea_id=eq.${cur.id}&order=n.desc&limit=1&select=html`))[0]?.html : null;
+  if (prev) prev = prev.replace(/<script>const ASSETS=\{[\s\S]*?\};<\/script>/, ""); // the model sees the code, not the megabytes of art
   if (n > 1 && !prev) { await sb(`ideas?id=eq.${cur.id}`, { method: "PATCH", body: JSON.stringify({ steps_done: 0 }), prefer: "return=minimal" }); log("lost the previous step; starting over"); process.exit(0); }
   log(`step ${n}/${STEPS_TOTAL} on #${cur.id} "${cur.title}"`);
   if (DRY) { log("dry run, stopping here"); process.exit(0); }
@@ -154,7 +182,7 @@ try {
     W.current = { id: cur.id, title: cur.title, text: cur.text, step: n - 1, total: STEPS_TOTAL, lastNote: "step failed the audit: " + r.bad[0] };
     await save(); process.exit(0);
   }
-  const note = n === 1 ? "scaffolded the core" : n < STEPS_TOTAL ? "added the next feature" : "polished and shipped";
+  const note = (n === 1 ? "scaffolded the core" : n < STEPS_TOTAL ? "added the next feature" : "polished and shipped") + (r.used?.length ? ` (${r.used.length} assets from the pack)` : "");
   await sb("build_steps", { method: "POST", body: JSON.stringify({ idea_id: cur.id, n, note, html: r.html, cost: r.cost }), prefer: "return=minimal" });
   const shipped = n >= STEPS_TOTAL;
   await sb(`ideas?id=eq.${cur.id}`, { method: "PATCH", body: JSON.stringify({ steps_done: n, ...(shipped ? { status: "shipped", shipped_at: iso(now), build_id: String(cur.id) } : {}) }), prefer: "return=minimal" });
