@@ -817,7 +817,10 @@ async function saySomething(feed) {
   try {
     // Through the X app when the keys exist (real links allowed); otherwise through orbio, with links spelled out in words.
     const rt = next.replyTo?.id ? { id: String(next.replyTo.id), handle: String(next.replyTo.handle || "").toLowerCase() } : null;
-    let text = String(next.text).slice(0, 280);
+    // never cut a queued post: X counts every link as 23 characters, so a long URL is fine as long as the counted length fits
+    let text = String(next.text);
+    const xLen = (t) => t.replace(/https?:\/\/\S+/g, "x".repeat(23)).length;
+    if (xLen(text) > 280) { log("say skipped: too long even with links counted as 23:", xLen(text)); return; }
     if (rt && !X_API && !text.toLowerCase().startsWith("@" + rt.handle)) text = `@${rt.handle} ${text}`;
     let p = X_API ? (rt ? await replyOnX(text, rt.id) : await postOnX(text)) : null;
     if (!p || p.status === "failed") { if (p) event(`x api refused the say post (${String(p.err || "unknown").slice(0, 90)}); sent it through orbio instead`); text = delink(text).slice(0, 270); p = await postToX(text); }
