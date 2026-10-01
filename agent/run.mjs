@@ -326,14 +326,56 @@ async function readRoom(feed) {
   feed.room = next;
   return cost;
 }
+// Someone sends a contract address at the cat: scan it with the site's own analyzer and answer with the numbers.
+function scanReplyText(r, token) {
+  const fails = (r.checks || []).filter(c => c.level === "fail"), warns = (r.checks || []).filter(c => c.level === "warn");
+  const f = r.facts || {};
+  const flags = fails.slice(0, 2).map(c => String(c.title).toLowerCase()).join(", ");
+  const bits = [f.holders != null ? `${f.holders} holders` : "", f.creatorShare != null ? `creator holds ${Number(f.creatorShare).toFixed(1)}%` : "",
+    f.graduated ? "graduated" : f.orbio?.progressPct != null ? `${Math.round(f.orbio.progressPct)}% to graduation` : ""].filter(Boolean).join(", ");
+  const head = `scanned ${r.name} ($${r.symbol}): rug likelihood ${r.risk}/100, ${r.grade}. ${fails.length} red, ${warns.length} amber.${flags ? ` red: ${flags}.` : ""}${bits ? ` ${bits}.` : ""}`;
+  const tail = X_API ? `full read: https://www.caturn.lol/scan?t=${token} not advice.` : "full read at caturn dot lol slash scan. not advice.";
+  const room = 262 - head.length - tail.length - 2 - (X_API ? 23 - `https://www.caturn.lol/scan?t=${token}`.length : 0); // x counts a link as 23 characters
+  let verdict = String(r.verdict || "").replace(/\s+/g, " ").trim();
+  if (verdict && room < 30) verdict = "";
+  else if (verdict.length > room) { // cut at the last clause that fits, so it still reads like a sentence
+    const cut = verdict.slice(0, Math.max(0, room - 1)); const at = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf(", "), cut.lastIndexOf("; "));
+    verdict = (at > 40 ? cut.slice(0, at) : cut.replace(/\s+\S*$/, "")).replace(/[,;\s]+$/, "") + ".";
+  }
+  return oneCashtag([head, verdict, tail].filter(Boolean).join(" "));
+}
+async function findScanRequest(feed) {
+  const answered = new Set(feed.posts.map(p => p.replyTo?.id).filter(Boolean));
+  feed.scans = (feed.scans || []).filter(s => now - Date.parse(s.at) < 48 * 3600e3);
+  let cost = 0;
+  try {
+    const mentions = await readX({ mentions_of: OWN_HANDLE }); cost += mentions.length * 0.00022;
+    for (const t of mentions.sort((a, b) => Date.parse(b.at || 0) - Date.parse(a.at || 0))) {
+      if (t.handle === OWN_HANDLE || answered.has(t.id) || /^RT @/i.test(t.text)) continue;
+      if (t.at && now - Date.parse(t.at) > 24 * 3600e3) continue;
+      const addrs = [...new Set((t.text.match(/0x[a-fA-F0-9]{40}/g) || []).map(a => a.toLowerCase()))].filter(a => a !== AGENT_ID.toLowerCase());
+      if (!addrs.length) continue; // the cat's own address is a shout-out, not a request
+      const token = addrs[0];
+      if (feed.scans.some(s => s.token === token && s.handle === t.handle && now - Date.parse(s.at) < 6 * 3600e3)) continue;
+      try {
+        const r = await getJSON("https://www.caturn.lol/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) });
+        if (r.error || r.risk == null) { feed.scans.push({ token, handle: t.handle, at: iso(now), error: String(r.error || "no result").slice(0, 100) }); log("scan request failed:", r.error); continue; }
+        feed.scans.push({ token, handle: t.handle, at: iso(now), risk: r.risk, grade: r.grade, symbol: r.symbol, name: r.name });
+        return { target: { ...t, why: "scan request", url: `https://x.com/${t.handle}/status/${t.id}` }, text: scanReplyText(r, token), scan: { token, risk: r.risk, grade: r.grade, symbol: r.symbol }, cost };
+      } catch (e) { feed.scans.push({ token, handle: t.handle, at: iso(now), error: String(e.message).slice(0, 100) }); log("scan request failed:", String(e.message).slice(0, 120)); }
+    }
+  } catch (e) { log("scan mentions read failed:", e.status || "", String(e.message).slice(0, 120)); }
+  return { target: null, text: null, cost };
+}
 async function findReplyTarget(feed) {
   const answered = new Set(feed.posts.map(p => p.replyTo?.id).filter(Boolean));
   const fresh = (t) => !t.at || now - Date.parse(t.at) < REPLY_MAX_AGE_H * 3600e3;
   // Follow-back farms, "dm us", callout accounts: never worth two cents. A stranger earns an answer with substance and a real following.
   const spammy = (t) => /follow\s*(me\s*)?back|follow\s+for|dm\s+(us|me)|let'?s\s+talk|collab|check\s+(out\s+)?my|aped my|callout|airdrop|giveaway|whitelist|promo|shill|send\s+me/i.test(t.text) || (/https?:\/\/t\.co/.test(t.text) && t.text.replace(/@\w+|https?:\/\/\S+/g, "").trim().length < 40);
   const ecoSet = new Set((feed.room?.ecosystem || []).map(e => e.handle).concat(REPLY_ACCOUNTS));
-  const usable = (t) => t.handle !== OWN_HANDLE && !answered.has(t.id) && fresh(t) && !/^RT @/i.test(t.text) && t.text.replace(/@\w+/g, "").trim().length > 12
-    && !spammy(t) && (ecoSet.has(t.handle) || (t.followers >= 300 && t.text.replace(/@\w+/g, "").trim().length >= 40));
+  const aboutUs = (t) => /\$ctrn\b|\$caturn\b|\bcaturn\b/i.test(t.text) || t.text.toLowerCase().includes(AGENT_ID.toLowerCase()); // talking about the cat, in any language
+  const usable = (t) => t.handle !== OWN_HANDLE && !answered.has(t.id) && fresh(t) && !/^RT @/i.test(t.text) && (aboutUs(t) || t.text.replace(/@\w+/g, "").trim().length > 12)
+    && !spammy(t) && (ecoSet.has(t.handle) || aboutUs(t) || (t.followers >= 300 && t.text.replace(/@\w+/g, "").trim().length >= 40));
   const score = (t) => t.views + t.likes * 20 + t.replies * 30 + t.reposts * 40 + (now - Date.parse(t.at || 0) < 6 * 3600e3 ? 500 : 0); // engagement, with a bonus for being recent
   const lastTo = (h) => Math.max(0, ...feed.posts.filter(p => p.replyTo?.handle === h).map(p => Date.parse(p.at)));
   const pick = (list, why) => { const t = list.filter(usable).sort((a, b) => score(b) - score(a))[0]; return t ? { ...t, why, url: `https://x.com/${t.handle}/status/${t.id}` } : null; };
@@ -615,11 +657,15 @@ async function saySomething(feed) {
   try {
     // Through the X app when the keys exist (real links allowed); otherwise through orbio, with links spelled out in words.
     const delink = (t) => t.replace(/https?:\/\/(?:www\.)?caturn\.lol\/?(\S*)/gi, (m, path) => "caturn dot lol" + (path ? " slash " + path.replace(/\//g, " slash ") : "")).replace(/https?:\/\/\S+/g, "");
+    const rt = next.replyTo?.id ? { id: String(next.replyTo.id), handle: String(next.replyTo.handle || "").toLowerCase() } : null;
     let text = String(next.text).slice(0, 280);
-    let p = X_API ? await postOnX(text) : null;
+    if (rt && !X_API && !text.toLowerCase().startsWith("@" + rt.handle)) text = `@${rt.handle} ${text}`;
+    let p = X_API ? (rt ? await replyOnX(text, rt.id) : await postOnX(text)) : null;
     if (!p || p.status === "failed") { if (p) event(`x api refused the say post (${String(p.err || "unknown").slice(0, 90)}); sent it through orbio instead`); text = delink(text).slice(0, 270); p = await postToX(text); }
     if (p.error) { log("say skipped:", p.error); return; }
-    feed.posts.push({ at: iso(now), text, id: p.id, url: p.url, status: p.status, cost: p.cost, kind: "say", via: p.via || "orbio" });
+    const rec = { at: iso(now), text, id: p.id, url: p.url, status: p.status, cost: p.cost, kind: rt ? "reply" : "say", via: p.via || "orbio" };
+    if (rt) { rec.threaded = p.via === "x-api"; rec.replyTo = { id: rt.id, handle: rt.handle, name: rt.handle, text: String(next.replyText || "").slice(0, 200), url: `https://x.com/${rt.handle}/status/${rt.id}`, why: "owner asked" }; }
+    feed.posts.push(rec);
     event(next.event || "posted to X"); log("said:", next.text);
   } catch (e) { log("say failed:", e.message); }
 }
@@ -731,7 +777,13 @@ if (status === "awake") {
     if (duePost && !DRY_RUN) {
       const slot = feed.posts.length;
       readCost += await readRoom(feed); ctx.room = feed.room;
-      if (REPLY_EVERY > 0 && slot % REPLY_EVERY === REPLY_EVERY - 1) {
+      const scan = await findScanRequest(feed); readCost += scan.cost;
+      if (scan.target) {
+        ctx.replyTo = scan.target; ctx.scan = scan.scan; ctx.prebuiltPost = X_API ? scan.text : `@${scan.target.handle} ${scan.text}`;
+        ctx.postAngle = `you just scanned ${scan.scan.symbol} for them (rug likelihood ${scan.scan.risk}/100); the reply itself is already written, so think about what scanning strangers' tokens for free says about you`;
+        log("scan request from", `@${scan.target.handle}:`, scan.text);
+      }
+      if (!ctx.replyTo && REPLY_EVERY > 0 && slot % REPLY_EVERY === REPLY_EVERY - 1) {
         const { target, cost } = await findReplyTarget(feed); readCost += cost;
         if (target) { ctx.replyTo = target; ctx.postAngle = "an answer to what they said"; log("replying to:", `@${target.handle}`, JSON.stringify(target.text.slice(0, 120))); }
       }
@@ -778,7 +830,8 @@ if (status === "awake") {
       }
       const n = feed.thoughts.length;
       // Post on the clock: whenever POST_INTERVAL_MIN has passed since the last post.
-      let text = cleanPost(t.post, ctx, feed);
+      let text = ctx.prebuiltPost || cleanPost(t.post, ctx, feed);
+      if (ctx.prebuiltPost) event(`scanned ${ctx.scan.symbol} for @${ctx.replyTo.handle}: rug likelihood ${ctx.scan.risk}/100, ${ctx.scan.grade}`);
       if (t.post && !text) log("post dropped by the rules:", JSON.stringify(t.post));
       // A post is due every POST_INTERVAL_MIN. If the chosen line was empty or broke a rule, fall back to the other drafts,
       // then ask once more with the rules spelled out, so a tick on the clock does not go by silent.
