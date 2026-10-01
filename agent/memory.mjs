@@ -64,7 +64,8 @@ export async function remember({ feed, thought, post, ctx, model }) {
   if (!MEMORY_ON) return;
   try {
     const rows = [];
-    if (thought) rows.push({ at: thought.at, kind: thought.kind || "thought", text: thought.text, meta: { mood: thought.mood, focus: thought.focus, cost: thought.cost } });
+    // every row carries the same keys: a bulk insert into PostgREST refuses mixed shapes
+    if (thought) rows.push({ at: thought.at, kind: thought.kind || "thought", text: thought.text, x_id: null, meta: { mood: thought.mood, focus: thought.focus, cost: thought.cost } });
     if (post) rows.push({ at: post.at, kind: post.kind === "reply" ? "reply" : "post", text: post.text, x_id: post.id ? String(post.id) : null, meta: { via: post.via, kind: post.kind, replyTo: post.replyTo ? { handle: post.replyTo.handle, id: post.replyTo.id } : null, tagged: post.tagged || null, sketch: post.sketch ? { family: post.sketch.family, author: post.sketch.source?.author || null } : null } });
     if (rows.length) await sb("history", { method: "POST", body: JSON.stringify(rows), prefer: "return=minimal" });
     // the person on the other end
