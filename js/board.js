@@ -14,7 +14,7 @@
 
   function showWallet(ctrn) {
     wbtn.textContent = wallet.slice(0, 6) + "…" + wallet.slice(-4);
-    winfo.textContent = ctrn == null ? "could not read your balance" : fmt(ctrn) + " $CTRN · your vote weighs " + fmt(ctrn);
+    winfo.textContent = ctrn == null ? "could not read your balance" : fmt(ctrn) + " $CTRN · " + (ctrn > 0 ? "you can vote" : "this wallet holds no $CTRN, so it cannot vote");
   }
   function connect() {
     if (!eth()) { showErr("no wallet found in this browser. open caturn.lol/board in your wallet app's browser (MetaMask, Rabby, Coinbase Wallet) to vote."); return Promise.reject(); }
@@ -24,7 +24,7 @@
     });
   }
   wbtn.addEventListener("click", function () { err.hidden = true; connect().catch(function () {}); });
-  if (eth() && eth().on) eth().on("accountsChanged", function (a) { wallet = null; if (a && a[0]) connect().catch(function () {}); else { wbtn.textContent = "Connect wallet"; winfo.textContent = "votes are weighed by the $CTRN in your wallet"; } });
+  if (eth() && eth().on) eth().on("accountsChanged", function (a) { wallet = null; if (a && a[0]) connect().catch(function () {}); else { wbtn.textContent = "Connect wallet"; winfo.textContent = "one wallet, one vote. holders only."; } });
 
   // the exact text the API rebuilds and checks (api/board.js message())
   function sign(b) {
@@ -78,18 +78,18 @@
       $("[data-today-label]").textContent = "doing it now";
       $("[data-today-when]").textContent = d.doing.at ? "picked " + ago(d.doing.at) : "";
       count.setAttribute("data-fixed", "1"); count.textContent = d.doing.title || d.doing.text;
-      $("[data-today-sub]").innerHTML = "“" + esc(d.doing.text) + "” · " + (d.doing.votes != null ? fmt(d.doing.votes) + " CTRN behind it · " : "") + "being built right now. the result lands here and on X.";
+      $("[data-today-sub]").innerHTML = "“" + esc(d.doing.text) + "” · " + (d.doing.votes != null ? d.doing.votes + " vote" + (d.doing.votes === 1 ? "" : "s") + " · " : "") + "being built right now. the result lands here and on X.";
     } else {
       count.removeAttribute("data-fixed");
       $("[data-today-label]").textContent = "next pick";
       $("[data-today-when]").textContent = "17:00 UTC";
-      $("[data-today-sub]").innerHTML = q.length ? "on top right now: <b>" + esc(q[0].title || q[0].text) + "</b> with " + fmt(q[0].votes) + " $CTRN behind it from " + q[0].voters + " wallet" + (q[0].voters === 1 ? "" : "s") + ". it could still lose." : "nothing on the board yet. if it stays empty, the cat picks.";
+      $("[data-today-sub]").innerHTML = q.length ? "on top right now: <b>" + esc(q[0].title || q[0].text) + "</b> with " + q[0].votes + " vote" + (q[0].votes === 1 ? "" : "s") + ". it could still lose." : "nothing on the board yet. if it stays empty, the cat picks.";
       tick();
     }
 
     $("[data-queue-count]").textContent = q.length ? q.length + " waiting" : "empty";
     $("[data-queue]").innerHTML = q.map(function (i, k) {
-      return '<li' + (k === 0 ? ' class="is-top"' : '') + '><button class="vote' + (voted[i.id] ? " is-voted" : "") + '" data-vote="' + i.id + '" aria-label="vote"><b>' + fmt(i.votes) + '</b></button><div><span class="q-title">' + esc(i.title || i.text) + '</span><span class="q-text">' + esc(i.text) + '</span><span class="q-meta">' + (k === 0 ? "on top · " : "#" + (k + 1) + " · ") + fmt(i.votes) + " CTRN · " + i.voters + " wallet" + (i.voters === 1 ? "" : "s") + " · " + ago(i.created_at) + '</span></div></li>';
+      return '<li' + (k === 0 ? ' class="is-top"' : '') + '><button class="vote' + (voted[i.id] ? " is-voted" : "") + '" data-vote="' + i.id + '" aria-label="vote"><b>' + i.votes + '</b></button><div><span class="q-title">' + esc(i.title || i.text) + '</span><span class="q-text">' + esc(i.text) + '</span><span class="q-meta">' + (k === 0 ? "on top · " : "#" + (k + 1) + " · ") + ago(i.created_at) + '</span></div></li>';
     }).join("") || "<li class='empty'>nothing yet. be the first to tell a cat what to do.</li>";
     document.querySelectorAll("[data-vote]").forEach(function (b) { b.addEventListener("click", function () { vote(Number(b.getAttribute("data-vote")), b); }); });
 
@@ -97,7 +97,7 @@
     $("[data-done-count]").textContent = done.length ? done.length + " done" : "none yet";
     $("[data-done]").innerHTML = done.map(function (i) {
       var u = safeUrl(i.url);
-      return '<li><div class="s-row"><div class="s-main"><span class="s-title">' + esc(i.title || i.text) + '</span><span class="s-text">' + esc(i.summary || i.text) + '</span><span class="s-meta">done ' + ago(i.at) + (i.votes != null ? ' · ' + fmt(i.votes) + ' CTRN behind it' : '') + (i.by === "cat" ? ' · the cat picked (empty board)' : '') + '</span></div>' + (u ? '<span class="s-actions"><a class="btn btn--small" href="' + esc(u) + '" target="_blank" rel="noopener">see it</a></span>' : '') + '</div></li>';
+      return '<li><div class="s-row"><div class="s-main"><span class="s-title">' + esc(i.title || i.text) + '</span><span class="s-text">' + esc(i.summary || i.text) + '</span><span class="s-meta">done ' + ago(i.at) + (i.votes != null ? ' · ' + i.votes + ' votes' : '') + (i.by === "cat" ? ' · the cat picked (empty board)' : '') + '</span></div>' + (u ? '<span class="s-actions"><a class="btn btn--small" href="' + esc(u) + '" target="_blank" rel="noopener">see it</a></span>' : '') + '</div></li>';
     }).join("") || "<li class='empty'>the first one gets done at 17:00 UTC.</li>";
   }
 

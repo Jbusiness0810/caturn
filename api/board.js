@@ -1,10 +1,9 @@
 // The board: people suggest what Caturn does next and vote; once a day the top one gets done (by Claude, in public).
-// GET  /api/board            -> today's pick (if one is in progress), the queue by CTRN weight, and everything done so far
+// GET  /api/board            -> today's pick (if one is in progress), the queue by votes, and everything done so far
 // GET  /api/board?wallet=0x… -> that wallet's CTRN balance
 // POST /api/board {action:"submit", text, wallet, time, sig} | {action:"vote", id, wallet, time, sig}
-// Every write is signed by the wallet (personal_sign of a fixed message), and a vote weighs whatever CTRN that wallet
-// holds at the moment the board is read: weights are recomputed from live balances, so moving tokens to a second wallet
-// moves the weight instead of doubling it.
+// Every write is signed by a wallet (personal_sign of a fixed message). One wallet, one vote per suggestion; the wallet
+// has to hold some $CTRN to vote, and a little more to suggest, which keeps ballot stuffing expensive.
 // board/log.json is written by the daily run and shipped with this function; it is the record of what was picked and done,
 // and every GET folds it back into the database so the queue never shows a finished suggestion.
 import { secp256k1 } from "@noble/curves/secp256k1";
@@ -16,7 +15,7 @@ const ORBIO_API = "https://api.orbio.so/api/v1";
 const MODELS = (process.env.ASK_MODELS || "anthropic/claude-sonnet-5.5,x-ai/grok-4.7,anthropic/claude-opus-5.5").split(",").map(s => s.trim()).filter(Boolean);
 const MAX_TEXT = 280, PER_WALLET_PER_DAY = 3, PICK_HOUR_UTC = 17;
 const RPC = "https://rpc.mainnet.chain.robinhood.com", CTRN = "0x9b4e217f8759cb758664ac3b0ee730a4d15e7f6a";
-const MIN_SUBMIT = Number(process.env.BOARD_MIN_SUBMIT_CTRN || 1000); // a floor against spam; any balance can vote
+const MIN_SUBMIT = Number(process.env.BOARD_MIN_SUBMIT_CTRN || 1000); // a floor against spam; any balance can vote, one vote per wallet
 const SIG_WINDOW_MS = 10 * 60e3;
 const hits = new Map();
 const now = () => Date.now();
@@ -108,11 +107,10 @@ export default async function handler(req, res) {
         sb(`suggestions?status=eq.queued&order=created_at.asc&limit=200&select=id,text,title,votes,created_at`),
         sb(`suggestions?status=eq.done&order=done_at.desc&limit=60&select=id,text,title,votes,done_at,result_url,result_note`)
       ]);
-      // weigh every queued suggestion by the CTRN its voters hold right now
+      // count the wallets behind every queued suggestion
       const open = rawQueued.filter(q => !closed.has(q.id));
       const votes = open.length ? await sb(`suggestion_votes?suggestion_id=in.(${open.map(q => q.id).join(",")})&select=suggestion_id,wallet&limit=5000`) : [];
-      const bal = await balances(votes.map(v => v.wallet)).catch(() => ({}));
-      const queued = open.map(q => { const vs = votes.filter(v => v.suggestion_id === q.id); return { ...q, votes: Math.round(vs.reduce((a, v) => a + (bal[v.wallet] || 0), 0)), voters: vs.length }; })
+      const queued = open.map(q => ({ ...q, votes: votes.filter(v => v.suggestion_id === q.id).length }))
         .sort((a, b) => b.votes - a.votes || Date.parse(a.created_at) - Date.parse(b.created_at)).slice(0, 40);
       const doing = [...log].reverse().find(e => e.status === "doing") || null;
       const next = new Date(); next.setUTCHours(PICK_HOUR_UTC, 0, 0, 0); if (next.getTime() <= now()) next.setUTCDate(next.getUTCDate() + 1);
@@ -128,10 +126,10 @@ export default async function handler(req, res) {
     const held = (await balances([wallet]))[wallet] || 0;
     if (b.action === "vote") {
       const id = Number(b.id); if (!Number.isFinite(id) || closed.has(id)) return res.status(400).json({ error: "that one is closed." });
-      if (!(held > 0)) return res.status(403).json({ error: "that wallet holds no $CTRN. votes are weighed in CTRN." });
+      if (!(held > 0)) return res.status(403).json({ error: "that wallet holds no $CTRN. holders vote: one wallet, one vote." });
       try { await sb("suggestion_votes", { method: "POST", body: JSON.stringify({ suggestion_id: id, wallet }), prefer: "return=minimal" }); }
       catch (e) { if (e.status === 409) return res.status(200).json({ ok: true, already: true }); throw e; }
-      return res.status(200).json({ ok: true, weight: held });
+      return res.status(200).json({ ok: true });
     }
     if (b.action === "submit") {
       const text = String(b.text || "").replace(/\s+/g, " ").trim().slice(0, MAX_TEXT);
