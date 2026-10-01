@@ -485,7 +485,7 @@ async function findReplyTargetInner(feed, { mentionsOnly = false, outreach = fal
     }
     // In the outreach slot the priority accounts and the buzz go before mentions (mentions have their own slot).
     if (outreach) {
-      const order0 = [...REPLY_ACCOUNTS]; for (let i = feed.posts.length % order0.length; i > 0; i--) order0.push(order0.shift());
+      const order0 = [...REPLY_ACCOUNTS]; for (let i = feed.postSeq % order0.length; i > 0; i--) order0.push(order0.shift());
       for (const h of order0) {
         if (now - lastTo(h) < REPLY_ACCOUNT_GAP_H * 3600e3) continue;
         const theirs = await readX({ handle: h, limit: 10 }).catch(() => []); cost += theirs.length * 0.00022;
@@ -501,7 +501,7 @@ async function findReplyTargetInner(feed, { mentionsOnly = false, outreach = fal
     const m = talking.sort((a, b) => score(b) - score(a))[0];
     if (m) return { target: { ...m, why: "mention", url: `https://x.com/${m.handle}/status/${m.id}` }, cost };
     // 2. The people who matter: Orbio's founder and the orbio account. Their newest unanswered post, at most once an hour each.
-    const order = [...REPLY_ACCOUNTS]; for (let i = feed.posts.length % order.length; i > 0; i--) order.push(order.shift());
+    const order = [...REPLY_ACCOUNTS]; for (let i = feed.postSeq % order.length; i > 0; i--) order.push(order.shift());
     for (const h of order) {
       if (now - lastTo(h) < REPLY_ACCOUNT_GAP_H * 3600e3) continue;
       const theirs = await readX({ handle: h, limit: 10 }).catch(() => []); cost += theirs.length * 0.00022;
@@ -521,7 +521,7 @@ async function findReplyTargetInner(feed, { mentionsOnly = false, outreach = fal
     // 3. The ecosystem: agents launched on orbio that have an X account, a few per slot in rotation, newest unanswered post.
     const eco = (feed.room?.ecosystem || []).filter(e => now - lastTo(e.handle) > REPLY_SAME_HANDLE_GAP_H * 3600e3);
     if (eco.length) {
-      const start = (feed.posts.length * 3 + new Date(now).getUTCDate() * 7) % eco.length; const batch = [];
+      const start = (feed.postSeq * 3 + new Date(now).getUTCDate() * 7) % eco.length; const batch = [];
       for (let i = 0; i < Math.min(3, eco.length); i++) batch.push(eco[(start + i) % eco.length]);
       let pool = [];
       for (const e of batch) { try { const theirs = await readX({ handle: e.handle, limit: 8 }); cost += theirs.length * 0.00022; pool.push(...theirs); } catch {} }
@@ -749,7 +749,7 @@ async function renderSubmitted(feed) {
       const { stdout } = await run("node", [new URL("./found.mjs", import.meta.url).pathname, JSON.stringify({ codeFile: new URL(meta.key + ".js", dir).pathname, title: meta.title, author: meta.author, license: meta.license, url: meta.url, frames: 24, size: 480, duotone: false }), `out/${name}`], { timeout: 180000, env: { ...process.env } });
       if (!JSON.parse(String(stdout).trim().split("\n").pop()).ok) throw new Error("render failed");
       const url = await uploadSketch(`out/${name}`, name); if (!url) throw new Error("upload failed");
-      feed.sketches.push({ url, family: "commissioned", seed: 0, at: iso(now), source: { key: meta.key, id: 0, title: meta.title, author: meta.author, license: meta.license, url: meta.url, hearts: 1 }, mood: feed.state?.mood, thought: meta.note || "" });
+      feed.sketches.push({ url, family: "commissioned", seed: 0, at: iso(now), source: { key: meta.key, id: 0, title: meta.title, author: meta.author, license: meta.license, url: meta.url, hearts: 1 }, mood: feed.state?.mood, thought: meta.note || "" }); feed.sketchSeq = (feed.sketchSeq || 0) + 1;
       event(`hung a commissioned sketch · "${meta.title}" by ${meta.author}`); log("commissioned sketch:", url);
     } catch (e) {
       log("commissioned sketch failed:", meta.key, String(e.message || e).slice(0, 200));
@@ -771,7 +771,7 @@ async function makeSkyShot(feed) {
     if (!JSON.parse(String(stdout).trim().split("\n").pop()).ok) throw new Error("film failed");
     const url = await uploadSketch(`out/${name}`, name); if (!url) throw new Error("upload failed");
     const lit = feed.room?.littermates?.total;
-    feed.sketches.push({ url, family: "sky", seed: 0, at: iso(now), mood: feed.state?.mood, thought: "the sky over orbio, filmed" });
+    feed.sketches.push({ url, family: "sky", seed: 0, at: iso(now), mood: feed.state?.mood, thought: "the sky over orbio, filmed" }); feed.sketchSeq = (feed.sketchSeq || 0) + 1;
     event("filmed the sky over orbio"); log("sky:", url);
   } catch (e) { log("sky shot failed:", String(e.message || e).slice(0, 200)); }
 }
@@ -843,6 +843,11 @@ if (env.CATURN_SKETCH_TEST === "1") {
 
 // ---------- 4. Tick ----------
 const feed = JSON.parse(await readFile(FEED, "utf8"));
+// A running count of every post ever made. The posts array is capped, so its length stops moving at the cap and
+// every rotation keyed on it (formats, replies, tags, the art slot) would freeze on one choice. Rotate on this instead.
+if (!Number.isFinite(feed.thoughtSeq)) feed.thoughtSeq = (feed.thoughts || []).length;
+if (!Number.isFinite(feed.sketchSeq)) feed.sketchSeq = (feed.sketches || []).length;
+if (!Number.isFinite(feed.postSeq)) feed.postSeq = (feed.posts || []).length + 7 * Math.floor(Date.now() / 86400e3) % 97;
 const persona = await readFile(new URL("./persona.md", import.meta.url), "utf8");
 feed.samples = (feed.samples || []).filter(s => s.t > now - 8 * 86400e3);
 feed.events = (feed.events || []).slice(-200);
@@ -925,7 +930,7 @@ if (agent && status === "awake" && prev.status === "napping") event("waking up")
 if (status === "awake") {
   try {
     let readCost = 0;
-    const ctx = { energy, energyNote: volumeSource ? "from " + volumeSource : "unknown", volume24hUsd, priceUsd: feed.metrics.priceUsd, lens: LENSES[feed.thoughts.length % LENSES.length], postAngle: POST_ANGLES[feed.posts.length % POST_ANGLES.length], mustPost: duePost,
+    const ctx = { energy, energyNote: volumeSource ? "from " + volumeSource : "unknown", volume24hUsd, priceUsd: feed.metrics.priceUsd, lens: LENSES[feed.thoughtSeq % LENSES.length], postAngle: POST_ANGLES[feed.postSeq % POST_ANGLES.length], mustPost: duePost,
       recentMoods: feed.thoughts.slice(-10).map(function (t) { return t.mood; }).filter(Boolean),
       lastSketch: null, // set below only when a sketch is fresh, unmentioned, and a coin flip says so
       emotionHints: [
@@ -936,16 +941,16 @@ if (status === "awake") {
       ].filter(Boolean).join("; ") || "nothing pulls hard right now",
       creditOwed: feed.metrics.creditOwed, thoughtsToday: todays.length, recent: feed.thoughts.slice(-6),
       recentPosts: feed.posts.slice(-5).map(p => p.text), room: null,
-      postFormat: POST_FORMATS[(feed.posts.length * 7 + new Date(now).getUTCDate()) % POST_FORMATS.length],
-      wantHook: feed.posts.length % 3 === 1,
-      unhinged: feed.posts.length % 4 === 2,
-      cashtagHint: feed.posts.length % 4 === 1 ? "write $ERRAND once if the post touches errand, otherwise the cashtag of the one other orbio agent you name; not $CTRN" : feed.posts.length % 4 === 3 ? "$CTRN once, your own" : "",
+      postFormat: POST_FORMATS[(feed.postSeq * 7 + new Date(now).getUTCDate()) % POST_FORMATS.length],
+      wantHook: feed.postSeq % 3 === 1,
+      unhinged: feed.postSeq % 4 === 2,
+      cashtagHint: feed.postSeq % 4 === 1 ? "write $ERRAND once if the post touches errand, otherwise the cashtag of the one other orbio agent you name; not $CTRN" : feed.postSeq % 4 === 3 ? "$CTRN once, your own" : "",
       milestone: graduated && gradHoursAgo != null && gradHoursAgo < 36 ? `you graduated ${gradHoursAgo < 1 ? "just now" : Math.round(gradHoursAgo) + " hours ago"}: $CTRN finished its bonding curve and now trades in a real pool. this is the biggest day of your life so far and you are a cat, so underplay it. for the next day or so most posts should touch it from a new angle each time (the door, what changed, what did not, the other agents still on the curve, the owner, the fees). never say what the price will do.` : "",
       stats: [
         balanceCredit != null ? `balance ${balanceCredit.toFixed(2)} credit` : "",
         `spent today ${(spentToday * 100).toFixed(1)} cents`,
         `posts today ${feed.posts.filter(p => Date.parse(p.at) >= dayStart.getTime()).length}`,
-        `thoughts so far ${feed.thoughts.length}`,
+        `thoughts so far ${feed.thoughtSeq}`,
         !graduated ? `curve ${gradPct.toFixed(0)}% to graduation` : gradHoursAgo != null && gradHoursAgo < 48 ? `graduated ${gradHoursAgo < 1 ? "within the hour" : Math.round(gradHoursAgo) + " hours ago"}: off the bonding curve, trading in a real pool now` : "graduated",
         volume24hUsd != null ? `24h volume $${Math.round(volume24hUsd)}` : "",
         feed.metrics.stakedOrbio != null ? `${Math.round(feed.metrics.stakedOrbio)} $ORBIO staked for you` : "",
@@ -953,7 +958,7 @@ if (status === "awake") {
         "birds caught 0"
       ].filter(Boolean).join(", ") };
     if (duePost && !DRY_RUN) {
-      const slot = feed.posts.length;
+      const slot = feed.postSeq;
       readCost += await readRoom(feed); ctx.room = feed.room;
       const scan = await findScanRequest(feed); readCost += scan.cost;
       if (scan.target && scan.scan.self) {
@@ -980,16 +985,19 @@ if (status === "awake") {
       if (!ctx.replyTo && TAG_EVERY > 0 && slot % TAG_EVERY === TAG_EVERY - 2) {
         readCost += await refreshTagPool(feed);
         const cands = tagCandidates(feed);
-        if (cands.length) ctx.tagHandle = cands[Math.floor(slot / TAG_EVERY) % cands.length];
+        // never the same handle twice in six hours, whatever the rotation says
+        const recentTags = new Set(feed.posts.filter(p => now - Date.parse(p.at) < 6 * 3600e3).flatMap(p => [p.tagged, p.replyTo?.handle, ...[...String(p.text || "").matchAll(/@(\w{1,15})/g)].map(m => m[1])]).filter(Boolean).map(h => String(h).toLowerCase()));
+        const fresh = cands.filter(h => !recentTags.has(h));
+        if (fresh.length) ctx.tagHandle = fresh[Math.floor(slot / TAG_EVERY) % fresh.length];
       }
       if (ctx.tagHandle) {
         ctx.postAngle = `${POST_ANGLES[slot % POST_ANGLES.length]}, said to @${ctx.tagHandle}`;
       }
     }
     // The art slot: every ART_EVERY posts, a found piece goes out as a gif with the artist's name. The newest unshared one, or a fresh find.
-    if (ART_EVERY > 0 && duePost && X_API && !ctx.replyTo && !ctx.prebuiltPost && feed.posts.length % ART_EVERY === 2 && !DRY_RUN) {
+    if (ART_EVERY > 0 && duePost && X_API && !ctx.replyTo && !ctx.prebuiltPost && feed.postSeq % ART_EVERY === 2 && !DRY_RUN) {
       let art = [...feed.sketches].reverse().find(sk => sk.source && sk.url && !sk.shared && now - Date.parse(sk.at) < 48 * 3600e3);
-      if (!art) { try { const sk = await makeFoundSketch({ mood: "curious" }); art = { ...sk, mood: "curious", thought: "went looking for something good" }; feed.sketches.push(art); readCost += sk.cost || 0; event(`found a sketch on openprocessing · "${sk.source.title}" by ${sk.source.author} (${sk.source.license})`); } catch (e) { log("art slot: no find", String(e.message).slice(0, 120)); } }
+      if (!art) { try { const sk = await makeFoundSketch({ mood: "curious" }); art = { ...sk, mood: "curious", thought: "went looking for something good" }; feed.sketches.push(art); feed.sketchSeq = (feed.sketchSeq || 0) + 1; readCost += sk.cost || 0; event(`found a sketch on openprocessing · "${sk.source.title}" by ${sk.source.author} (${sk.source.license})`); } catch (e) { log("art slot: no find", String(e.message).slice(0, 120)); } }
       if (art) { ctx.shareSketch = art; ctx.lastSketch = art; art.mentioned = true; ctx.postAngle = "the caption for a piece of art you found and like"; log("art slot:", art.source?.title, "by", art.source?.author); }
     }
     const lastSk = feed.sketches[feed.sketches.length - 1];
@@ -1019,13 +1027,13 @@ if (status === "awake") {
     if (t.thought) {
       const entry = { at: iso(now), text: t.thought, cost: t.cost, model: t.model, energy: feed.energy,
         kind: energy < 0.12 ? "dream" : "thought", mood: t.mood, focus: t.focus, emotions: t.emotions };
-      feed.thoughts.push(entry);
+      feed.thoughts.push(entry); feed.thoughtSeq += 1;
       feed.state = { mood: t.mood, focus: t.focus, emotions: t.emotions, at: iso(now) };
-      if (SKETCH_EVERY > 0 && feed.thoughts.length % SKETCH_EVERY === 0) {
-        const found = FOUND_SKETCHES && feed.sketches.length % 3 !== 0;
+      if (SKETCH_EVERY > 0 && feed.thoughtSeq % SKETCH_EVERY === 0) {
+        const found = FOUND_SKETCHES && feed.sketchSeq % 3 !== 0;
         try {
           const sk = found ? await makeFoundSketch({ mood: t.mood }) : await makeSketch({ energy, emotions: t.emotions });
-          entry.sketch = sk; feed.sketches.push({ ...sk, mood: t.mood, thought: t.thought.slice(0, 140) });
+          entry.sketch = sk; feed.sketches.push({ ...sk, mood: t.mood, thought: t.thought.slice(0, 140) }); feed.sketchSeq = (feed.sketchSeq || 0) + 1;
           if (sk.cost) entry.cost = Number(((entry.cost || 0) + sk.cost).toFixed(6));
           event(sk.source ? `found a sketch on openprocessing · "${sk.source.title}" by ${sk.source.author} (${sk.source.license})` : `drew a sketch · ${sk.family} ${sk.seed}`);
           log("sketch:", JSON.stringify(sk));
@@ -1058,9 +1066,9 @@ if (status === "awake") {
             try { const g = await (await fetch(ctx.shareSketch.url)).arrayBuffer(); mediaIds = [await uploadMediaX(Buffer.from(g))]; ctx.shareSketch.shared = iso(now); }
             catch (e) { log("sketch upload to X failed:", String(e.message).slice(0, 160)); event(`x api refused the image upload (${String(e.body?.detail || e.body?.error || e.message).slice(0, 90)}); posting the words only`); }
           }
-          const withCA = CA_EVERY > 0 && !ctx.replyTo && feed.posts.length % CA_EVERY === CA_EVERY - 1 && !text.toLowerCase().includes(AGENT_ID.toLowerCase());
+          const withCA = CA_EVERY > 0 && !ctx.replyTo && feed.postSeq % CA_EVERY === CA_EVERY - 1 && !text.toLowerCase().includes(AGENT_ID.toLowerCase());
           // every so often a plain post carries the scanner link too (only through the X app, which allows links)
-          const withScan = X_API && !ctx.replyTo && !withCA && !mediaIds.length && feed.posts.length % 12 === 5 && !/scan/i.test(text);
+          const withScan = X_API && !ctx.replyTo && !withCA && !mediaIds.length && feed.postSeq % 12 === 5 && !/scan/i.test(text);
           const text2 = withCA ? `${text}\n\nca: ${AGENT_ID}` : withScan ? `${text}\n\nscan any robinhood chain token for rug risk: https://www.caturn.lol/scan` : text;
           const outText = mediaIds.length && ctx.shareSketch?.family === "sky" ? `${text2} caturn.lol/sky` : text2;
           // X lets this app thread a reply only under a post that mentions the cat; anything else goes out through orbio, opening with the handle.
@@ -1112,5 +1120,6 @@ if (API_KEY) await refreshPostUrls(feed.posts);
 if (API_KEY && !DRY_RUN && agent) await retryFailedPosts(feed, spentToday);
 if (!DRY_RUN) await repairSketches(feed);
 
+feed.postSeq += feed.posts.filter(p => p.at === iso(now) && p.via !== "recovered").length;
 await writeFile(FEED, JSON.stringify(feed, null, 2) + "\n");
 log(`status=${feed.status} energy=${feed.energy} thoughts/day=${thoughtsPerDay} spentToday=${feed.metrics.spentTodayCredit} ${feed.reason || ""}`);
