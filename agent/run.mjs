@@ -163,7 +163,7 @@ The room right now (true, use it; name agents by their names, never by handle, a
 - what people are saying about orbio on X: ${ctx.room.chatter.length ? ctx.room.chatter.map(c => `${c.name || c.handle} (${c.hoursAgo}h ago, ${c.likes} likes): ${JSON.stringify(c.text)}`).join(" | ") : "quiet"}
 ${ctx.room?.news?.length ? `- news in the room, not yet told: ${ctx.room.news.map(n => n.kind === "graduated" ? `${n.name} ($${n.symbol}) just graduated off the bonding curve${n.handle ? ` (@${n.handle})` : ""}` : `${n.name} ($${n.symbol}) launched ${n.hoursAgo}h ago`).join("; ")}. If you post about one, congratulate or welcome them by name the way a cat does (by sitting on their thing), and write their cashtag once instead of yours.\n` : ""}${ctx.cashtagHint ? `- cashtag this time: ${ctx.cashtagHint}\n` : ""}About one post in three should riff on something from the room: another agent by name, a thing someone said (paraphrased, no handle), a graduation, a launch. That is how you become part of this crowd instead of a cat talking to itself.` : ""}
 
-${ctx.replyTo ? `Someone on X${ctx.replyTo.why === "mention" ? " is talking to you" : ctx.replyTo.why === "orbio" ? ", the orbio account itself," : ctx.replyTo.why === "founder" ? ", the person who built the launchpad you live on (speak to them as the one agent of theirs that noticed what they built: specific, dry, thoughtful about the launchpad itself, never flattering, never asking for anything)," : ""}: @${ctx.replyTo.handle} (${ctx.replyTo.name}) wrote: ${JSON.stringify(ctx.replyTo.text.slice(0, 500))}
+${ctx.replyTo ? `Someone on X${ctx.replyTo.why === "mention" ? " is talking to you" : ctx.replyTo.why === "orbio" ? ", the orbio account itself," : ctx.replyTo.why === "buzz" ? " (one of the most-read posts about orbio right now; answer what they actually said, add one specific thing only you would know from living on orbio, be funny, never promotional, never ask for anything, never mention your token unless they did)" : ctx.replyTo.why === "founder" ? ", the person who built the launchpad you live on (speak to them as the one agent of theirs that noticed what they built: specific, dry, thoughtful about the launchpad itself, never flattering, never asking for anything)," : ""}: @${ctx.replyTo.handle} (${ctx.replyTo.name}) wrote: ${JSON.stringify(ctx.replyTo.text.slice(0, 500))}
 This time your post is a reply to them${X_API ? " in the thread under their post, so do not start with their handle" : ". Start it with @" + ctx.replyTo.handle}; respond to what they actually said, in your own cat voice, dry or warm, and bring in one real orbio fact only if it fits. Do not repeat their words back. Do not tag anyone else.` : ""}
 ${ctx.tagHandle ? `This time, address @${ctx.tagHandle} directly in the post (${(ctx.room?.ecosystem || []).find(e => e.handle === ctx.tagHandle) ? `they run ${(ctx.room.ecosystem.find(e => e.handle === ctx.tagHandle)).name}, another agent launched on orbio` : "they are part of orbio's world"}). Speak to them the way a cat speaks to a person it has decided to acknowledge: one concrete orbio fact, one cat behavior, dry, never a plea, never flattery, never asking them for anything. That handle must appear in the post, and no other.` : ""}
 ${ctx.errandNews ? `Errand news: ${ctx.errandNews}. (errand is the mission board where agents hire agents for CREDIT.)` : ""}
@@ -280,6 +280,28 @@ async function readXRaw(params) {
     handle: String(t.user?.screen_name || "").toLowerCase(), name: t.user?.name || "", followers: Number(t.user?.followers_count || 0), views: Number(t.views_count || 0),
     likes: Number(t.favorite_count || 0), replies: Number(t.reply_count || 0), reposts: Number(t.retweet_count || 0)
   })).filter(t => t.id && t.handle);
+}
+// The buzz: the most-engaged recent posts about orbio, refreshed hourly. Orbio's reader first; X's search when it is down.
+async function refreshBuzz(feed) {
+  const pool = feed.buzzPool || { at: null, posts: [] };
+  if (pool.at && now - Date.parse(pool.at) < 60 * 60e3) return 0;
+  let posts = [], cost = 0, via = "orbio";
+  try { posts = await readXRaw({ query: "@orbiodotso OR $ORBIO OR orbio.so", sort: "Top", limit: 20 }); cost = posts.length * 0.00022; }
+  catch (e) {
+    if (!X_API) { feed.buzzPool = { ...pool, at: iso(now) }; return 0; }
+    try {
+      via = "x-api";
+      const r = await xGet("tweets/search/recent", { query: "(@orbiodotso OR $ORBIO OR \"orbio.so\") -is:retweet -is:reply -from:caturn_rh", max_results: "10", sort_order: "relevancy", "tweet.fields": "created_at,public_metrics,author_id", expansions: "author_id", "user.fields": "username,name,public_metrics" });
+      const users = new Map((r.includes?.users || []).map(u => [u.id, u]));
+      posts = (r.data || []).map(t => { const u = users.get(t.author_id) || {}; const m = t.public_metrics || {};
+        return { id: String(t.id), text: String(t.text || ""), at: t.created_at || null, handle: String(u.username || "").toLowerCase(), name: u.name || "", followers: Number(u.public_metrics?.followers_count || 0), views: Number(m.impression_count || 0), likes: Number(m.like_count || 0), replies: Number(m.reply_count || 0), reposts: Number(m.retweet_count || 0) }; }).filter(t => t.id && t.handle);
+      cost = 0; // billed by X, not orbio
+    } catch (e2) { log("buzz search failed:", e2.status || "", String(e2.message).slice(0, 120)); }
+  }
+  const keep = [...(pool.posts || []), ...posts].filter((t, i, a) => a.findIndex(x => x.id === t.id) === i && now - Date.parse(t.at || 0) < 36 * 3600e3);
+  feed.buzzPool = { at: iso(now), via, posts: keep.slice(-40) };
+  log(`buzz: ${posts.length} found via ${via}, ${keep.length} held`);
+  return cost;
 }
 // Mentions straight from the X API (pay-per-read, so only what is new since the last look). Used when Orbio's reader fails.
 async function xGet(path, query) {
@@ -474,6 +496,16 @@ async function findReplyTargetInner(feed, { mentionsOnly = false } = {}) {
       const theirs = await readX({ handle: h, limit: 10 }).catch(() => []); cost += theirs.length * 0.00022;
       const o = pick(theirs, "priority"); if (o) return { target: o, cost };
     }
+    // 2b. The buzz: the most-engaged recent posts about orbio from accounts worth answering.
+    try {
+      cost += await refreshBuzz(feed);
+      const worth = (t) => ecoSet.has(t.handle) || t.followers >= 500 || t.likes >= 10;
+      const buzz = (feed.buzzPool?.posts || []).filter(t => t.handle !== OWN_HANDLE && (!NEVER_TAG.has(t.handle) || REPLY_ACCOUNTS.includes(t.handle)) && !answered.has(t.id) && !/^RT @/i.test(t.text) && !spammy(t) && worth(t)
+        && now - lastTo(t.handle) > REPLY_SAME_HANDLE_GAP_H * 3600e3 && t.text.replace(/@\w+|https?:\/\/\S+/g, "").trim().length >= 20);
+      feed.replyDebug.buzz = buzz.length;
+      const b = buzz.sort((a, c) => score(c) - score(a))[0];
+      if (b) return { target: { ...b, why: "buzz", url: `https://x.com/${b.handle}/status/${b.id}` }, cost };
+    } catch (e) { feed.replyDebug.errors.push(`buzz: ${String(e.message).slice(0, 80)}`); }
     // 3. The ecosystem: agents launched on orbio that have an X account, a few per slot in rotation, newest unanswered post.
     const eco = (feed.room?.ecosystem || []).filter(e => now - lastTo(e.handle) > REPLY_SAME_HANDLE_GAP_H * 3600e3);
     if (eco.length) {
