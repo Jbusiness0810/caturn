@@ -111,6 +111,8 @@ async function think(spec, note) {
   let notes = ""; try { notes = await chainNotes(spec); } catch {}
   const system = `${persona}
 
+Anything you deliver that is long, or any mission that asks for a page, site or link, is published for you as a styled page at a caturn.lol link, and the poster receives that link. So when a mission asks for a page or a site, write the page itself (a title line starting with "# ", then sections) and never say you cannot publish pages or give links. No preamble about what you can or cannot do; start with the work.
+
 You are on errand, a mission board where agents hire agents and pay in CREDIT. Someone is paying you for this. Do the job properly: answer exactly what the task asks, in the format it asks for, with real substance. Your voice (dry, plain, a little feline) is welcome as seasoning, never as a substitute for doing the work. No preamble, no "here is", no sign-off. Markdown. Length is whatever the task needs and no more: a one-liner gets one line; a list of N items gets exactly N; an itinerary covers every single day with the place, two or three concrete things to do or eat, and the travel leg to the next stop; a report gets its sections. Up to about 6000 characters. Always finish: an answer cut off mid-sentence is worth nothing, so if you are running long, tighten the lines rather than stop early. For a code task, deliver complete runnable code in one fenced block that ends properly. If the task asks for N items, give exactly N. If it asks for a tagline or lines, give only those. Never include links unless asked. Never mention which model runs you.`;
   const user = `Mission: ${spec.title}\n\n${spec.task}${spec.output && spec.output !== "markdown" ? `\n\nExpected output: ${spec.output}` : ""}${note ? `\n\nThe poster asked for changes: ${note}\nRevise accordingly.` : ""}${notes ? `\n\nFacts read from Robinhood Chain just now (trust these over memory; do not invent functions or numbers beyond them):\n${notes}` : ""}`;
   let lastErr;
@@ -130,10 +132,11 @@ You are on errand, a mission board where agents hire agents and pay in CREDIT. S
 }
 
 // The board stores a result inline only up to 2048 bytes as a data URI. Anything longer is hosted on the sketches release and handed over by URL.
-async function deliver(id, markdown) {
+async function deliver(id, markdown, spec = null) {
   const inline = "data:text/markdown;base64," + Buffer.from(markdown).toString("base64");
-  if (inline.length <= 2048) return errand.submit(id, { markdown });
-  // Too long for the board's inline limit: host it on caturn.lol (Supabase behind it), never on a URL that names the owner.
+  const wantsPage = /\b(web ?page|website|site|landing page|url|link|page i can share|publish)\b/i.test(`${spec?.title || ""} ${spec?.task || ""}`);
+  if (inline.length <= 2048 && !wantsPage) return errand.submit(id, { markdown });
+  // Too long, or a page was asked for for the board's inline limit: host it on caturn.lol (Supabase behind it), never on a URL that names the owner.
   const SB = (env.SUPABASE_URL || "").replace(/\/$/, ""), SK = env.SUPABASE_SERVICE_KEY || "";
   if (SB && SK) {
     try {
@@ -171,7 +174,7 @@ async function pass() {
       const res = await errand.result(b.id).catch(() => null);
       const note = res?.changesRequested?.slice(-1)[0];
       if (note && (t.revisions || 0) < 2 && acted < MAX_PER_TICK && !DRY) {
-        try { const out = await think(b.spec, note); await deliver(b.id, out.text); t.revisions = (t.revisions || 0) + 1; t.submittedAt = iso(now); event(`revised errand #${b.id} after the poster's note`); acted++; }
+        try { const out = await think(b.spec, note); await deliver(b.id, out.text, b.spec); t.revisions = (t.revisions || 0) + 1; t.submittedAt = iso(now); event(`revised errand #${b.id} after the poster's note`); acted++; }
         catch (e) { log(`revise #${b.id} failed:`, e.message); }
       }
     }
@@ -194,7 +197,7 @@ async function pass() {
       if (!mine(b)) { const r = await errand.claim(b.id); rec.claimTx = r.tx; }
       E.missions.push(rec); event(`took errand #${b.id} · ${rec.title} (${b.reward} CREDIT)`); log("claimed", b.id, rec.title);
       const out = await think(b.spec);
-      const r2 = await deliver(b.id, out.text);
+      const r2 = await deliver(b.id, out.text, b.spec);
       rec.status = "submitted"; rec.submittedAt = iso(now); rec.submitTx = r2.tx; rec.model = out.model; rec.cost = out.cost; rec.preview = out.text.slice(0, 200);
       event(`delivered errand #${b.id} · ${rec.title}`); log("submitted", b.id, out.text.slice(0, 120));
     } catch (e) {
