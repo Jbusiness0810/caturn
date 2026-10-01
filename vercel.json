@@ -79,6 +79,10 @@
     "api/result.js": {
       "maxDuration": 10
     },
+    "api/board.js": {
+      "maxDuration": 20,
+      "includeFiles": "board/log.json"
+    },
     "api/asset.js": {
       "maxDuration": 20
     }

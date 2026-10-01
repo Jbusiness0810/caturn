@@ -1072,7 +1072,9 @@ if (status === "awake") {
           const withCA = CA_EVERY > 0 && !ctx.replyTo && feed.postSeq % CA_EVERY === CA_EVERY - 1 && !text.toLowerCase().includes(AGENT_ID.toLowerCase());
           // every so often a plain post carries the scanner link too (only through the X app, which allows links)
           const withScan = X_API && !ctx.replyTo && !withCA && !mediaIds.length && feed.postSeq % 12 === 5 && !/scan/i.test(text);
-          const text2 = withCA ? `${text}\n\nca: ${AGENT_ID}` : withScan ? `${text}\n\nscan any robinhood chain token for rug risk: https://www.caturn.lol/scan` : text;
+          // and on another beat, the board link: the community picks what the cat does each day
+          const withBoard = X_API && !ctx.replyTo && !withCA && !withScan && !mediaIds.length && feed.postSeq % 12 === 11 && !/board/i.test(text);
+          const text2 = withCA ? `${text}\n\nca: ${AGENT_ID}` : withScan ? `${text}\n\nscan any robinhood chain token for rug risk: https://www.caturn.lol/scan` : withBoard ? `${text}\n\nvote on what i do tomorrow: https://www.caturn.lol/board` : text;
           const outText = mediaIds.length && ctx.shareSketch?.family === "sky" ? `${text2} caturn.lol/sky` : text2;
           // X lets this app thread a reply only under a post that mentions the cat; anything else goes out through orbio, opening with the handle.
           const canThread = X_API && ctx.replyTo && ["mention", "scan request", "posted my address"].includes(ctx.replyTo.why);
