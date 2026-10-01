@@ -399,8 +399,7 @@ async function uploadMediaX(buf, mediaType = "image/gif") {
 }
 // One X API poster for everything that Orbio cannot do: threaded replies and posts with an image.
 async function postOnX(text, { replyTo = null, mediaIds = [] } = {}) {
-  if (/https?:\/\//i.test(text)) return { error: "no links on X" };
-  const url = "https://api.x.com/2/tweets";
+  const url = "https://api.x.com/2/tweets";   // links are allowed here (X bills a link post higher, so only the say queue and the sky film carry them)
   const body = { text };
   if (replyTo) body.reply = { in_reply_to_tweet_id: String(replyTo) };
   if (mediaIds.length) body.media = { media_ids: mediaIds.map(String) };
@@ -614,9 +613,13 @@ async function saySomething(feed) {
   if (!next) return;
   feed.said.push(next.id);
   try {
-    const p = await postToX(String(next.text).slice(0, 270));
+    // Through the X app when the keys exist (real links allowed); otherwise through orbio, with links spelled out in words.
+    const delink = (t) => t.replace(/https?:\/\/(?:www\.)?caturn\.lol\/?(\S*)/gi, (m, path) => "caturn dot lol" + (path ? " slash " + path.replace(/\//g, " slash ") : "")).replace(/https?:\/\/\S+/g, "");
+    let text = String(next.text).slice(0, 280);
+    let p = X_API ? await postOnX(text) : null;
+    if (!p || p.status === "failed") { if (p) event(`x api refused the say post (${String(p.err || "unknown").slice(0, 90)}); sent it through orbio instead`); text = delink(text).slice(0, 270); p = await postToX(text); }
     if (p.error) { log("say skipped:", p.error); return; }
-    feed.posts.push({ at: iso(now), text: String(next.text).slice(0, 270), id: p.id, url: p.url, status: p.status, cost: p.cost, kind: "say", via: p.via || "orbio" });
+    feed.posts.push({ at: iso(now), text, id: p.id, url: p.url, status: p.status, cost: p.cost, kind: "say", via: p.via || "orbio" });
     event(next.event || "posted to X"); log("said:", next.text);
   } catch (e) { log("say failed:", e.message); }
 }
@@ -797,7 +800,7 @@ if (status === "awake") {
           let mediaIds = [];
           if (ctx.shareSketch && X_API) {
             try { const g = await (await fetch(ctx.shareSketch.url)).arrayBuffer(); mediaIds = [await uploadMediaX(Buffer.from(g))]; ctx.shareSketch.shared = iso(now); }
-            catch (e) { log("sketch upload to X failed:", String(e.message).slice(0, 160)); }
+            catch (e) { log("sketch upload to X failed:", String(e.message).slice(0, 160)); event(`x api refused the image upload (${String(e.body?.detail || e.body?.error || e.message).slice(0, 90)}); posting the words only`); }
           }
           const withCA = CA_EVERY > 0 && !ctx.replyTo && feed.posts.length % CA_EVERY === CA_EVERY - 1 && !text.toLowerCase().includes(AGENT_ID.toLowerCase());
           const text2 = withCA ? `${text}\n\nca: ${AGENT_ID}` : text;
