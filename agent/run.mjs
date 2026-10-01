@@ -872,7 +872,10 @@ if (status === "awake") {
           const withScan = X_API && !ctx.replyTo && !withCA && !mediaIds.length && feed.posts.length % 12 === 5 && !/scan/i.test(text);
           const text2 = withCA ? `${text}\n\nca: ${AGENT_ID}` : withScan ? `${text}\n\nscan any robinhood chain token for rug risk: https://www.caturn.lol/scan` : text;
           const outText = mediaIds.length && ctx.shareSketch?.family === "sky" ? `${text2} caturn.lol/sky` : text2;
-          let p = ctx.replyTo && X_API ? await replyOnX(text, ctx.replyTo.id) : mediaIds.length ? await postOnX(outText, { mediaIds }) : withScan ? await postOnX(text2) : await postToX(text2);
+          // X lets this app thread a reply only under a post that mentions the cat; anything else goes out through orbio, opening with the handle.
+          const canThread = X_API && ctx.replyTo && ["mention", "scan request", "posted my address"].includes(ctx.replyTo.why);
+          if (ctx.replyTo && !canThread) ctx.replyTo.threaded = false;
+          let p = canThread ? await replyOnX(text, ctx.replyTo.id) : ctx.replyTo ? await postToX(delink(text).slice(0, 270)) : mediaIds.length ? await postOnX(outText, { mediaIds }) : withScan ? await postOnX(text2) : await postToX(text2);
           if (p.via === "x-api" && p.status === "failed") {
             // the X app refused (billing, permissions, a rule): say so in the feed and send the words through orbio instead
             event(`x api refused the post (${String(p.err || "unknown").slice(0, 90)}); sent it through orbio instead`);
