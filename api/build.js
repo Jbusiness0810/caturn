@@ -2,7 +2,7 @@
 // GET  /api/build            -> queue, current build, shipped list, the dev-hours meter
 // GET  /api/build?html=<id>  -> the built app itself, served sandboxed (rewritten from /b/<id>)
 // POST /api/build {action:"submit", text} | {action:"vote", id}
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 const SB_URL = (process.env.SUPABASE_URL || "").replace(/\/$/, ""), SB_KEY = process.env.SUPABASE_SERVICE_KEY || "";
 const ORBIO_API = "https://api.orbio.so/api/v1";
@@ -69,7 +69,10 @@ export default async function handler(req, res) {
     const ip = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || "?";
     const h = (hits.get(ip) || []).filter(t => now() - t < 60e3); if (h.length >= 10) return res.status(429).json({ error: "slow down. the cat is one cat." }); h.push(now()); hits.set(ip, h);
     const b = typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body || {});
-    const who = ipHash(ip);
+    // one person is one cookie (set on first write), with the address as the fallback; both are hashed before they are stored
+    let cv = (String(req.headers.cookie || "").match(/(?:^|;\s*)cv=([a-f0-9]{24})/) || [])[1];
+    if (!cv) { cv = randomBytes(12).toString("hex"); res.setHeader("Set-Cookie", `cv=${cv}; Path=/api/build; Max-Age=31536000; SameSite=Lax; HttpOnly; Secure`); }
+    const who = ipHash(cv + "|" + ip.split(".").slice(0, 2).join("."));
     if (b.action === "vote") {
       const id = Number(b.id); if (!Number.isFinite(id)) return res.status(400).json({ error: "which one?" });
       try { await sb("votes", { method: "POST", body: JSON.stringify({ idea_id: id, ip_hash: who }), prefer: "return=minimal" }); }
