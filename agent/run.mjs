@@ -346,7 +346,7 @@ function scanReplyText(r, token, self = false) {
 }
 async function findScanRequest(feed) {
   const answered = new Set(feed.posts.map(p => p.replyTo?.id).filter(Boolean));
-  feed.scans = (feed.scans || []).filter(s => now - Date.parse(s.at) < 48 * 3600e3);
+  feed.scans = (feed.scans || []).filter(s => now - Date.parse(s.at) < 48 * 3600e3).filter(s => s.posted || s.error || now - Date.parse(s.at) < 120e3); // one that never got posted is tried again
   let cost = 0;
   try {
     const mentions = await readX({ mentions_of: OWN_HANDLE }); cost += mentions.length * 0.00022;
@@ -463,6 +463,8 @@ async function postOnX(text, { replyTo = null, mediaIds = [] } = {}) {
   }
 }
 const replyOnX = (text, inReplyToId) => postOnX(text, { replyTo: inReplyToId });
+// Orbio refuses links: spell a caturn.lol link out in words and drop any other.
+const delink = (t) => String(t).replace(/https?:\/\/(?:www\.)?caturn\.lol\/?(\S*)/gi, (m, path) => "caturn dot lol" + (path ? " slash " + path.replace(/\?.*$/, "").replace(/\//g, " slash ") : "")).replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim();
 // Keep posts inside the rules whatever the model wrote: no links, no addresses, no handles outside the allowlist (and the one it is answering).
 function cleanPost(text, ctx, feed) {
   if (!text) return null;
@@ -662,7 +664,6 @@ async function saySomething(feed) {
   feed.said.push(next.id);
   try {
     // Through the X app when the keys exist (real links allowed); otherwise through orbio, with links spelled out in words.
-    const delink = (t) => t.replace(/https?:\/\/(?:www\.)?caturn\.lol\/?(\S*)/gi, (m, path) => "caturn dot lol" + (path ? " slash " + path.replace(/\//g, " slash ") : "")).replace(/https?:\/\/\S+/g, "");
     const rt = next.replyTo?.id ? { id: String(next.replyTo.id), handle: String(next.replyTo.handle || "").toLowerCase() } : null;
     let text = String(next.text).slice(0, 280);
     if (rt && !X_API && !text.toLowerCase().startsWith("@" + rt.handle)) text = `@${rt.handle} ${text}`;
@@ -873,7 +874,7 @@ if (status === "awake") {
           if (p.via === "x-api" && p.status === "failed") {
             // the X app refused (billing, permissions, a rule): say so in the feed and send the words through orbio instead
             event(`x api refused the post (${String(p.err || "unknown").slice(0, 90)}); sent it through orbio instead`);
-            const plain = ctx.replyTo && !text.toLowerCase().startsWith("@" + ctx.replyTo.handle) ? `@${ctx.replyTo.handle} ${text}` : text2;
+            const plain = delink(ctx.replyTo && !text.toLowerCase().startsWith("@" + ctx.replyTo.handle) ? `@${ctx.replyTo.handle} ${text}` : text2).slice(0, 270);
             p = await postToX(plain); if (ctx.replyTo) ctx.replyTo.threaded = false;
           }
           if (p.error) { log("post skipped:", p.error); event(`post refused by x: ${String(p.error).slice(0, 80)}`); }
@@ -884,6 +885,7 @@ if (status === "awake") {
             if (ctx.replyTo) { rec.kind = "reply"; rec.threaded = !!X_API && ctx.replyTo.threaded !== false; rec.replyTo = { id: ctx.replyTo.id, handle: ctx.replyTo.handle, name: ctx.replyTo.name, text: ctx.replyTo.text.slice(0, 200), url: ctx.replyTo.url, why: ctx.replyTo.why }; }
             else if (ctx.tagHandle && text.toLowerCase().includes("@" + ctx.tagHandle)) { rec.kind = "tag"; rec.tagged = ctx.tagHandle; }
             feed.posts.push(rec); feed.lastPostThoughtIndex = n;
+            if (ctx.scan) { const sc = (feed.scans || []).find(x => x.token === ctx.scan.token && x.handle === ctx.replyTo.handle && !x.posted); if (sc) sc.posted = true; }
             event(rec.kind === "sketch" ? "posted a sketch on X" : rec.kind === "reply" ? `${rec.threaded ? "replied to" : "answered"} @${rec.replyTo.handle} on X` : rec.kind === "tag" ? `posted to X, tagging @${rec.tagged}` : "posted to X");
           }
         } catch (e) {
