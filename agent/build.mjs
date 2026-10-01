@@ -11,7 +11,7 @@ const run = promisify(execFile);
 const env = process.env;
 const SB_URL = (env.SUPABASE_URL || "").replace(/\/$/, ""), SB_KEY = env.SUPABASE_SERVICE_KEY || "", API_KEY = env.ORBIO_API_KEY || "";
 const ORBIO_API = "https://api.orbio.so/api/v1";
-const MODELS = (env.CATURN_BUILD_MODEL || env.CATURN_MODEL || "anthropic/claude-opus-5.5,anthropic/claude-sonnet-5.5,openai/gpt-6-astra-pro,x-ai/grok-4.7").split(",").map(s => s.trim()).filter(Boolean);
+const MODELS = (env.CATURN_BUILD_MODEL || env.CATURN_MODEL || "anthropic/claude-sonnet-5.5,anthropic/claude-opus-5.5,openai/gpt-6-astra-pro,x-ai/grok-4.7").split(",").map(s => s.trim()).filter(Boolean);
 const USD_PER_STEP = Number(env.CATURN_BUILD_USD_PER_STEP || 5);   // every $5 of 24h fees buys one build step per day
 const MIN_STEPS_DAY = Number(env.CATURN_BUILD_MIN_STEPS || 6), MAX_STEPS_DAY = Number(env.CATURN_BUILD_MAX_STEPS || 60);
 const STEPS_TOTAL = 4, MAX_HTML = 60000;
@@ -63,7 +63,7 @@ Hard rules for the code (a reviewer rejects anything that breaks one):
 - One complete HTML document: <!doctype html> through </html>, with all CSS in one <style> and all JS in one <script>, no external files, no CDN, no fonts from the web, no images from the web (draw with canvas, CSS or inline SVG; emoji are fine).
 - No network of any kind: no fetch, XMLHttpRequest, WebSocket, no URLs anywhere in the file, no iframes, no forms, no cookies, no localStorage.
 - Never ask for names, emails, passwords, wallets, keys or money. No crypto wallet code.
-- Works on a phone: responsive, touch and mouse both work, nothing smaller than 44px to tap. Under 60000 characters.
+- Works on a phone: responsive, touch and mouse both work, nothing smaller than 44px to tap. Keep the whole file under 14000 characters: compact code, short names, no comments, no blank lines, so it is never cut off. A file that does not end with </html> is thrown away.
 - Put a small fixed line in the bottom right corner: "built by caturn" in a muted colour, 11px, pointer-events none.
 - Warm, clean visual style: cream background (#F6F1E8), ink (#1b1a17), one accent (#B08A3E brass), rounded corners, a readable system font stack. No lorem ipsum, no placeholders, no TODOs: every button does something.
 
@@ -75,7 +75,7 @@ async function step(idea, n, prevHtml) {
     : `Idea (#${idea.id}): "${idea.text}"\nThis is step ${n} of ${STEPS_TOTAL}. Here is the current build:\n\n\`\`\`html\n${prevHtml}\n\`\`\`\n\n${n < STEPS_TOTAL ? "Add the single most valuable missing feature (a score, levels, sound via WebAudio, a reset, a nicer feel, keyboard support, whatever the idea most needs), fix anything broken, and keep everything that works." : "Final step: polish. Fix bugs, make it feel finished, tidy the visuals, make sure it works on a phone, add a tiny touch of personality in the copy (one dry line is enough). Keep every working feature."}\nReturn the complete updated document.`;
   const out = await chat(SYSTEM, user, 9000);
   const html = extractHtml(out.text);
-  const bad = audit(html);
+  const bad = audit(html); if (out.finish === "length") bad.unshift("output cut off by the length limit");
   return { html, bad, model: out.model, cost: out.cost, finish: out.finish };
 }
 
