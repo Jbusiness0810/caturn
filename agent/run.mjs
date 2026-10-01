@@ -268,12 +268,41 @@ async function readX(params) {
   try { return await p; } catch (e) { xCache.delete(key); feed?.replyDebug && (feed.replyDebug.errors = [...(feed.replyDebug.errors || []), `${Object.keys(params)[0]}: ${e.status || ""} ${String(e.message).slice(0, 80)}`].slice(-6)); throw e; }
 }
 async function readXRaw(params) {
-  const r = await getJSON(`${ORBIO_API}/tools/social.x.posts`, { method: "POST", headers: auth, body: JSON.stringify({ limit: 10, sort: "Latest", max_cost: "0.0060", ...params }) });
+  let r;
+  try { r = await getJSON(`${ORBIO_API}/tools/social.x.posts`, { method: "POST", headers: auth, body: JSON.stringify({ limit: 10, sort: "Latest", max_cost: "0.0060", ...params }) }); }
+  catch (e) {
+    // Orbio's reader is down: mentions of the cat (the replies X lets the app thread) come straight from X instead
+    if (X_API && params.mentions_of === OWN_HANDLE && e.status >= 500) { log("orbio x reader failed; reading mentions from the X API"); return await mentionsFromX(); }
+    throw e;
+  }
   return (r.tweets || r.result?.tweets || []).map(t => ({
     id: String(t.id_str || t.id || ""), text: String(t.full_text || t.text || ""), at: t.tweet_created_at || t.created_at || null,
     handle: String(t.user?.screen_name || "").toLowerCase(), name: t.user?.name || "", followers: Number(t.user?.followers_count || 0), views: Number(t.views_count || 0),
     likes: Number(t.favorite_count || 0), replies: Number(t.reply_count || 0), reposts: Number(t.retweet_count || 0)
   })).filter(t => t.id && t.handle);
+}
+// Mentions straight from the X API (pay-per-read, so only what is new since the last look). Used when Orbio's reader fails.
+async function xGet(path, query) {
+  const url = `https://api.x.com/2/${path}`;
+  const qs = Object.entries(query).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&");
+  return getJSON(`${url}?${qs}`, { headers: { Authorization: oauthHeader("GET", url, query) } });
+}
+async function mentionsFromX() {
+  try {
+    if (!feed.xUserId) { const u = await xGet(`users/by/username/${OWN_HANDLE}`, { "user.fields": "id" }); feed.xUserId = u.data?.id; }
+    if (!feed.xUserId) return [];
+    const q = { max_results: "10", "tweet.fields": "created_at,public_metrics,author_id", expansions: "author_id", "user.fields": "username,name,public_metrics" };
+    if (feed.xMentionSince) q.since_id = feed.xMentionSince; else q.start_time = new Date(now - 24 * 3600e3).toISOString();
+    const r = await xGet(`users/${feed.xUserId}/mentions`, q);
+    const users = new Map((r.includes?.users || []).map(u => [u.id, u]));
+    if (r.meta?.newest_id) feed.xMentionSince = r.meta.newest_id;
+    const got = (r.data || []).map(t => { const u = users.get(t.author_id) || {}; const m = t.public_metrics || {};
+      return { id: String(t.id), text: String(t.text || ""), at: t.created_at || null, handle: String(u.username || "").toLowerCase(), name: u.name || "", followers: Number(u.public_metrics?.followers_count || 0), views: Number(m.impression_count || 0), likes: Number(m.like_count || 0), replies: Number(m.reply_count || 0), reposts: Number(m.retweet_count || 0) }; }).filter(t => t.id && t.handle);
+    // keep the unanswered ones around for the next ticks, since since_id will not return them again
+    feed.xMentionPool = [...(feed.xMentionPool || []), ...got].filter((t, i, a) => a.findIndex(x => x.id === t.id) === i && now - Date.parse(t.at || 0) < 48 * 3600e3).slice(-30);
+    log(`x api mentions: ${got.length} new, ${feed.xMentionPool.length} held`);
+    return feed.xMentionPool;
+  } catch (e) { log("x api mentions failed:", e.status || "", String(e.message).slice(0, 120)); return feed.xMentionPool || []; }
 }
 // Who is around orbio on X: handles the orbio account mentions, and the bigger accounts mentioning orbio. Cached in the feed.
 async function refreshTagPool(feed) {
