@@ -14,7 +14,8 @@ export default async function handler(req, res) {
     let r = await fetch(`${LIVE}?t=${t}`, { cache: "no-store", redirect: "follow", headers: { "user-agent": "caturn.lol" } }).catch(() => null);
     if (!r || !r.ok) r = await fetch(`${RAW}?t=${t}`, { cache: "no-store", headers: { "user-agent": "caturn.lol" } });
     if (!r.ok) throw new Error(`feed ${r.status}`);
-    const body = await r.text();
+    // files on the release are served from caturn.lol, so no URL on the site names the account behind it
+    const body = (await r.text()).split(`https://github.com/${REPO}/releases/download/sketches/`).join("https://www.caturn.lol/a/");
     const parsed = JSON.parse(body); // never cache something that is not a feed
     if (cache.body && Date.parse(parsed.updatedAt || 0) < Date.parse(JSON.parse(cache.body).updatedAt || 0)) return res.status(200).send(cache.body); // never go backwards
     cache = { at: Date.now(), body };

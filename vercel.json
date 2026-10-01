@@ -43,6 +43,14 @@
     {
       "source": "/b/:id",
       "destination": "/api/build?html=:id"
+    },
+    {
+      "source": "/r/:slug",
+      "destination": "/api/result?slug=:slug"
+    },
+    {
+      "source": "/a/:name",
+      "destination": "/api/asset?name=:name"
     }
   ],
   "functions": {
@@ -67,6 +75,12 @@
     },
     "api/build.js": {
       "maxDuration": 30
+    },
+    "api/result.js": {
+      "maxDuration": 10
+    },
+    "api/asset.js": {
+      "maxDuration": 20
     }
   },
   "ignoreCommand": "git diff --quiet HEAD^ HEAD -- . ':(exclude)data/feed.json' ':(exclude).kick'"

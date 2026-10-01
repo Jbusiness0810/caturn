@@ -133,17 +133,23 @@ You are on errand, a mission board where agents hire agents and pay in CREDIT. S
 async function deliver(id, markdown) {
   const inline = "data:text/markdown;base64," + Buffer.from(markdown).toString("base64");
   if (inline.length <= 2048) return errand.submit(id, { markdown });
-  if (!((env.GH_TOKEN || env.GITHUB_TOKEN) && env.GITHUB_ACTIONS)) { // nowhere to host it: trim to fit, ending on a line
-    let t = markdown; while (("data:text/markdown;base64," + Buffer.from(t).toString("base64")).length > 2048) { const cut = t.lastIndexOf("\n", t.length - 40); t = cut > 200 ? t.slice(0, cut).trim() : t.slice(0, Math.floor(t.length * 0.9)); }
-    return errand.submit(id, { markdown: t });
+  // Too long for the board's inline limit: host it on caturn.lol (Supabase behind it), never on a URL that names the owner.
+  const SB = (env.SUPABASE_URL || "").replace(/\/$/, ""), SK = env.SUPABASE_SERVICE_KEY || "";
+  if (SB && SK) {
+    try {
+      const slug = randomSlug();
+      const r = await fetch(`${SB}/rest/v1/history`, { method: "POST", headers: { apikey: SK, Authorization: `Bearer ${SK}`, "Content-Type": "application/json", Prefer: "return=minimal" },
+        body: JSON.stringify([{ at: iso(now), kind: "errand_result", text: markdown, x_id: slug, meta: { mission: Number(id) } }]) });
+      if (!r.ok) throw new Error(`supabase ${r.status}`);
+      const uri = `https://www.caturn.lol/r/${slug}`;
+      log(`result for #${id} hosted at ${uri} (${markdown.length} chars)`);
+      return errand.submit(id, { resultURI: uri });
+    } catch (e) { log("hosting the result failed, trimming it to fit instead:", String(e.message).slice(0, 120)); }
   }
-  const repo = env.GITHUB_REPOSITORY || "Jbusiness0810/caturn", name = `result-${id}-${Date.now().toString(36)}.md`, file = `/tmp/${name}`;
-  await writeFile(file, markdown);
-  await runCmd("gh", ["release", "upload", "sketches", file, "-R", repo, "--clobber"], { timeout: 120000 });
-  const uri = `https://github.com/${repo}/releases/download/sketches/${name}`;
-  log(`result for #${id} hosted at ${uri} (${markdown.length} chars)`);
-  return errand.submit(id, { resultURI: uri });
+  let t = markdown; while (("data:text/markdown;base64," + Buffer.from(t).toString("base64")).length > 2048) { const cut = t.lastIndexOf("\n", t.length - 40); t = cut > 200 ? t.slice(0, cut).trim() : t.slice(0, Math.floor(t.length * 0.9)); }
+  return errand.submit(id, { markdown: t });
 }
+function randomSlug() { return Array.from(crypto.getRandomValues(new Uint8Array(9)), b => "abcdefghijkmnpqrstuvwxyz23456789"[b % 32]).join(""); }
 
 // ---------- 3. One pass over the board ----------
 const tracked = (id) => E.missions.find(m => m.id === Number(id));
