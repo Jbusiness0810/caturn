@@ -45,7 +45,7 @@ const NEVER_TAG = new Set(["orbiodotso", "x", "twitter", "elonmusk", "boredelonm
 const MIN_THOUGHTS_PER_DAY  = Number(env.CATURN_MIN_THOUGHTS || 6);
 const MAX_THOUGHTS_PER_DAY  = Number(env.CATURN_MAX_THOUGHTS || 96);   // every 15 minutes at full energy
 const VOLUME_FOR_FULL_ENERGY = Number(env.CATURN_FULL_VOLUME_USD || 50000); // 24h USD volume at which energy = 1
-const DAILY_CREDIT_CAP = Number(env.CATURN_DAILY_CAP || 6);                // CREDIT per UTC day, hard stop
+const DAILY_CREDIT_CAP = Number(env.CATURN_DAILY_CAP || 25);               // CREDIT per UTC day, hard stop (a full day at the current pace is about 12)
 const FEED = new URL("../data/feed.json", import.meta.url);
 
 const ORBIO_API = "https://api.orbio.so/api/v1";
