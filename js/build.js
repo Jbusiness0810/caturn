@@ -51,6 +51,7 @@
       $("[data-now-step]").textContent = "step " + d.building.steps_done + " of " + d.building.steps_total + (w.current && w.current.lastNote ? " · " + w.current.lastNote : "");
       var dl = $("[data-now-download]"); if (dl) { dl.hidden = !d.building.steps_done; dl.href = "/api/build?html=" + d.building.id + "&download=1"; }
       var frame = $("[data-now-frame]"), src = "/b/" + d.building.id + "?v=" + d.building.steps_done;
+      frame.parentNode.hidden = !d.building.steps_done;
       if (d.building.steps_done > 0 && frame.getAttribute("src") !== src) frame.setAttribute("src", src); else if (!d.building.steps_done) frame.removeAttribute("src");
       $("[data-now-log]").innerHTML = (d.steps || []).filter(function (s) { return s.idea_id === d.building.id; }).sort(function (a, b) { return a.n - b.n; }).map(function (s) { return "<li><b>" + s.n + "</b> " + esc(s.note) + " <span>" + ago(s.created_at) + "</span></li>"; }).join("") || "<li><b>0</b> picked up. first step on the next tick.</li>";
     } else now.hidden = true;
