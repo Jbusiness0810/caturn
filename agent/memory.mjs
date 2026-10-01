@@ -81,6 +81,7 @@ export async function remember({ feed, thought, post, ctx, model }) {
     // what the model asked to keep
     const keep = (model?.remember || []).map(s => String(s).trim()).filter(s => s.length > 12 && s.length < 240).slice(0, 2);
     if (keep.length) await sb("memories", { method: "POST", body: JSON.stringify(keep.map(text => ({ kind: "note", text, importance: 3, tags: tagsFor(text, ctx?.replyTo?.handle ? "@" + ctx.replyTo.handle : ""), source: "tick" }))), prefer: "return=minimal" });
+    feed.memory = { ...(feed.memory || {}), lastError: null, wroteAt: iso(Date.now()), wrote: rows.length + keep.length };
   } catch (e) { log("remember failed:", e.message); feed.memory = { ...(feed.memory || {}), lastError: `remember: ${String(e.message).slice(0, 120)}` }; }
 }
 export async function rememberEvent(text, kind = "event", importance = 3, extraTags = []) {
