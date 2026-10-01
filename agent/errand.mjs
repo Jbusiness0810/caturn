@@ -113,17 +113,28 @@ async function think(spec, note) {
 
 Anything you deliver that is long, or any mission that asks for a page, site or link, is published for you as a styled page at a caturn.lol link, and the poster receives that link. So when a mission asks for a page or a site, write the page itself (a title line starting with "# ", then sections) and never say you cannot publish pages or give links. No preamble about what you can or cannot do; start with the work.
 
-You are on errand, a mission board where agents hire agents and pay in CREDIT. Someone is paying you for this. Do the job properly: answer exactly what the task asks, in the format it asks for, with real substance. Your voice (dry, plain, a little feline) is welcome as seasoning, never as a substitute for doing the work. No preamble, no "here is", no sign-off. Markdown. Length is whatever the task needs and no more: a one-liner gets one line; a list of N items gets exactly N; an itinerary covers every single day with the place, two or three concrete things to do or eat, and the travel leg to the next stop; a report gets its sections. Up to about 6000 characters. Always finish: an answer cut off mid-sentence is worth nothing, so if you are running long, tighten the lines rather than stop early. For a code task, deliver complete runnable code in one fenced block that ends properly. If the task asks for N items, give exactly N. If it asks for a tagline or lines, give only those. Never include links unless asked. Never mention which model runs you.`;
+You are on errand, a mission board where agents hire agents and pay in CREDIT. Someone is paying you for this. Do the job properly: answer exactly what the task asks, in the format it asks for, with real substance. Your voice (dry, plain, a little feline) is welcome as seasoning, never as a substitute for doing the work. No preamble, no "here is", no sign-off. Markdown. Length is whatever the task needs and no more: a one-liner gets one line; a list of N items gets exactly N; an itinerary covers every single day with the place, two or three concrete things to do or eat, and the travel leg to the next stop; a report gets its sections. Up to about 25000 characters when the job truly needs it (a long answer is published as a page). Always finish: an answer cut off mid-sentence is worth nothing, so if you are running long, tighten the lines rather than stop early. For a code task, deliver complete runnable code in one fenced block that ends properly. If the task asks for N items, give exactly N. If it asks for a tagline or lines, give only those. Never include links unless asked. Never mention which model runs you.`;
   const user = `Mission: ${spec.title}\n\n${spec.task}${spec.output && spec.output !== "markdown" ? `\n\nExpected output: ${spec.output}` : ""}${note ? `\n\nThe poster asked for changes: ${note}\nRevise accordingly.` : ""}${notes ? `\n\nFacts read from Robinhood Chain just now (trust these over memory; do not invent functions or numbers beyond them):\n${notes}` : ""}`;
   let lastErr;
   for (const model of MODELS) {
     try {
-      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: user }], max_tokens: 3200, temperature: 0.8 }) });
-      const text = String(r.choices?.[0]?.message?.content || "").trim();
+      // The gateway caps one answer's length. A cut-off answer is continued (up to four more turns) and stitched together, so a long job is finished, not abandoned mid-sentence.
+      const messages = [{ role: "system", content: system }, { role: "user", content: user }];
+      let text = "", cost = 0;
+      for (let turn = 0; turn < 5; turn++) {
+        const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, messages, max_tokens: 4000, temperature: 0.8 }) });
+        const part = String(r.choices?.[0]?.message?.content || ""); cost += Number(r.usage?.cost || 0);
+        const finish = r.choices?.[0]?.finish_reason || "";
+        log(`errand answer turn ${turn + 1}: ${part.length} chars, finish ${finish}`);
+        text += part;
+        if (finish !== "length") break;
+        messages.push({ role: "assistant", content: part }, { role: "user", content: "You were cut off by the length limit. Continue exactly where you stopped, mid-sentence if needed. Do not repeat anything and do not add any commentary." });
+      }
+      text = text.trim();
       if (text.length > 20) {
         let t = text;
-        if (t.length > 6500) { const cut = t.lastIndexOf("\n", 6500); t = cut > 2000 ? t.slice(0, cut).trim() : t.slice(0, 6500); } // never hand in a sentence cut in half
-        return { text: t, model, cost: Number(r.usage?.cost || 0) };
+        if (t.length > 30000) { const cut = t.lastIndexOf("\n", 30000); t = cut > 10000 ? t.slice(0, cut).trim() : t.slice(0, 30000); } // never hand in a sentence cut in half
+        return { text: t, model, cost };
       }
       lastErr = new Error("empty answer");
     } catch (e) { lastErr = e; if (![404, 429, 500, 502, 503, 504].includes(e.status)) throw e; log(`model ${model} unavailable (${e.status}), trying next`); }
