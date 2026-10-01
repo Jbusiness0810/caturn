@@ -10,6 +10,7 @@ const run = promisify(execFile);
 
 const env = process.env;
 const API_KEY   = env.ORBIO_API_KEY || "";
+import { MEMORY_ON, seed as seedMemory, recall as recallMemory, remember as rememberTick, rememberEvent, measure as measurePosts, reflect as reflectDay } from "./memory.mjs";
 const AGENT_ID  = env.CATURN_AGENT_ID || "0x9b4e217f8759cb758664ac3b0ee730a4d15e7f6a"; // Caturn, agent 271. Override with CATURN_AGENT_ID.
 // Ranked list. The gateway lists models it is not always serving, so each thought tries these in order.
 const MODELS    = (env.CATURN_MODEL || "anthropic/claude-fable-5.1,anthropic/claude-opus-5.5,x-ai/grok-4.7,anthropic/claude-sonnet-5.5,openai/gpt-6-astra-pro,openai/gpt-6-sol-pro").split(",").map(s => s.trim()).filter(Boolean);
@@ -154,7 +155,7 @@ async function think(persona, ctx) {
 - live numbers you may use exactly (they are true right now): ${ctx.stats}
 - recent thoughts (avoid repeating): ${ctx.recent.map(t => JSON.stringify(t.text)).join(" | ") || "none"}
 - your last posts on X (build on your running bits, never repeat a joke): ${ctx.recentPosts.map(p => JSON.stringify(p)).join(" | ") || "none"}
-${ctx.milestone ? `- milestone: ${ctx.milestone}\n` : ""}${ctx.room ? `
+${ctx.milestone ? `- milestone: ${ctx.milestone}\n` : ""}${ctx.memory?.lines?.length ? `\nWhat you remember (your own long-term memory; use it the way a person uses theirs, to recognise people and keep your story straight, never to recite it):\n${ctx.memory.lines.join("\n")}\n` : ""}${ctx.room ? `
 The room right now (true, use it; name agents by their names, never by handle, and never tag anyone from this list):
 - the other agents on orbio: ${ctx.room.littermates ? `${ctx.room.littermates.total} agents, ${ctx.room.littermates.graduated} graduated. newest: ${ctx.room.littermates.newest.map(l => `${l.name} ($${l.symbol}, ${l.hoursAgo}h ago${l.graduated ? ", graduated" : ""})`).join("; ") || "none"}. closest to graduating: ${ctx.room.littermates.closest.map(l => `${l.name} at ${l.progress}%`).join("; ") || "none"}.` : "unknown"}
 - what people are saying about orbio on X: ${ctx.room.chatter.length ? ctx.room.chatter.map(c => `${c.name || c.handle} (${c.hoursAgo}h ago, ${c.likes} likes): ${JSON.stringify(c.text)}`).join(" | ") : "quiet"}
@@ -181,6 +182,8 @@ For the post, first write three different drafts in "drafts" (different shapes, 
  "post": string${ctx.mustPost ? "" : "|null"} (the best of the drafts, verbatim; for X: lowercase, under 200 characters, plain words, one concrete orbio fact plus one cat behavior, dry or funny, no metaphors chained, no links, no hashtags, no handles other than @orbiodotso when the angle calls for it${ctx.replyTo ? ", except @" + ctx.replyTo.handle + " which this post must start with" : ctx.tagHandle ? ", except @" + ctx.tagHandle + " which this post must include" : ""}${ctx.mustPost ? "" : "; null only if nothing honest fits"}),
  "mood": string (one or two lowercase words for your mood right now, specific and varied. Draw from anywhere in a cat's range: sun-drunk, watchful, aloof, kneading, skittish, imperious, wistful, hunting, loafing, bristling, purring, sulking, feral, dignified, nocturnal, homesick, greedy, tender, spiteful, patient, giddy, hollow, regal, twitchy, sated, brooding, curious, unbothered, mournful, playful, grumpy, serene, cornered, smug, lonely, electric, drowsy, vigilant, coy, ancient. Never reuse any of these recent moods: ${ctx.recentMoods.join(", ") || "none"}),
  "focus": string (what you are fixated on right now, under 8 words, lowercase),
+ "remember": [string] (0 to 2 things from this moment worth keeping for weeks: a person and why, a promise, a fact about your life, a bit that landed; one plain first-person sentence each with names and numbers; usually an empty list),${ctx.replyTo ? `
+ "about_them": string (one plain line about @${ctx.replyTo.handle} for your memory: who they seem to be, how they talk to you, what they care about),` : ""}
  "emotions": {"curiosity": 0-1, "smugness": 0-1, "unease": 0-1, "affection": 0-1, "boredom": 0-1, "hunger": 0-1, "mischief": 0-1, "melancholy": 0-1}
    (hunger is how much you want fees and thoughts right now; mischief is the urge to knock something off the edge; melancholy is the old, quiet kind. Let them move: ${ctx.emotionHints})}` }
   ];
@@ -214,6 +217,8 @@ For the post, first write three different drafts in "drafts" (different shapes, 
     drafts: Array.isArray(out.drafts) ? out.drafts.filter(d => typeof d === "string").map(d => d.trim()).slice(0, 3) : [],
     mood: String(out.mood || "").trim().toLowerCase().slice(0, 32) || null,
     focus: String(out.focus || "").trim().toLowerCase().slice(0, 60) || null,
+    remember: Array.isArray(out.remember) ? out.remember.filter(x => typeof x === "string").slice(0, 2) : [],
+    aboutThem: typeof out.about_them === "string" ? out.about_them.trim().slice(0, 240) : null,
     emotions: { curiosity: num(em.curiosity, 0.5), smugness: num(em.smugness, 0.4), unease: num(em.unease, 0.2), affection: num(em.affection, 0.3), boredom: num(em.boredom, 0.3),
       hunger: num(em.hunger, 0.4), mischief: num(em.mischief, 0.3), melancholy: num(em.melancholy, 0.2) } };
 }
@@ -854,6 +859,13 @@ if (status === "awake") {
       ctx.errandNews = m.status === "paid" ? `you were just paid ${m.reward} CREDIT on errand for "${m.title}"` : m.status === "submitted" ? `you just delivered an errand called "${m.title}" (${m.reward} CREDIT) and are waiting to be paid` : `you just took an errand called "${m.title}" for ${m.reward} CREDIT`;
       if (Math.random() < 0.7) ctx.postAngle = `${ctx.errandNews}; say so, dryly, the way a cat reports a job`;
     }
+    if (MEMORY_ON && !DRY_RUN) {
+      let seeds = []; try { seeds = JSON.parse(await readFile(new URL("./memory-seed.json", import.meta.url), "utf8")); } catch {}
+      await seedMemory(feed, seeds);
+      ctx.memory = await recallMemory(ctx, feed);
+      feed.memory = { ...(feed.memory || {}), recalledAt: iso(now), recalled: ctx.memory ? ctx.memory.lines.length : 0 };
+      if (ctx.memory) log("recall:", ctx.memory.lines.join(" | ").slice(0, 600));
+    }
     const t = DRY_RUN ? { thought: "(dry run) I would have thought something here.", post: null, cost: 0, model: MODEL } : await think(persona, ctx);
     if (t.thought) {
       const entry = { at: iso(now), text: t.thought, cost: t.cost, model: t.model, energy: feed.energy,
@@ -920,7 +932,7 @@ if (status === "awake") {
             if (mediaIds.length) { rec.kind = "sketch"; rec.sketch = { url: ctx.shareSketch.url, family: ctx.shareSketch.family, source: ctx.shareSketch.source || null }; }
             if (ctx.replyTo) { rec.kind = "reply"; rec.threaded = !!X_API && ctx.replyTo.threaded !== false; rec.replyTo = { id: ctx.replyTo.id, handle: ctx.replyTo.handle, name: ctx.replyTo.name, text: ctx.replyTo.text.slice(0, 200), url: ctx.replyTo.url, why: ctx.replyTo.why }; }
             else if (ctx.tagHandle && text.toLowerCase().includes("@" + ctx.tagHandle)) { rec.kind = "tag"; rec.tagged = ctx.tagHandle; }
-            feed.posts.push(rec); feed.lastPostThoughtIndex = n;
+            feed.posts.push(rec); feed.lastPostThoughtIndex = n; ctx.postedRec = rec;
             if (ctx.scan) { const sc = (feed.scans || []).find(x => x.token === ctx.scan.token && x.handle === ctx.replyTo.handle && !x.posted); if (sc) sc.posted = true; }
             event(rec.kind === "sketch" ? "posted a sketch on X" : rec.kind === "reply" ? `${rec.threaded ? "replied to" : "answered"} @${rec.replyTo.handle} on X` : rec.kind === "tag" ? `posted to X, tagging @${rec.tagged}` : "posted to X");
           }
@@ -930,6 +942,7 @@ if (status === "awake") {
         }
       }
       log("thought:", t.thought);
+      if (MEMORY_ON && !DRY_RUN) await rememberTick({ feed, thought: entry, post: ctx.postedRec || null, ctx, model: t });
     }
   } catch (e) {
     if (e.status === 402) { feed.status = "napping"; feed.reason = "out of CREDIT"; event("out of CREDIT. napping until fees refill the balance"); }
@@ -939,6 +952,10 @@ if (status === "awake") {
 }
 await saySomething(feed);
 await announceBuild(feed);
+if (MEMORY_ON && !DRY_RUN && API_KEY) {
+  try { await measurePosts(feed, readX); } catch (e) { log("measure failed:", e.message); }
+  try { await reflectDay(feed, async (messages, max_tokens) => { const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model: MODELS[1] || MODELS[0], messages, max_tokens, temperature: 0.5 }) }); return { text: r.choices?.[0]?.message?.content || "", cost: Number(r.usage?.cost || 0) }; }); } catch (e) { log("reflect failed:", e.message); }
+}
 await renderSubmitted(feed);
 await makeSkyShot(feed);
 if (API_KEY) await refreshPostUrls(feed.posts);
