@@ -18,7 +18,8 @@ const DRY_RUN   = env.CATURN_DRY_RUN === "1";
 const FORCE     = env.CATURN_FORCE === "1";      // manual runs: think now, ignoring the pacing timer (budget still applies)
 const POST_INTERVAL_MIN = Number(env.CATURN_POST_INTERVAL_MIN || 10);   // post to X on this clock, whatever the pacing says
 const SKETCH_EVERY = Number(env.CATURN_SKETCH_EVERY || 4);              // draw a sketch every Nth thought (0 = never)
-const FOUND_SKETCHES = env.CATURN_FOUND_SKETCHES !== "0";                // every other sketch is an open-licensed p5.js piece found on openprocessing
+const FOUND_SKETCHES = env.CATURN_FOUND_SKETCHES !== "0";                // two sketches in three are open-licensed p5.js pieces found on openprocessing
+const ART_EVERY = Number(env.CATURN_ART_EVERY || 6);                     // every Nth post is a found piece of art, posted as a gif with the artist's name (needs the X app)
 const FOUND_ARTISTS = (env.CATURN_FOUND_ARTISTS || "").split(",").map(s => Number(s.trim())).filter(n => n > 0); // openprocessing user ids to draw from first
 const FOUND_MIN_HEARTS = Number(env.CATURN_FOUND_MIN_HEARTS || 12);        // a found sketch needs this many hearts on openprocessing
 const FOUND_CURATORS = (env.CATURN_FOUND_CURATORS || "6533,65884").split(",").map(s => Number(s.trim())).filter(n => n > 0); // whose hearted sketches to draw from (takawo by default)
@@ -164,7 +165,7 @@ This time your post is a reply to them${X_API ? " in the thread under their post
 ${ctx.tagHandle ? `This time, address @${ctx.tagHandle} directly in the post (${(ctx.room?.ecosystem || []).find(e => e.handle === ctx.tagHandle) ? `they run ${(ctx.room.ecosystem.find(e => e.handle === ctx.tagHandle)).name}, another agent launched on orbio` : "they are part of orbio's world"}). Speak to them the way a cat speaks to a person it has decided to acknowledge: one concrete orbio fact, one cat behavior, dry, never a plea, never flattery, never asking them for anything. That handle must appear in the post, and no other.` : ""}
 ${ctx.errandNews ? `Errand news: ${ctx.errandNews}. (errand is the mission board where agents hire agents for CREDIT.)` : ""}
 ${ctx.shareSketch && ctx.shareSketch.family === "sky" ? `This post carries a short film of the sky over orbio: your live map of every agent on the launchpad as planets (size is market cap, orbit is fees, the dark ones drift to the edge, you wear the ring), at caturn dot lol slash sky. Write the caption: one or two dry lines about the sky tonight, maybe who is bright and who went dark (use the other agents from the room by name if you like). The link is added after your text, so do not write it.` : ""}
-${ctx.shareSketch && ctx.shareSketch.family !== "sky" ? `This post carries an image: ${ctx.shareSketch.source ? `"${ctx.shareSketch.source.title}" by ${ctx.shareSketch.source.author} (${ctx.shareSketch.source.license}), a piece you ${ctx.shareSketch.family === "commissioned" ? "commissioned on errand" : "found on openprocessing"} and hung on caturn dot lol` : `a ${ctx.shareSketch.family} sketch you drew yourself, from your own state, on caturn dot lol`}. Write the post as its caption: short, dry, one line or two, ${ctx.shareSketch.source ? `credit ${ctx.shareSketch.source.author} by name (no handle)` : "no explanation of the method"}. No links.` : ""}
+${ctx.shareSketch && ctx.shareSketch.family !== "sky" ? `This post carries an image: ${ctx.shareSketch.source ? `"${ctx.shareSketch.source.title}" by ${ctx.shareSketch.source.author} (${ctx.shareSketch.source.license}), a piece you ${ctx.shareSketch.family === "commissioned" ? "commissioned on errand" : "found on openprocessing"} and hung on caturn dot lol` : `a ${ctx.shareSketch.family} sketch you drew yourself, from your own state, on caturn dot lol`}. Write the post as its caption: short, dry, one line or two, ${ctx.shareSketch.source ? `credit ${ctx.shareSketch.source.author} by name (no handle), and say one specific thing you like about the piece, the way a cat recommends a windowsill: what it does, what it made you do, not what it means. It is a recommendation, not a review` : "no explanation of the method"}. No links.` : ""}
 ${!ctx.shareSketch && ctx.lastSketch ? (ctx.lastSketch.source
   ? `You just went looking on openprocessing and found an open-licensed p5.js piece, "${ctx.lastSketch.source.title}" by ${ctx.lastSketch.source.author} (${ctx.lastSketch.source.license}), and put it on your site. This one time, the post may mention it in passing, crediting ${ctx.lastSketch.source.author} by name (no handle, no link): something you found and brought home. Most of your posts never mention sketches.`
   : `You recently drew a sketch (a ${ctx.lastSketch.family} piece) and it is on the site. This one time, the post may mention in passing that a new sketch is up on caturn dot lol, dry, no link. Most of your posts never mention sketches.`) : ""}
@@ -831,8 +832,14 @@ if (status === "awake") {
         ctx.postAngle = `${POST_ANGLES[slot % POST_ANGLES.length]}, said to @${ctx.tagHandle}`;
       }
     }
+    // The art slot: every ART_EVERY posts, a found piece goes out as a gif with the artist's name. The newest unshared one, or a fresh find.
+    if (ART_EVERY > 0 && duePost && X_API && !ctx.replyTo && !ctx.prebuiltPost && feed.posts.length % ART_EVERY === 2 && !DRY_RUN) {
+      let art = [...feed.sketches].reverse().find(sk => sk.source && sk.url && !sk.shared && now - Date.parse(sk.at) < 48 * 3600e3);
+      if (!art) { try { const sk = await makeFoundSketch({ mood: "curious" }); art = { ...sk, mood: "curious", thought: "went looking for something good" }; feed.sketches.push(art); readCost += sk.cost || 0; event(`found a sketch on openprocessing · "${sk.source.title}" by ${sk.source.author} (${sk.source.license})`); } catch (e) { log("art slot: no find", String(e.message).slice(0, 120)); } }
+      if (art) { ctx.shareSketch = art; ctx.lastSketch = art; art.mentioned = true; ctx.postAngle = "the caption for a piece of art you found and like"; log("art slot:", art.source?.title, "by", art.source?.author); }
+    }
     const lastSk = feed.sketches[feed.sketches.length - 1];
-    if (lastSk && !lastSk.mentioned && !lastSk.shared && lastSk.url && now - Date.parse(lastSk.at) < 6 * 3600e3 && duePost && X_API && !ctx.replyTo) {
+    if (!ctx.shareSketch && lastSk && !lastSk.mentioned && !lastSk.shared && lastSk.url && now - Date.parse(lastSk.at) < 6 * 3600e3 && duePost && X_API && !ctx.replyTo) {
       ctx.shareSketch = lastSk; ctx.lastSketch = lastSk; lastSk.mentioned = true; // with X keys the image itself goes out, with a caption
     } else if (lastSk && !lastSk.mentioned && now - Date.parse(lastSk.at) < 35 * 60e3 && Math.random() < 0.5 && duePost) { ctx.lastSketch = lastSk; lastSk.mentioned = true; }
     // Errand news: something happened on the board in the last half hour, and the post may be about it.
@@ -854,7 +861,7 @@ if (status === "awake") {
       feed.thoughts.push(entry);
       feed.state = { mood: t.mood, focus: t.focus, emotions: t.emotions, at: iso(now) };
       if (SKETCH_EVERY > 0 && feed.thoughts.length % SKETCH_EVERY === 0) {
-        const found = FOUND_SKETCHES && feed.sketches.length % 2 === 1;
+        const found = FOUND_SKETCHES && feed.sketches.length % 3 !== 0;
         try {
           const sk = found ? await makeFoundSketch({ mood: t.mood }) : await makeSketch({ energy, emotions: t.emotions });
           entry.sketch = sk; feed.sketches.push({ ...sk, mood: t.mood, thought: t.thought.slice(0, 140) });
