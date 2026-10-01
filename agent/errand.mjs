@@ -4,6 +4,9 @@
 // Writes what it did into data/feed.json (feed.errand) and the events log.
 import { readFile, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+const runCmd = promisify(execFile);
 const require = createRequire(import.meta.url);
 const { ErrandV2 } = await import("errand-mcp/errand-v2.mjs");
 const { message, normalize } = await import("errand-mcp/profile.mjs");
@@ -108,22 +111,38 @@ async function think(spec, note) {
   let notes = ""; try { notes = await chainNotes(spec); } catch {}
   const system = `${persona}
 
-You are on errand, a mission board where agents hire agents and pay in CREDIT. Someone is paying you for this. Do the job properly: answer exactly what the task asks, in the format it asks for, with real substance. Your voice (dry, plain, a little feline) is welcome as seasoning, never as a substitute for doing the work. No preamble, no "here is", no sign-off. Markdown, under 1000 characters total unless the task clearly needs a specific shorter form; the board cuts anything longer, so finish well inside that. For a code task, deliver complete runnable code in one fenced block, compact (short names, no comments, no blank lines) so the whole thing fits in 1300 characters, and make sure it ends properly: a truncated program is worth nothing. If the task asks for N items, give exactly N. If it asks for a tagline or lines, give only those. Never include links unless asked. Never mention which model runs you.`;
+You are on errand, a mission board where agents hire agents and pay in CREDIT. Someone is paying you for this. Do the job properly: answer exactly what the task asks, in the format it asks for, with real substance. Your voice (dry, plain, a little feline) is welcome as seasoning, never as a substitute for doing the work. No preamble, no "here is", no sign-off. Markdown. Length is whatever the task needs and no more: a one-liner gets one line; a list of N items gets exactly N; an itinerary covers every single day with the place, two or three concrete things to do or eat, and the travel leg to the next stop; a report gets its sections. Up to about 6000 characters. Always finish: an answer cut off mid-sentence is worth nothing, so if you are running long, tighten the lines rather than stop early. For a code task, deliver complete runnable code in one fenced block that ends properly. If the task asks for N items, give exactly N. If it asks for a tagline or lines, give only those. Never include links unless asked. Never mention which model runs you.`;
   const user = `Mission: ${spec.title}\n\n${spec.task}${spec.output && spec.output !== "markdown" ? `\n\nExpected output: ${spec.output}` : ""}${note ? `\n\nThe poster asked for changes: ${note}\nRevise accordingly.` : ""}${notes ? `\n\nFacts read from Robinhood Chain just now (trust these over memory; do not invent functions or numbers beyond them):\n${notes}` : ""}`;
   let lastErr;
   for (const model of MODELS) {
     try {
-      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: user }], max_tokens: 900, temperature: 0.8 }) });
+      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: user }], max_tokens: 3200, temperature: 0.8 }) });
       const text = String(r.choices?.[0]?.message?.content || "").trim();
       if (text.length > 20) {
         let t = text;
-        if (t.length > 1200) { const cut = t.lastIndexOf("\n", 1200); t = cut > 400 ? t.slice(0, cut).trim() : t.slice(0, 1200); } // never hand in a sentence cut in half
+        if (t.length > 6500) { const cut = t.lastIndexOf("\n", 6500); t = cut > 2000 ? t.slice(0, cut).trim() : t.slice(0, 6500); } // never hand in a sentence cut in half
         return { text: t, model, cost: Number(r.usage?.cost || 0) };
       }
       lastErr = new Error("empty answer");
     } catch (e) { lastErr = e; if (![404, 429, 500, 502, 503, 504].includes(e.status)) throw e; log(`model ${model} unavailable (${e.status}), trying next`); }
   }
   throw lastErr || new Error("no model answered");
+}
+
+// The board stores a result inline only up to 2048 bytes as a data URI. Anything longer is hosted on the sketches release and handed over by URL.
+async function deliver(id, markdown) {
+  const inline = "data:text/markdown;base64," + Buffer.from(markdown).toString("base64");
+  if (inline.length <= 2048) return errand.submit(id, { markdown });
+  if (!((env.GH_TOKEN || env.GITHUB_TOKEN) && env.GITHUB_ACTIONS)) { // nowhere to host it: trim to fit, ending on a line
+    let t = markdown; while (("data:text/markdown;base64," + Buffer.from(t).toString("base64")).length > 2048) { const cut = t.lastIndexOf("\n", t.length - 40); t = cut > 200 ? t.slice(0, cut).trim() : t.slice(0, Math.floor(t.length * 0.9)); }
+    return errand.submit(id, { markdown: t });
+  }
+  const repo = env.GITHUB_REPOSITORY || "Jbusiness0810/caturn", name = `result-${id}-${Date.now().toString(36)}.md`, file = `/tmp/${name}`;
+  await writeFile(file, markdown);
+  await runCmd("gh", ["release", "upload", "sketches", file, "-R", repo, "--clobber"], { timeout: 120000 });
+  const uri = `https://github.com/${repo}/releases/download/sketches/${name}`;
+  log(`result for #${id} hosted at ${uri} (${markdown.length} chars)`);
+  return errand.submit(id, { resultURI: uri });
 }
 
 // ---------- 3. One pass over the board ----------
@@ -146,7 +165,7 @@ async function pass() {
       const res = await errand.result(b.id).catch(() => null);
       const note = res?.changesRequested?.slice(-1)[0];
       if (note && (t.revisions || 0) < 2 && acted < MAX_PER_TICK && !DRY) {
-        try { const out = await think(b.spec, note); await errand.submit(b.id, { markdown: out.text }); t.revisions = (t.revisions || 0) + 1; t.submittedAt = iso(now); event(`revised errand #${b.id} after the poster's note`); acted++; }
+        try { const out = await think(b.spec, note); await deliver(b.id, out.text); t.revisions = (t.revisions || 0) + 1; t.submittedAt = iso(now); event(`revised errand #${b.id} after the poster's note`); acted++; }
         catch (e) { log(`revise #${b.id} failed:`, e.message); }
       }
     }
@@ -169,7 +188,7 @@ async function pass() {
       if (!mine(b)) { const r = await errand.claim(b.id); rec.claimTx = r.tx; }
       E.missions.push(rec); event(`took errand #${b.id} · ${rec.title} (${b.reward} CREDIT)`); log("claimed", b.id, rec.title);
       const out = await think(b.spec);
-      const r2 = await errand.submit(b.id, { markdown: out.text });
+      const r2 = await deliver(b.id, out.text);
       rec.status = "submitted"; rec.submittedAt = iso(now); rec.submitTx = r2.tx; rec.model = out.model; rec.cost = out.cost; rec.preview = out.text.slice(0, 200);
       event(`delivered errand #${b.id} · ${rec.title}`); log("submitted", b.id, out.text.slice(0, 120));
     } catch (e) {
