@@ -31,11 +31,20 @@ async function chat(system, user, max_tokens) {
   let lastErr;
   for (const model of MODELS) {
     try {
-      const r = await fetch(`${ORBIO_API}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: user }], max_tokens, temperature: 0.7 }) });
-      const body = await r.json().catch(() => ({}));
-      if (!r.ok) { lastErr = new Error(`${model} ${r.status} ${JSON.stringify(body.error || "").slice(0, 100)}`); if ([404, 429, 500, 502, 503, 504].includes(r.status)) continue; throw lastErr; }
-      const text = String(body.choices?.[0]?.message?.content || ""); if (text.length < 40) { lastErr = new Error("empty"); continue; }
-      return { text, model, cost: Number(body.usage?.cost || 0), finish: body.choices?.[0]?.finish_reason || "" };
+      const messages = [{ role: "system", content: system }, { role: "user", content: user }];
+      let text = "", cost = 0, finish = "";
+      for (let turn = 0; turn < 4; turn++) { // the gateway caps one answer's length; a cut-off file is continued, not thrown away
+        const r = await fetch(`${ORBIO_API}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, messages, max_tokens, temperature: 0.7 }) });
+        const body = await r.json().catch(() => ({}));
+        if (!r.ok) { lastErr = new Error(`${model} ${r.status} ${JSON.stringify(body.error || "").slice(0, 100)}`); if (turn === 0 && [404, 429, 500, 502, 503, 504].includes(r.status)) break; throw lastErr; }
+        const part = String(body.choices?.[0]?.message?.content || ""); cost += Number(body.usage?.cost || 0); finish = body.choices?.[0]?.finish_reason || "";
+        log(`${model} turn ${turn + 1}: ${part.length} chars, ${body.usage?.completion_tokens ?? "?"} tokens out, finish ${finish}`);
+        text += part;
+        if (finish !== "length") break;
+        messages.push({ role: "assistant", content: part }, { role: "user", content: "You were cut off by the length limit. Continue exactly where you stopped, mid-line if needed. Do not repeat anything, do not restart the file, do not add a code fence or any commentary." });
+      }
+      if (text.length < 40) { lastErr = lastErr || new Error("empty"); continue; }
+      return { text, model, cost, finish };
     } catch (e) { lastErr = e; log(`model failed: ${String(e.message).slice(0, 120)}`); }
   }
   throw lastErr || new Error("no model answered");
@@ -53,7 +62,8 @@ function audit(html) {
   return bad;
 }
 function extractHtml(text) {
-  const m = text.match(/```(?:html)?\s*([\s\S]*?)```/i); let h = (m ? m[1] : text).trim();
+  const m = text.match(/```(?:html)?\s*([\s\S]*?)```/i) || text.match(/```(?:html)?\s*([\s\S]*)$/i); let h = (m ? m[1] : text).trim();
+  const end = h.search(/<\/html>/i); if (end > 0) h = h.slice(0, end + 7);
   const start = h.search(/<!doctype html>|<html[\s>]/i); if (start > 0) h = h.slice(start);
   return h;
 }
@@ -176,8 +186,17 @@ try {
   if (r.bad.length) { log("audit failed, one retry:", r.bad.join("; ")); const r2 = await step(cur, n, prev); r2.cost += r.cost; r = r2; }
   W.steps.push({ at: iso(now), idea: cur.id, n, cost: r.cost, ok: !r.bad.length });
   if (r.bad.length) {
-    const strikes = Number(cur.strikes || 0) + 1;
-    if (n === 1 && strikes >= 2) { await sb(`ideas?id=eq.${cur.id}`, { method: "PATCH", body: JSON.stringify({ status: "rejected", reject_reason: "could not be built within the rules: " + r.bad.join(", ") }), prefer: "return=minimal" }); event(`gave up on "${cur.title}": ${r.bad[0]}`); }
+    W.strikes = W.strikes || {}; const key = `${cur.id}:${n}`; W.strikes[key] = (W.strikes[key] || 0) + 1; const strikes = W.strikes[key];
+    if (n > 1 && strikes >= 3) { // a later step keeps failing: what was built so far works, so ship it
+      await sb(`ideas?id=eq.${cur.id}`, { method: "PATCH", body: JSON.stringify({ status: "shipped", shipped_at: iso(now), build_id: String(cur.id), steps_total: n - 1 }), prefer: "return=minimal" });
+      W.shipped = (W.shipped || 0) + 1; W.current = null;
+      event(`shipped "${cur.title}" from the workshop after ${n - 1} steps: caturn.lol/b/${cur.id}`);
+      const html1 = (await sb(`build_steps?idea_id=eq.${cur.id}&order=n.desc&limit=1&select=html`))[0]?.html; const file = `/tmp/build-${cur.id}.png`; let img = null;
+      if (html1 && await screenshot(html1, file)) img = await uploadRelease(file, `build-${cur.id}.png`);
+      W.lastShipped = W.announce = { id: cur.id, title: cur.title, text: cur.text, url: `https://www.caturn.lol/b/${cur.id}`, image: img };
+      await save(); process.exit(0);
+    }
+    if (n === 1 && strikes >= 3) { await sb(`ideas?id=eq.${cur.id}`, { method: "PATCH", body: JSON.stringify({ status: "rejected", reject_reason: "could not be built within the rules: " + r.bad.join(", ") }), prefer: "return=minimal" }); event(`gave up on "${cur.title}": ${r.bad[0]}`); }
     else log("keeping the previous step; will try again next tick:", r.bad.join("; "));
     W.current = { id: cur.id, title: cur.title, text: cur.text, step: n - 1, total: STEPS_TOTAL, lastNote: "step failed the audit: " + r.bad[0] };
     await save(); process.exit(0);
