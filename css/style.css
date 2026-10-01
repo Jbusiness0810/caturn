@@ -546,7 +546,7 @@ h1, h2, h3, .display {
 /* ---------- Ask terminal ---------- */
 .term { background: var(--bg-raised); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
 .term-log { list-style: none; margin: 0; padding: 14px 18px; min-height: 160px; max-height: 420px; overflow-y: auto; display: grid; gap: 10px; align-content: start; }
-.term-log li { font-size: 13.5px; line-height: 1.6; overflow-wrap: anywhere; }
+.term-log li { font-size: 13.5px; line-height: 1.6; overflow-wrap: anywhere; white-space: pre-wrap; }
 .term-log .t-sys { color: var(--ink-soft); font-size: 12.5px; }
 .term-log .t-you { color: var(--ink); }
 .term-log .t-you::before { content: "you@caturn ~ % "; color: var(--gold-deep); }
