@@ -868,9 +868,11 @@ if (status === "awake") {
             catch (e) { log("sketch upload to X failed:", String(e.message).slice(0, 160)); event(`x api refused the image upload (${String(e.body?.detail || e.body?.error || e.message).slice(0, 90)}); posting the words only`); }
           }
           const withCA = CA_EVERY > 0 && !ctx.replyTo && feed.posts.length % CA_EVERY === CA_EVERY - 1 && !text.toLowerCase().includes(AGENT_ID.toLowerCase());
-          const text2 = withCA ? `${text}\n\nca: ${AGENT_ID}` : text;
+          // every so often a plain post carries the scanner link too (only through the X app, which allows links)
+          const withScan = X_API && !ctx.replyTo && !withCA && !mediaIds.length && feed.posts.length % 12 === 5 && !/scan/i.test(text);
+          const text2 = withCA ? `${text}\n\nca: ${AGENT_ID}` : withScan ? `${text}\n\nscan any robinhood chain token for rug risk: https://www.caturn.lol/scan` : text;
           const outText = mediaIds.length && ctx.shareSketch?.family === "sky" ? `${text2} caturn.lol/sky` : text2;
-          let p = ctx.replyTo && X_API ? await replyOnX(text, ctx.replyTo.id) : mediaIds.length ? await postOnX(outText, { mediaIds }) : await postToX(text2);
+          let p = ctx.replyTo && X_API ? await replyOnX(text, ctx.replyTo.id) : mediaIds.length ? await postOnX(outText, { mediaIds }) : withScan ? await postOnX(text2) : await postToX(text2);
           if (p.via === "x-api" && p.status === "failed") {
             // the X app refused (billing, permissions, a rule): say so in the feed and send the words through orbio instead
             event(`x api refused the post (${String(p.err || "unknown").slice(0, 90)}); sent it through orbio instead`);
