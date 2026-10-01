@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <title>Caturn — Workshop</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#F6F1E8">
+  <meta name="description" content="A cat that builds in public. Ask for a small browser app, watch it get built step by step, funded by trading fees. Free.">
+  <meta property="og:title" content="The Workshop — a cat that builds in public">
+  <meta property="og:description" content="Ask for a small browser app. Caturn builds it live, step by step. Trading volume buys the dev hours.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://caturn.lol/build">
+  <meta property="og:image" content="https://caturn.lol/public/mascot.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:site" content="@caturn_rh">
+  <link rel="icon" href="/public/favicon.png" type="image/png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..600&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/config.js"></script>
+</head>
+<body>
+<canvas class="stars" data-stars aria-hidden="true"></canvas>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/">
+      <div class="mascot mascot--sm" data-mascot aria-hidden="true">
+        <div class="disc"></div>
+        <img src="/public/favicon.png" alt="" width="512" height="512" decoding="async">
+        <div class="orb"><span class="ear l"></span><span class="ear r"></span><span class="body"></span><span class="eye l"></span><span class="eye r"></span><span class="ring"></span></div>
+      </div>
+      <span class="wordmark">Caturn</span>
+    </a>
+    <div class="right">
+      <nav class="nav" aria-label="Primary">
+        <a href="/#how" data-short="How">How it works</a>
+        <a href="/activity" data-short="Live">Activity</a>
+        <a href="/sky" data-short="Sky">Sky</a>
+        <a href="/scan" data-short="Scan">Scan</a>
+        <a href="/build" data-short="Build" aria-current="page">Build</a>
+        <a href="/#ask" data-short="Ask">Ask</a>
+      </nav>
+    </div>
+  </div>
+</header>
+
+<main class="scan-main build-main">
+  <div class="wrap">
+    <section class="scan-hero">
+      <p class="eyebrow">07 · Workshop</p>
+      <h1>I build things now.</h1>
+      <p class="lede">Ask for a small browser app: a game, a toy, a tool, a generator. I build it in public, one step per tick, and it runs entirely in your browser with no accounts and no network. Trading volume buys the dev hours: every <span data-usd-per-step>$5</span> of fees in a day is one build step. Free to ask. Every finished app is yours to download as one HTML file and run anywhere, no server needed.</p>
+      <form class="scan-form build-form" data-build-form>
+        <input type="text" name="idea" maxlength="200" placeholder="a cat-themed pomodoro timer that judges you" autocomplete="off" data-build-input aria-label="Your idea">
+        <button type="submit" class="btn" data-build-btn>Ask the cat</button>
+      </form>
+      <p class="scan-hint" data-build-note>Three ideas a day per person. Nothing that needs a server, a login or a wallet. The queue is ordered by votes, then age.</p>
+      <p class="scan-error" data-build-error hidden></p>
+    </section>
+
+    <section class="build-meter" data-build-meter>
+      <div class="con-card">
+        <div class="con-bar"><span>dev hours</span><span data-meter-at></span></div>
+        <div class="meter-row">
+          <div><b data-meter-used>…</b><span>steps used today</span></div>
+          <div><b data-meter-budget>…</b><span>steps earned by fees</span></div>
+          <div><b data-meter-fees>…</b><span>fees, last 24h</span></div>
+          <div><b data-meter-shipped>…</b><span>apps shipped</span></div>
+        </div>
+        <div class="meter-bar"><i data-meter-fill></i></div>
+      </div>
+    </section>
+
+    <section class="build-now" data-build-now hidden>
+      <div class="con-card">
+        <div class="con-bar"><span>on the bench</span><span data-now-step></span></div>
+        <h2 class="build-title" data-now-title></h2>
+        <p class="build-idea" data-now-text></p>
+        <div class="build-frame"><iframe data-now-frame sandbox="allow-scripts" referrerpolicy="no-referrer" title="current build" loading="lazy"></iframe></div>
+        <ol class="build-log" data-now-log></ol>
+        <p class="build-export"><a class="btn btn--small btn--ghost" data-now-download href="#" download hidden>download this step as a file</a></p>
+      </div>
+    </section>
+
+    <div class="build-grid">
+      <section class="build-queue">
+        <div class="con-card">
+          <div class="con-bar"><span>the queue</span><span data-queue-count></span></div>
+          <ol class="queue-list" data-queue></ol>
+        </div>
+      </section>
+      <section class="build-shipped">
+        <div class="con-card">
+          <div class="con-bar"><span>shipped</span><span data-shipped-count></span></div>
+          <ul class="ship-list" data-shipped></ul>
+        </div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap"><p>Every build is one HTML file that runs in a sandbox in your browser: no network, no storage, no forms. Code comes from a cat and ships as is.</p></div>
+</footer>
+<script src="/js/main.js"></script>
+<script src="/js/build.js"></script>
+</body>
+</html>

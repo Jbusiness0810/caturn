@@ -654,3 +654,47 @@ h1, h2, h3, .display {
 .holders li i { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--gold); opacity: .5; }
 .holders li em { font-style: normal; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--gold-deep); margin-left: 6px; }
 .scan-foot { margin: 0; padding: 14px 18px; border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-soft); line-height: 1.5; }
+
+/* ---- workshop ---- */
+.build-main .scan-hero .lede { max-width: 680px; }
+.build-meter { margin-top: 30px; }
+.meter-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; padding: 16px 18px 8px; }
+@media (min-width: 720px) { .meter-row { grid-template-columns: repeat(4, 1fr); } }
+.meter-row div { display: grid; gap: 2px; }
+.meter-row b { font-family: var(--font-display); font-weight: 400; font-size: 28px; line-height: 1; }
+.meter-row span { font-size: 11.5px; color: var(--ink-soft); letter-spacing: .04em; text-transform: uppercase; }
+.meter-bar { margin: 8px 18px 18px; height: 6px; border-radius: 6px; background: var(--line); overflow: hidden; }
+.meter-bar i { display: block; height: 100%; width: 0; background: var(--gold); transition: width .6s ease; }
+.build-now { margin-top: 22px; }
+.build-title { font-family: var(--font-display); font-weight: 400; font-size: clamp(22px, 3.4vw, 30px); margin: 14px 18px 4px; }
+.build-idea { margin: 0 18px 14px; color: var(--ink-soft); font-size: 14px; }
+.build-frame { margin: 0 18px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: #fff; aspect-ratio: 4 / 3; max-height: 560px; }
+.build-frame iframe { width: 100%; height: 100%; border: 0; display: block; }
+.build-log { list-style: none; margin: 0; padding: 12px 18px 16px; display: grid; gap: 6px; font-size: 13px; }
+.build-log li b { display: inline-grid; place-content: center; width: 20px; height: 20px; border-radius: 50%; background: var(--gold); color: #fff; font-size: 11px; margin-right: 8px; }
+.build-log li span { color: var(--ink-soft); font-size: 12px; margin-left: 6px; }
+.build-grid { display: grid; gap: 18px; margin-top: 22px; }
+@media (min-width: 860px) { .build-grid { grid-template-columns: 1.1fr 1fr; align-items: start; } }
+.queue-list, .ship-list { list-style: none; margin: 0; padding: 6px 0; }
+.queue-list li { display: flex; gap: 14px; padding: 12px 18px; border-top: 1px solid var(--line); align-items: flex-start; }
+.queue-list li:first-child, .ship-list li:first-child { border-top: 0; }
+.queue-list li.empty, .ship-list li.empty { color: var(--ink-soft); font-size: 13.5px; }
+.queue-list .vote { flex: 0 0 auto; width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg-raised, #fff); cursor: pointer; display: grid; place-content: center; color: var(--ink); }
+.queue-list .vote b { font-family: var(--font-display); font-weight: 400; font-size: 18px; }
+.queue-list .vote::after { content: "vote"; font-size: 9px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); }
+.queue-list .vote.is-voted { border-color: var(--gold); background: rgba(176,138,62,.12); cursor: default; }
+.queue-list .vote.is-voted::after { content: "yours"; }
+.queue-list div { display: grid; gap: 2px; min-width: 0; }
+.q-title, .s-title { font-family: var(--font-display); font-size: 18px; }
+.q-text, .s-text { font-size: 13.5px; color: var(--ink-soft); }
+.q-meta, .s-meta { font-size: 11.5px; color: var(--ink-soft); letter-spacing: .03em; }
+.ship-list li a { display: grid; gap: 2px; padding: 12px 18px; border-top: 1px solid var(--line); text-decoration: none; color: inherit; }
+.ship-list li a:hover .s-title { color: var(--gold-deep); }
+
+.s-row { display: flex; gap: 12px; align-items: center; padding: 12px 18px; border-top: 1px solid var(--line); }
+.ship-list li:first-child .s-row { border-top: 0; }
+.ship-list .s-main { display: grid; gap: 2px; min-width: 0; flex: 1; text-decoration: none; color: inherit; padding: 0; border: 0; }
+.s-actions { display: grid; gap: 6px; flex: 0 0 auto; }
+.btn--small { padding: 7px 12px; font-size: 12px; border-radius: 10px; }
+.btn--ghost { background: transparent; color: var(--ink); border: 1px solid var(--line); }
+.build-export { margin: 0 18px 16px; }

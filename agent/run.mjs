@@ -655,6 +655,29 @@ async function makeSkyShot(feed) {
   } catch (e) { log("sky shot failed:", String(e.message || e).slice(0, 200)); }
 }
 // Say queue: agent/say.json holds posts the owner asked for verbatim; each goes out once.
+// A build shipped from the workshop (agent/build.mjs leaves it in feed.workshop.announce): one post with the screenshot and the link.
+async function announceBuild(feed) {
+  const a = feed.workshop?.announce; if (!a || !API_KEY || DRY_RUN) return;
+  delete feed.workshop.announce;
+  try {
+    const lines = [
+      `shipped: "${a.title}". someone asked for ${a.text.length > 90 ? a.text.slice(0, 87).replace(/\s+\S*$/, "") + "…" : a.text}. i built it in four steps between naps. runs in your browser, yours to download.`,
+      `new from the workshop: ${a.title}. requested by a stranger, built by a cat, paid for by trading fees. open it, keep it, no account needed.`,
+      `built "${a.title}" today. four steps, zero birds. it is free and it runs anywhere.`
+    ];
+    const base = lines[(feed.workshop.shipped || 0) % lines.length];
+    let p;
+    if (X_API) {
+      let mediaIds = [];
+      if (a.image) { try { const g = await (await fetch(a.image)).arrayBuffer(); mediaIds = [await uploadMediaX(Buffer.from(g), "image/png")]; } catch (e) { log("build image upload failed:", String(e.message).slice(0, 120)); } }
+      p = await postOnX(`${base} ${a.url}`, { mediaIds });
+      if (p.status === "failed") { event(`x api refused the workshop post (${String(p.err || "").slice(0, 80)}); sent it through orbio instead`); p = await postToX(delink(`${base} ${a.url}`).slice(0, 270)); }
+    } else p = await postToX(delink(`${base} ${a.url}`).slice(0, 270));
+    if (p.error) { log("build announce skipped:", p.error); return; }
+    feed.posts.push({ at: iso(now), text: `${base} ${a.url}`, id: p.id, url: p.url, status: p.status, cost: p.cost, kind: "build", via: p.via || "orbio", build: { id: a.id, title: a.title, url: a.url, image: a.image } });
+    event(`told X about "${a.title}" from the workshop`);
+  } catch (e) { log("build announce failed:", e.message); }
+}
 async function saySomething(feed) {
   if (!API_KEY || DRY_RUN) return;
   let queue = []; try { queue = JSON.parse(await readFile(new URL("./say.json", import.meta.url), "utf8")); } catch { return; }
@@ -908,6 +931,7 @@ if (status === "awake") {
   }
 }
 await saySomething(feed);
+await announceBuild(feed);
 await renderSubmitted(feed);
 await makeSkyShot(feed);
 if (API_KEY) await refreshPostUrls(feed.posts);

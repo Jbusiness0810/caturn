@@ -39,6 +39,10 @@
     {
       "source": "/favicon.ico",
       "destination": "/public/favicon.png"
+    },
+    {
+      "source": "/b/:id",
+      "destination": "/api/build?html=:id"
     }
   ],
   "functions": {
@@ -59,6 +63,9 @@
       "maxDuration": 15
     },
     "api/analyze.js": {
+      "maxDuration": 30
+    },
+    "api/build.js": {
       "maxDuration": 30
     }
   },
