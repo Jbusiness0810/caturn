@@ -53,13 +53,16 @@ export default async function handler(req, res) {
         res.setHeader("Content-Type", "text/html; charset=utf-8"); res.setHeader("Content-Disposition", `attachment; filename="caturn-${slug}.html"`); res.setHeader("Cache-Control", "public, max-age=60");
         return res.status(200).send(html);
       }
-      sandboxHeaders(res); return res.status(200).send(html);
+      sandboxHeaders(res);
+      // on the site a visitor can find the rest of the workshop; the downloaded file stays exactly as built
+      const back = `<a href="https://www.caturn.lol/build" target="_top" style="position:fixed;left:12px;bottom:6px;font:11px ui-sans-serif,system-ui,sans-serif;color:#6f6a60;opacity:.75;text-decoration:none;z-index:2147483647">more from the workshop →</a>`;
+      return res.status(200).send(/<\/body>/i.test(html) ? html.replace(/<\/body>/i, back + "</body>") : html + back);
     }
     if (req.method === "GET") {
       const [queued, building, shipped, recentSteps] = await Promise.all([
         sb(`ideas?status=eq.queued&order=votes.desc,created_at.asc&limit=30&select=id,text,votes,created_at,title`),
         sb(`ideas?status=eq.building&order=created_at.asc&limit=1&select=id,text,title,steps_done,steps_total,votes,created_at`),
-        sb(`ideas?status=eq.shipped&order=shipped_at.desc&limit=24&select=id,text,title,shipped_at,votes,build_id`),
+        sb(`ideas?status=eq.shipped&order=shipped_at.desc&limit=200&select=id,text,title,shipped_at,votes,build_id`),
         sb(`build_steps?order=created_at.desc&limit=8&select=idea_id,n,note,created_at,cost`)
       ]);
       res.setHeader("Cache-Control", "public, max-age=15");
