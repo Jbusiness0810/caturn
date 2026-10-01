@@ -122,6 +122,23 @@ try {
     cur = { ...next, status: "building", steps_done: 0, steps_total: STEPS_TOTAL };
     event(`picked "${cur.title || cur.text.slice(0, 40)}" from the workshop queue (#${cur.id})`);
   }
+  // A hand-made build (builds/handmade/<id>.html, written with the owner's own model credits) ships as is, after the same audit.
+  let hand = null; try { hand = await readFile(new URL(`../builds/handmade/${cur.id}.html`, import.meta.url), "utf8"); } catch {}
+  if (hand && !DRY) {
+    const bad = audit(hand);
+    if (bad.length) log("hand-made build failed the audit, building normally instead:", bad.join("; "));
+    else {
+      await sb("build_steps", { method: "POST", body: JSON.stringify({ idea_id: cur.id, n: STEPS_TOTAL, note: "hand-built with extra care for the opening", html: hand, cost: 0 }), prefer: "return=minimal" });
+      await sb(`ideas?id=eq.${cur.id}`, { method: "PATCH", body: JSON.stringify({ steps_done: STEPS_TOTAL, status: "shipped", shipped_at: iso(now), build_id: String(cur.id) }), prefer: "return=minimal" });
+      W.shipped = (W.shipped || 0) + 1; W.current = null; W.steps.push({ at: iso(now), idea: cur.id, n: STEPS_TOTAL, cost: 0, ok: true });
+      event(`shipped "${cur.title}" from the workshop: caturn.lol/b/${cur.id}`);
+      const file = `/tmp/build-${cur.id}.png`; let img = null;
+      if (await screenshot(hand, file)) img = await uploadRelease(file, `build-${cur.id}.png`);
+      W.lastShipped = { id: cur.id, title: cur.title, text: cur.text, at: iso(now), url: `https://www.caturn.lol/b/${cur.id}`, image: img };
+      W.announce = { id: cur.id, title: cur.title, text: cur.text, url: `https://www.caturn.lol/b/${cur.id}`, image: img };
+      await save(); process.exit(0);
+    }
+  }
   const n = Number(cur.steps_done || 0) + 1;
   const prev = n > 1 ? (await sb(`build_steps?idea_id=eq.${cur.id}&order=n.desc&limit=1&select=html`))[0]?.html : null;
   if (n > 1 && !prev) { await sb(`ideas?id=eq.${cur.id}`, { method: "PATCH", body: JSON.stringify({ steps_done: 0 }), prefer: "return=minimal" }); log("lost the previous step; starting over"); process.exit(0); }
