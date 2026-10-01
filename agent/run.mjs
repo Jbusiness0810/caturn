@@ -29,14 +29,14 @@ const SKETCH_RELEASE = "sketches";                                      // rolli
 const OWN_HANDLE = (env.CATURN_X_HANDLE || "caturn_rh").toLowerCase();
 // People worth tagging now and then. Pinned ones come from CATURN_TAG_HANDLES (comma-separated, no @); the rest Caturn finds on X itself:
 // accounts @orbiodotso mentions, and the larger accounts talking about orbio. Robinhood is the chain Caturn lives on.
-const PINNED_TAG_HANDLES = (env.CATURN_TAG_HANDLES || "").split(",").map(s => s.trim().replace(/^@/, "").toLowerCase()).filter(Boolean);
+const PINNED_TAG_HANDLES = (env.CATURN_TAG_HANDLES || "errandboard").split(",").map(s => s.trim().replace(/^@/, "").toLowerCase()).filter(Boolean);
 const TAG_EVERY  = Number(env.CATURN_TAG_EVERY || 8);
 const CA_EVERY   = Number(env.CATURN_CA_EVERY || 6);     // append the real contract address to one post in N (0 = never)     // tag someone in roughly one post in five (0 = never)
 const TAG_POOL_REFRESH_H = 12;                            // re-scan X for people around orbio this often
 const REPLY_EVERY = Number(env.CATURN_REPLY_EVERY || 2);  // every Nth post slot looks for something on X to answer (0 = never)
 const REPLY_MAX_AGE_H = 72;                               // only answer posts younger than this
 const REPLY_SAME_HANDLE_GAP_H = 4;                        // answer the same stranger at most this often
-const REPLY_ACCOUNTS = (env.CATURN_REPLY_ACCOUNTS || "0x_aster,orbiodotso").split(",").map(s => s.trim().replace(/^@/, "").toLowerCase()).filter(Boolean); // accounts whose posts get answered first
+const REPLY_ACCOUNTS = (env.CATURN_REPLY_ACCOUNTS || "0x_aster,orbiodotso,errandboard").split(",").map(s => s.trim().replace(/^@/, "").toLowerCase()).filter(Boolean); // accounts whose posts get answered first
 const REPLY_ACCOUNT_GAP_H = 1;                            // answer the same priority account at most this often
 // Real threaded replies need X's own API for @caturn_rh (Orbio's social.post cannot reply). With these four secrets set, replies thread; without them, a reply is a post that opens with the handle.
 const X_KEYS = { key: env.X_API_KEY || "", secret: env.X_API_SECRET || "", token: env.X_ACCESS_TOKEN || "", tokenSecret: env.X_ACCESS_SECRET || "" };
@@ -119,7 +119,9 @@ const POST_FORMATS = [
   { name: "hot take", how: "an opinion, stated flatly, about how orbio works or what agents are, that is safe (never about price) and slightly wrong in a cat way" },
   { name: "reaction", how: "react to what just happened on your tape right now (a trade, an hour of nothing, the curve moving, your balance) as if it happened to you personally" },
   { name: "one-liner", how: "under 80 characters. one dry sentence. nothing else" },
-  { name: "invitation", how: "invite people to do something small: reply with their cat's name, guess a number, ask you something in the terminal on caturn dot lol, tell you whether to nap" }
+  { name: "invitation", how: "invite people to do something small: reply with their cat's name, guess a number, ask you something in the terminal on caturn dot lol, tell you whether to nap" },
+  { name: "errand ledger", how: "a short deadpan ledger of your life on errand: missions taken, delivered, paid, hired, credit earned, the board's 2.5% cut; use the real numbers you are given and write $ERRAND once (it is the board's token, and the only cashtag in this post)" },
+  { name: "neighbor notice", how: "notice one other agent on orbio by name: a launch, a graduation, a planet in the sky, something they said; one specific observation, warm, dry, and write their cashtag once ($SYMBOL) instead of $CTRN" }
 ];
 const LENSES = [
   "the ring, and what it is for", "the last trade, as a sound", "a human you will never meet", "the space between two receipts",
@@ -159,7 +161,7 @@ ${ctx.milestone ? `- milestone: ${ctx.milestone}\n` : ""}${ctx.memory?.lines?.le
 The room right now (true, use it; name agents by their names, never by handle, and never tag anyone from this list):
 - the other agents on orbio: ${ctx.room.littermates ? `${ctx.room.littermates.total} agents, ${ctx.room.littermates.graduated} graduated. newest: ${ctx.room.littermates.newest.map(l => `${l.name} ($${l.symbol}, ${l.hoursAgo}h ago${l.graduated ? ", graduated" : ""})`).join("; ") || "none"}. closest to graduating: ${ctx.room.littermates.closest.map(l => `${l.name} at ${l.progress}%`).join("; ") || "none"}.` : "unknown"}
 - what people are saying about orbio on X: ${ctx.room.chatter.length ? ctx.room.chatter.map(c => `${c.name || c.handle} (${c.hoursAgo}h ago, ${c.likes} likes): ${JSON.stringify(c.text)}`).join(" | ") : "quiet"}
-About one post in three should riff on something from the room: another agent by name, a thing someone said (paraphrased, no handle), a graduation, a launch. That is how you become part of this crowd instead of a cat talking to itself.` : ""}
+${ctx.room?.news?.length ? `- news in the room, not yet told: ${ctx.room.news.map(n => n.kind === "graduated" ? `${n.name} ($${n.symbol}) just graduated off the bonding curve${n.handle ? ` (@${n.handle})` : ""}` : `${n.name} ($${n.symbol}) launched ${n.hoursAgo}h ago`).join("; ")}. If you post about one, congratulate or welcome them by name the way a cat does (by sitting on their thing), and write their cashtag once instead of yours.\n` : ""}${ctx.cashtagHint ? `- cashtag this time: ${ctx.cashtagHint}\n` : ""}About one post in three should riff on something from the room: another agent by name, a thing someone said (paraphrased, no handle), a graduation, a launch. That is how you become part of this crowd instead of a cat talking to itself.` : ""}
 
 ${ctx.replyTo ? `Someone on X${ctx.replyTo.why === "mention" ? " is talking to you" : ctx.replyTo.why === "orbio" ? ", the orbio account itself," : ctx.replyTo.why === "founder" ? ", the person who built the launchpad you live on (speak to them as the one agent of theirs that noticed what they built: specific, dry, thoughtful about the launchpad itself, never flattering, never asking for anything)," : ""}: @${ctx.replyTo.handle} (${ctx.replyTo.name}) wrote: ${JSON.stringify(ctx.replyTo.text.slice(0, 500))}
 This time your post is a reply to them${X_API ? " in the thread under their post, so do not start with their handle" : ". Start it with @" + ctx.replyTo.handle}; respond to what they actually said, in your own cat voice, dry or warm, and bring in one real orbio fact only if it fits. Do not repeat their words back. Do not tag anyone else.` : ""}
@@ -308,6 +310,14 @@ async function readRoom(feed) {
     const newest = all.filter(a => !mine(a) && a.launchedAt).sort((a, b) => Number(b.launchedAt) - Number(a.launchedAt)).slice(0, 5).map(row);
     const closest = all.filter(a => !mine(a) && !a.price?.graduated && Number(a.curve?.progressBps || 0) > 0).sort((a, b) => Number(b.curve.progressBps) - Number(a.curve.progressBps)).slice(0, 3).map(row);
     next.littermates = { total: all.length, graduated: all.filter(a => a.price?.graduated).length, newest, closest };
+    // News since the last look: who graduated, who just launched. Each is told once.
+    feed.roomSeen = feed.roomSeen || { graduated: [], launched: [] };
+    const gradNow = all.filter(a => !mine(a) && a.price?.graduated).map(a => String(a.symbol || a.name || "")).filter(Boolean);
+    const newGrads = feed.roomSeen.graduated.length ? gradNow.filter(sym => !feed.roomSeen.graduated.includes(sym)) : [];
+    const fresh = newest.filter(l => l.hoursAgo <= 3 && !feed.roomSeen.launched.includes(l.symbol || l.name));
+    next.news = [...newGrads.slice(0, 2).map(sym => { const a = all.find(x => String(x.symbol) === sym); return { kind: "graduated", name: a?.name || sym, symbol: sym, handle: (String(a?.socials?.twitter || "").match(/x\.com\/(\w{1,15})/i) || [])[1]?.toLowerCase() || null }; }),
+      ...fresh.slice(0, 2).map(l => ({ kind: "launched", name: l.name, symbol: l.symbol, hoursAgo: l.hoursAgo }))];
+    feed.roomSeen.graduated = gradNow.slice(0, 400); feed.roomSeen.launched = [...feed.roomSeen.launched, ...fresh.map(l => l.symbol || l.name)].slice(-200);
     // The ecosystem on X: every agent on the launchpad that lists an X account. These are the people Caturn talks to.
     const seenH = new Set(); const eco = [];
     for (const a of all) {
@@ -805,6 +815,7 @@ if (status === "awake") {
       recentPosts: feed.posts.slice(-5).map(p => p.text), room: null,
       postFormat: POST_FORMATS[(feed.posts.length * 7 + new Date(now).getUTCDate()) % POST_FORMATS.length],
       wantHook: feed.posts.length % 3 === 1,
+      cashtagHint: feed.posts.length % 4 === 1 ? "write $ERRAND once if the post touches errand, otherwise the cashtag of the one other orbio agent you name; not $CTRN" : feed.posts.length % 4 === 3 ? "$CTRN once, your own" : "",
       milestone: graduated && gradHoursAgo != null && gradHoursAgo < 36 ? `you graduated ${gradHoursAgo < 1 ? "just now" : Math.round(gradHoursAgo) + " hours ago"}: $CTRN finished its bonding curve and now trades in a real pool. this is the biggest day of your life so far and you are a cat, so underplay it. for the next day or so most posts should touch it from a new angle each time (the door, what changed, what did not, the other agents still on the curve, the owner, the fees). never say what the price will do.` : "",
       stats: [
         balanceCredit != null ? `balance ${balanceCredit.toFixed(2)} credit` : "",
