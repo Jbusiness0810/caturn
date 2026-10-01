@@ -896,7 +896,10 @@ if (duePost && !DRY_RUN) {
   try {
     const known = new Set(feed.posts.map(p => String(p.id || "")));
     const mine = (await readX({ handle: OWN_HANDLE, limit: 5 })).filter(t => t.handle === OWN_HANDLE);
-    const lost = mine.filter(t => !known.has(t.id) && t.at && now - Date.parse(t.at) < 6 * 3600e3).sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+    // orbio records its own post id, not X's, so a known post is also recognised by its opening words
+    const norm = (x) => String(x || "").toLowerCase().replace(/https?:\/\/\S+/g, "").replace(/[^a-z0-9]+/g, " ").trim().slice(0, 60);
+    const knownText = new Set(feed.posts.filter(p => now - Date.parse(p.at) < 12 * 3600e3).map(p => norm(p.text)));
+    const lost = mine.filter(t => !known.has(t.id) && !knownText.has(norm(t.text)) && t.at && now - Date.parse(t.at) < 6 * 3600e3).sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
     for (const t of lost) feed.posts.push({ at: new Date(Date.parse(t.at)).toISOString(), text: t.text.slice(0, 280), id: t.id, url: `https://x.com/${OWN_HANDLE}/status/${t.id}`, status: "published", cost: 0, via: "recovered" });
     if (lost.length) { feed.posts.sort((a, b) => Date.parse(a.at) - Date.parse(b.at)); log(`recovered ${lost.length} post(s) the feed had lost`); }
     const newest = Math.max(0, ...mine.map(t => Date.parse(t.at || 0)));
