@@ -291,15 +291,15 @@ async function refreshBuzz(feed) {
     if (!X_API) { feed.buzzPool = { ...pool, at: iso(now) }; return 0; }
     try {
       via = "x-api";
-      const r = await xGet("tweets/search/recent", { query: "(@orbiodotso OR $ORBIO OR \"orbio.so\") -is:retweet -is:reply -from:caturn_rh", max_results: "10", sort_order: "relevancy", "tweet.fields": "created_at,public_metrics,author_id", expansions: "author_id", "user.fields": "username,name,public_metrics" });
+      const r = await xGet("tweets/search/recent", { query: "(@orbiodotso OR orbio OR orbiodotso) -is:retweet -from:caturn_rh", max_results: "10", sort_order: "relevancy", "tweet.fields": "created_at,public_metrics,author_id", expansions: "author_id", "user.fields": "username,name,public_metrics" });
       const users = new Map((r.includes?.users || []).map(u => [u.id, u]));
       posts = (r.data || []).map(t => { const u = users.get(t.author_id) || {}; const m = t.public_metrics || {};
         return { id: String(t.id), text: String(t.text || ""), at: t.created_at || null, handle: String(u.username || "").toLowerCase(), name: u.name || "", followers: Number(u.public_metrics?.followers_count || 0), views: Number(m.impression_count || 0), likes: Number(m.like_count || 0), replies: Number(m.reply_count || 0), reposts: Number(m.retweet_count || 0) }; }).filter(t => t.id && t.handle);
       cost = 0; // billed by X, not orbio
-    } catch (e2) { log("buzz search failed:", e2.status || "", String(e2.message).slice(0, 120)); }
+    } catch (e2) { log("buzz search failed:", e2.status || "", String(e2.message).slice(0, 120)); pool.error = `${e2.status || ""} ${String(e2.body?.detail || e2.body?.title || e2.message).slice(0, 160)}`; }
   }
   const keep = [...(pool.posts || []), ...posts].filter((t, i, a) => a.findIndex(x => x.id === t.id) === i && now - Date.parse(t.at || 0) < 36 * 3600e3);
-  feed.buzzPool = { at: iso(now), via, posts: keep.slice(-40) };
+  feed.buzzPool = { at: iso(now), via, posts: keep.slice(-40), found: posts.length, error: posts.length ? null : (pool.error || null) };
   log(`buzz: ${posts.length} found via ${via}, ${keep.length} held`);
   return cost;
 }
