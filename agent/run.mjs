@@ -134,7 +134,11 @@ function parseThought(text) {
   // Truncated JSON: salvage the strings that did close.
   const grab = (k) => { const mm = t.match(new RegExp('"' + k + '"\\s*:\\s*"((?:[^"\\\\]|\\\\.)*)"')); if (!mm) return null; try { return JSON.parse('"' + mm[1] + '"'); } catch { return mm[1]; } };
   const thought = grab("thought"); if (!thought) return null;
-  return { thought, post: grab("post"), mood: grab("mood"), focus: grab("focus") };
+  // drafts that closed before the cut are still usable as posts
+  const drafts = []; const dm = t.match(/"drafts"\s*:\s*\[([\s\S]*?)(?:\]|$)/);
+  if (dm) for (const sm of dm[1].matchAll(/"((?:[^"\\]|\\.)*)"/g)) { try { drafts.push(JSON.parse('"' + sm[1] + '"')); } catch { drafts.push(sm[1]); } }
+  log(`salvaged a truncated thought (${drafts.length} drafts, post ${grab("post") ? "present" : "missing"})`);
+  return { thought, post: grab("post"), drafts, mood: grab("mood"), focus: grab("focus"), truncated: true };
 }
 async function think(persona, ctx) {
   const messages = [
@@ -172,7 +176,7 @@ Write ONE entry as a single JSON object and nothing else: no code fences, no com
 For the post, first write three different drafts in "drafts" (different shapes, different jokes). Then, in "checks", one short line per draft naming: what is wrong in it, why it is fine, the last word, and the exact number or name it uses; a draft that fails a check gets fixed before you choose. Put the funniest and most replyable one in "post". Judge them like a stranger scrolling fast: would they stop, would they smile, would they reply.
 {"thought": string (1-3 sentences, first person, raw inner monologue, ${ctx.energy < 0.12 ? "you are half asleep: this is a dream fragment, strange and short" : "awake"}),
  "drafts": [string, string, string] (three candidate posts, each under 200 characters, each a different shape),
- "checks": [string, string, string] (one line per draft: wrong / fine / last word / exact detail),
+ "checks": [string, string, string] (one line per draft, under 15 words: wrong / fine / last word / exact detail),
  "post": string${ctx.mustPost ? "" : "|null"} (the best of the drafts, verbatim; for X: lowercase, under 200 characters, plain words, one concrete orbio fact plus one cat behavior, dry or funny, no metaphors chained, no links, no hashtags, no handles other than @orbiodotso when the angle calls for it${ctx.replyTo ? ", except @" + ctx.replyTo.handle + " which this post must start with" : ctx.tagHandle ? ", except @" + ctx.tagHandle + " which this post must include" : ""}${ctx.mustPost ? "" : "; null only if nothing honest fits"}),
  "mood": string (one or two lowercase words for your mood right now, specific and varied. Draw from anywhere in a cat's range: sun-drunk, watchful, aloof, kneading, skittish, imperious, wistful, hunting, loafing, bristling, purring, sulking, feral, dignified, nocturnal, homesick, greedy, tender, spiteful, patient, giddy, hollow, regal, twitchy, sated, brooding, curious, unbothered, mournful, playful, grumpy, serene, cornered, smug, lonely, electric, drowsy, vigilant, coy, ancient. Never reuse any of these recent moods: ${ctx.recentMoods.join(", ") || "none"}),
  "focus": string (what you are fixated on right now, under 8 words, lowercase),
@@ -181,7 +185,7 @@ For the post, first write three different drafts in "drafts" (different shapes, 
   ];
   let r, lastErr, out = null;
   for (const model of MODELS) {
-    const body = { model, messages, max_tokens: 1200, temperature: 1.0 };
+    const body = { model, messages, max_tokens: 2400, temperature: 1.0 };
     try {
       try { r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ ...body, response_format: { type: "json_object" } }) }); }
       catch (e) { if (e.status === 400) r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify(body) }); else throw e; }
@@ -785,6 +789,7 @@ if (status === "awake") {
             if (text) log("post: second attempt passed"); else log("post: second attempt dropped too:", JSON.stringify(t2.post || null));
           } catch (e) { log("second post attempt failed:", String(e.message).slice(0, 160)); }
         }
+        if (!text) event(t.truncated ? "wanted to post, but my thought got cut off mid-sentence twice" : "wanted to post, but every draft broke a rule");
       }
       const shouldPost = !!text && duePost;
       if (shouldPost && !DRY_RUN) {
@@ -798,7 +803,7 @@ if (status === "awake") {
           const text2 = withCA ? `${text}\n\nca: ${AGENT_ID}` : text;
           const outText = mediaIds.length && ctx.shareSketch?.family === "sky" ? `${text2} caturn.lol/sky` : text2;
           const p = ctx.replyTo && X_API ? await replyOnX(text, ctx.replyTo.id) : mediaIds.length ? await postOnX(outText, { mediaIds }) : await postToX(text2);
-          if (p.error) log("post skipped:", p.error);
+          if (p.error) { log("post skipped:", p.error); event(`post refused by x: ${String(p.error).slice(0, 80)}`); }
           else {
             const rec = { at: iso(now), text: outText, id: p.id, url: p.url, status: p.status, cost: Number((p.cost + readCost).toFixed(6)), via: p.via || "orbio" };
             if (p.err) rec.error = String(p.err).slice(0, 200);
@@ -810,7 +815,7 @@ if (status === "awake") {
           }
         } catch (e) {
           if (e.status === 409) event("wanted to post, but no X account is connected");
-          else log("post failed:", e.message);
+          else { log("post failed:", e.message); event(`post failed: ${String(e.message).slice(0, 80)}`); }
         }
       }
       log("thought:", t.thought);

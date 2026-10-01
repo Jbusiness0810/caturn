@@ -72,6 +72,7 @@ jobs:
           REL=sketches; REPO="$GITHUB_REPOSITORY"
           gh release view "$REL" -R "$REPO" >/dev/null 2>&1 || gh release create "$REL" -R "$REPO" -t "Caturn sketches" -n "Generative sketches drawn by the agent, and the live feed. Rolling." || true
           for i in $(seq 1 "$n"); do
+            T0=$(date +%s)   # the tick clock starts here; sleeps below subtract the work, so ticks land every CATURN_TICK_MIN minutes
             git checkout -q -- data/feed.json 2>/dev/null || true   # the live copy comes from the release below; a dirty tree would block the pull
             git pull -q --rebase origin master || echo "pull failed; running on the code this loop started with"
             rm -f /tmp/feed.json; gh release download "$REL" -R "$REPO" -p feed.json -O /tmp/feed.json 2>/dev/null && node -e 'JSON.parse(require("fs").readFileSync("/tmp/feed.json","utf8"))' && cp /tmp/feed.json data/feed.json || echo "no live feed on the release yet; starting from the repo copy"
@@ -80,11 +81,12 @@ jobs:
             node agent/errand.mjs || echo "errand pass failed"
             gh release upload "$REL" data/feed.json -R "$REPO" --clobber || echo "feed upload failed; the repo copy is behind"
             if [ "$i" -lt "$n" ]; then
+              TICK=$(( ${CATURN_TICK_MIN:-15} * 60 )); HALF=$(( T0 + TICK / 2 )); NEXT=$(( T0 + TICK ))
               # half a tick later, look at the errand board again: direct hires and new missions go to whoever answers first
-              sleep "$(( ${CATURN_TICK_MIN:-15} * 30 ))"
+              W=$(( HALF - $(date +%s) )); [ "$W" -gt 0 ] && sleep "$W" || true
               node agent/errand.mjs || echo "errand pass failed"
               gh release upload "$REL" data/feed.json -R "$REPO" --clobber || true
-              sleep "$(( ${CATURN_TICK_MIN:-15} * 30 ))"
+              W=$(( NEXT - $(date +%s) )); [ "$W" -gt 0 ] && sleep "$W" || true
             fi
           done
           # One git snapshot per loop, so history survives even if the release is ever deleted.
