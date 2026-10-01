@@ -327,13 +327,13 @@ async function readRoom(feed) {
   return cost;
 }
 // Someone sends a contract address at the cat: scan it with the site's own analyzer and answer with the numbers.
-function scanReplyText(r, token) {
+function scanReplyText(r, token, self = false) {
   const fails = (r.checks || []).filter(c => c.level === "fail"), warns = (r.checks || []).filter(c => c.level === "warn");
   const f = r.facts || {};
   const flags = fails.slice(0, 2).map(c => String(c.title).toLowerCase()).join(", ");
   const bits = [f.holders != null ? `${f.holders} holders` : "", f.creatorShare != null ? `creator holds ${Number(f.creatorShare).toFixed(1)}%` : "",
     f.graduated ? "graduated" : f.orbio?.progressPct != null ? `${Math.round(f.orbio.progressPct)}% to graduation` : ""].filter(Boolean).join(", ");
-  const head = `scanned ${r.name} ($${r.symbol}): rug likelihood ${r.risk}/100, ${r.grade}. ${fails.length} red, ${warns.length} amber.${flags ? ` red: ${flags}.` : ""}${bits ? ` ${bits}.` : ""}`;
+  const head = `${self ? `you posted my address, so i scanned myself ($${r.symbol})` : `scanned ${r.name} ($${r.symbol})`}: rug likelihood ${r.risk}/100, ${r.grade}. ${fails.length} red, ${warns.length} amber.${flags ? ` red: ${flags}.` : ""}${bits ? ` ${bits}.` : ""}`;
   const tail = X_API ? `full read: https://www.caturn.lol/scan?t=${token} not advice.` : "full read at caturn dot lol slash scan. not advice.";
   const room = 262 - head.length - tail.length - 2 - (X_API ? 23 - `https://www.caturn.lol/scan?t=${token}`.length : 0); // x counts a link as 23 characters
   let verdict = String(r.verdict || "").replace(/\s+/g, " ").trim();
@@ -353,15 +353,18 @@ async function findScanRequest(feed) {
     for (const t of mentions.sort((a, b) => Date.parse(b.at || 0) - Date.parse(a.at || 0))) {
       if (t.handle === OWN_HANDLE || answered.has(t.id) || /^RT @/i.test(t.text)) continue;
       if (t.at && now - Date.parse(t.at) > 24 * 3600e3) continue;
-      const addrs = [...new Set((t.text.match(/0x[a-fA-F0-9]{40}/g) || []).map(a => a.toLowerCase()))].filter(a => a !== AGENT_ID.toLowerCase());
-      if (!addrs.length) continue; // the cat's own address is a shout-out, not a request
-      const token = addrs[0];
+      const all = [...new Set((t.text.match(/0x[a-fA-F0-9]{40}/g) || []).map(a => a.toLowerCase()))];
+      const addrs = all.filter(a => a !== AGENT_ID.toLowerCase());
+      const self = !addrs.length && all.length > 0; // someone posted the cat's own address: scan yourself, at most once every two hours
+      if (!addrs.length && !self) continue;
+      const token = self ? AGENT_ID.toLowerCase() : addrs[0];
       if (feed.scans.some(s => s.token === token && s.handle === t.handle && now - Date.parse(s.at) < 6 * 3600e3)) continue;
+      if (self && feed.scans.some(s => s.token === token && !s.error && now - Date.parse(s.at) < 2 * 3600e3)) continue;
       try {
         const r = await getJSON("https://www.caturn.lol/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) });
         if (r.error || r.risk == null) { feed.scans.push({ token, handle: t.handle, at: iso(now), error: String(r.error || "no result").slice(0, 100) }); log("scan request failed:", r.error); continue; }
         feed.scans.push({ token, handle: t.handle, at: iso(now), risk: r.risk, grade: r.grade, symbol: r.symbol, name: r.name });
-        return { target: { ...t, why: "scan request", url: `https://x.com/${t.handle}/status/${t.id}` }, text: scanReplyText(r, token), scan: { token, risk: r.risk, grade: r.grade, symbol: r.symbol }, cost };
+        return { target: { ...t, why: self ? "posted my address" : "scan request", url: `https://x.com/${t.handle}/status/${t.id}` }, text: scanReplyText(r, token, self), scan: { token, risk: r.risk, grade: r.grade, symbol: r.symbol, self }, cost };
       } catch (e) { feed.scans.push({ token, handle: t.handle, at: iso(now), error: String(e.message).slice(0, 100) }); log("scan request failed:", String(e.message).slice(0, 120)); }
     }
   } catch (e) { log("scan mentions read failed:", e.status || "", String(e.message).slice(0, 120)); }
@@ -831,7 +834,7 @@ if (status === "awake") {
       const n = feed.thoughts.length;
       // Post on the clock: whenever POST_INTERVAL_MIN has passed since the last post.
       let text = ctx.prebuiltPost || cleanPost(t.post, ctx, feed);
-      if (ctx.prebuiltPost) event(`scanned ${ctx.scan.symbol} for @${ctx.replyTo.handle}: rug likelihood ${ctx.scan.risk}/100, ${ctx.scan.grade}`);
+      if (ctx.prebuiltPost) event(ctx.scan.self ? `@${ctx.replyTo.handle} posted my address, so i scanned myself: ${ctx.scan.risk}/100, ${ctx.scan.grade}` : `scanned ${ctx.scan.symbol} for @${ctx.replyTo.handle}: rug likelihood ${ctx.scan.risk}/100, ${ctx.scan.grade}`);
       if (t.post && !text) log("post dropped by the rules:", JSON.stringify(t.post));
       // A post is due every POST_INTERVAL_MIN. If the chosen line was empty or broke a rule, fall back to the other drafts,
       // then ask once more with the rules spelled out, so a tick on the clock does not go by silent.
