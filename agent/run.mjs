@@ -306,7 +306,8 @@ async function refreshBuzz(feed) {
 // Mentions straight from the X API (pay-per-read, so only what is new since the last look). Used when Orbio's reader fails.
 async function xGet(path, query) {
   const url = `https://api.x.com/2/${path}`;
-  const qs = Object.entries(query).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&");
+  const enc = (v) => encodeURIComponent(String(v)).replace(/[!'()*]/g, c => "%" + c.charCodeAt(0).toString(16).toUpperCase()); // the same strict encoding the signature uses, or X answers 401
+  const qs = Object.entries(query).map(([k, v]) => `${enc(k)}=${enc(v)}`).join("&");
   return getJSON(`${url}?${qs}`, { headers: { Authorization: oauthHeader("GET", url, query) } });
 }
 async function mentionsFromX() {
