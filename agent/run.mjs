@@ -284,7 +284,7 @@ async function readXRaw(params) {
 // The buzz: the most-engaged recent posts about orbio, refreshed hourly. Orbio's reader first; X's search when it is down.
 async function refreshBuzz(feed) {
   const pool = feed.buzzPool || { at: null, posts: [] };
-  if (pool.at && now - Date.parse(pool.at) < 60 * 60e3) return 0;
+  if (pool.at && now - Date.parse(pool.at) < ((pool.posts || []).length ? 60 : 20) * 60e3) return 0; // an empty pool tries again sooner
   let posts = [], cost = 0, via = "orbio";
   try { posts = await readXRaw({ query: "@orbiodotso OR $ORBIO OR orbio.so", sort: "Top", limit: 20 }); cost = posts.length * 0.00022; }
   catch (e) {
