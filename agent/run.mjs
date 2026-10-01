@@ -688,6 +688,13 @@ async function makeSkyShot(feed) {
   } catch (e) { log("sky shot failed:", String(e.message || e).slice(0, 200)); }
 }
 // Say queue: agent/say.json holds posts the owner asked for verbatim; each goes out once.
+// Save the feed and push it to the release right away, so a loop cancelled a moment later cannot forget what it posted.
+async function persistNow(feed) {
+  try {
+    await writeFile(FEED, JSON.stringify(feed, null, 2) + "\n");
+    if ((env.GH_TOKEN || env.GITHUB_TOKEN) && env.GITHUB_ACTIONS) await run("gh", ["release", "upload", SKETCH_RELEASE, FEED.pathname, "-R", env.GITHUB_REPOSITORY || "Jbusiness0810/caturn", "--clobber"], { timeout: 60000 });
+  } catch (e) { log("persist failed:", String(e.message).slice(0, 120)); }
+}
 // A build shipped from the workshop (agent/build.mjs leaves it in feed.workshop.announce): one post with the screenshot and the link.
 async function announceBuild(feed) {
   const a = feed.workshop?.announce; if (!a || !API_KEY || DRY_RUN) return;
@@ -709,6 +716,7 @@ async function announceBuild(feed) {
     if (p.error) { log("build announce skipped:", p.error); return; }
     feed.posts.push({ at: iso(now), text: `${base} ${a.url}`, id: p.id, url: p.url, status: p.status, cost: p.cost, kind: "build", via: p.via || "orbio", build: { id: a.id, title: a.title, url: a.url, image: a.image } });
     event(`told X about "${a.title}" from the workshop`);
+    await persistNow(feed);
   } catch (e) { log("build announce failed:", e.message); }
 }
 async function saySomething(feed) {
@@ -730,6 +738,7 @@ async function saySomething(feed) {
     if (rt) { rec.threaded = p.via === "x-api"; rec.replyTo = { id: rt.id, handle: rt.handle, name: rt.handle, text: String(next.replyText || "").slice(0, 200), url: `https://x.com/${rt.handle}/status/${rt.id}`, why: "owner asked" }; }
     feed.posts.push(rec);
     event(next.event || "posted to X"); log("said:", next.text);
+    await persistNow(feed);
   } catch (e) { log("say failed:", e.message); }
 }
 
@@ -784,7 +793,20 @@ const lastThoughtAt = feed.thoughts.length ? Date.parse(feed.thoughts[feed.thoug
 const interval = thoughtsPerDay > 0 ? 86400e3 / thoughtsPerDay : Infinity;
 
 const lastPostAt = feed.posts.length ? Date.parse(feed.posts[feed.posts.length - 1].at) : 0;
-const duePost = !!agent && !!API_KEY && spentToday < DAILY_CREDIT_CAP && now - lastPostAt >= POST_INTERVAL_MIN * 60e3 - 60e3;
+let duePost = !!agent && !!API_KEY && spentToday < DAILY_CREDIT_CAP && now - lastPostAt >= POST_INTERVAL_MIN * 60e3 - 60e3;
+// A loop cancelled mid-tick can post and then die before saving the feed. Before posting, ask X what the cat last said:
+// a post the feed does not know about, made within the interval, is adopted and this slot stays quiet.
+if (duePost && !DRY_RUN) {
+  try {
+    const known = new Set(feed.posts.map(p => String(p.id || "")));
+    const mine = (await readX({ handle: OWN_HANDLE, limit: 5 })).filter(t => t.handle === OWN_HANDLE);
+    const lost = mine.filter(t => !known.has(t.id) && t.at && now - Date.parse(t.at) < 6 * 3600e3).sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+    for (const t of lost) feed.posts.push({ at: new Date(Date.parse(t.at)).toISOString(), text: t.text.slice(0, 280), id: t.id, url: `https://x.com/${OWN_HANDLE}/status/${t.id}`, status: "published", cost: 0, via: "recovered" });
+    if (lost.length) { feed.posts.sort((a, b) => Date.parse(a.at) - Date.parse(b.at)); log(`recovered ${lost.length} post(s) the feed had lost`); }
+    const newest = Math.max(0, ...mine.map(t => Date.parse(t.at || 0)));
+    if (now - newest < POST_INTERVAL_MIN * 60e3 - 60e3) { duePost = false; log("x shows a post within the interval; this slot stays quiet"); }
+  } catch (e) { log("own-post check failed:", String(e.message).slice(0, 120)); }
+}
 let status = !agent ? "prelaunch" : "napping";
 let reason = !agent ? "no agent yet" : "";
 if (agent && !API_KEY) reason = "no API key";
@@ -966,6 +988,7 @@ if (status === "awake") {
             if (ctx.replyTo) { rec.kind = "reply"; rec.threaded = !!X_API && ctx.replyTo.threaded !== false; rec.replyTo = { id: ctx.replyTo.id, handle: ctx.replyTo.handle, name: ctx.replyTo.name, text: ctx.replyTo.text.slice(0, 200), url: ctx.replyTo.url, why: ctx.replyTo.why }; }
             else if (ctx.tagHandle && text.toLowerCase().includes("@" + ctx.tagHandle)) { rec.kind = "tag"; rec.tagged = ctx.tagHandle; }
             feed.posts.push(rec); feed.lastPostThoughtIndex = n; ctx.postedRec = rec;
+            await persistNow(feed);
             if (ctx.scan) { const sc = (feed.scans || []).find(x => x.token === ctx.scan.token && x.handle === ctx.replyTo.handle && !x.posted); if (sc) sc.posted = true; }
             event(rec.kind === "sketch" ? "posted a sketch on X" : rec.kind === "reply" ? `${rec.threaded ? "replied to" : "answered"} @${rec.replyTo.handle} on X` : rec.kind === "tag" ? `posted to X, tagging @${rec.tagged}` : "posted to X");
           }
