@@ -875,7 +875,8 @@ if (status === "awake") {
           // X lets this app thread a reply only under a post that mentions the cat; anything else goes out through orbio, opening with the handle.
           const canThread = X_API && ctx.replyTo && ["mention", "scan request", "posted my address"].includes(ctx.replyTo.why);
           if (ctx.replyTo && !canThread) ctx.replyTo.threaded = false;
-          let p = canThread ? await replyOnX(text, ctx.replyTo.id) : ctx.replyTo ? await postToX(delink(text).slice(0, 270)) : mediaIds.length ? await postOnX(outText, { mediaIds }) : withScan ? await postOnX(text2) : await postToX(text2);
+          const addressed = ctx.replyTo && !text.toLowerCase().startsWith("@" + ctx.replyTo.handle) ? `@${ctx.replyTo.handle} ${text}` : text;
+          let p = canThread ? await replyOnX(text, ctx.replyTo.id) : ctx.replyTo ? await postToX(delink(addressed).slice(0, 270)) : mediaIds.length ? await postOnX(outText, { mediaIds }) : withScan ? await postOnX(text2) : await postToX(text2);
           if (p.via === "x-api" && p.status === "failed") {
             // the X app refused (billing, permissions, a rule): say so in the feed and send the words through orbio instead
             event(`x api refused the post (${String(p.err || "unknown").slice(0, 90)}); sent it through orbio instead`);
