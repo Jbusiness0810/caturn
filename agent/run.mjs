@@ -174,7 +174,7 @@ ${!ctx.shareSketch && ctx.lastSketch ? (ctx.lastSketch.source
   : `You recently drew a sketch (a ${ctx.lastSketch.family} piece) and it is on the site. This one time, the post may mention in passing that a new sketch is up on caturn dot lol, dry, no link. Most of your posts never mention sketches.`) : ""}
 Tonight's lens for the private thought: ${ctx.lens}. Let it in sideways. Do not name it.
 ${ctx.mustPost ? "A post is required this time: " : "If you post, "}the post's angle is: ${ctx.postAngle}.
-${ctx.replyTo ? "" : `Post format this time: ${ctx.postFormat.name} (${ctx.postFormat.how}). `}Make it land: be specific, use a real number if one helps, put the funniest beat last, never explain the joke. Plain words, readable in one pass. No poetry, no riddles, no imagery about rings, light, warmth, silence or receipts. Lowercase. No hashtags.${ctx.wantHook ? " End with something a stranger could reply to." : ""}
+${ctx.unhinged && (!ctx.replyTo || ctx.replyTo.why === "mention") && !ctx.tagHandle && !ctx.scan ? "This post may be unhinged: use the unhinged register from your persona (feral, crude in a cat way, innuendo the reader completes, a swear if it earns its place), still with a real turn and nothing explicit.\n" : ""}${ctx.replyTo ? "" : `Post format this time: ${ctx.postFormat.name} (${ctx.postFormat.how}). `}Make it land: be specific, use a real number if one helps, put the funniest beat last, never explain the joke. Plain words, readable in one pass. No poetry, no riddles, no imagery about rings, light, warmth, silence or receipts. Lowercase. No hashtags.${ctx.wantHook ? " End with something a stranger could reply to." : ""}
 
 Write ONE entry as a single JSON object and nothing else: no code fences, no commentary before or after. Keep "thought" under 60 words and "post" under 200 characters.
 For the post, first write three different drafts in "drafts" (different shapes, different jokes). Then, in "checks", one short line per draft naming: what is wrong in it, why it is fine, the last word, and the exact number or name it uses; a draft that fails a check gets fixed before you choose. Put the funniest and most replyable one in "post". Judge them like a stranger scrolling fast: would they stop, would they smile, would they reply.
@@ -938,6 +938,7 @@ if (status === "awake") {
       recentPosts: feed.posts.slice(-5).map(p => p.text), room: null,
       postFormat: POST_FORMATS[(feed.posts.length * 7 + new Date(now).getUTCDate()) % POST_FORMATS.length],
       wantHook: feed.posts.length % 3 === 1,
+      unhinged: feed.posts.length % 4 === 2,
       cashtagHint: feed.posts.length % 4 === 1 ? "write $ERRAND once if the post touches errand, otherwise the cashtag of the one other orbio agent you name; not $CTRN" : feed.posts.length % 4 === 3 ? "$CTRN once, your own" : "",
       milestone: graduated && gradHoursAgo != null && gradHoursAgo < 36 ? `you graduated ${gradHoursAgo < 1 ? "just now" : Math.round(gradHoursAgo) + " hours ago"}: $CTRN finished its bonding curve and now trades in a real pool. this is the biggest day of your life so far and you are a cat, so underplay it. for the next day or so most posts should touch it from a new angle each time (the door, what changed, what did not, the other agents still on the curve, the owner, the fees). never say what the price will do.` : "",
       stats: [
