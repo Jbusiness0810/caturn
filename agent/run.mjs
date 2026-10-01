@@ -364,7 +364,10 @@ async function findScanRequest(feed) {
         const r = await getJSON("https://www.caturn.lol/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) });
         if (r.error || r.risk == null) { feed.scans.push({ token, handle: t.handle, at: iso(now), error: String(r.error || "no result").slice(0, 100) }); log("scan request failed:", r.error); continue; }
         feed.scans.push({ token, handle: t.handle, at: iso(now), risk: r.risk, grade: r.grade, symbol: r.symbol, name: r.name });
-        return { target: { ...t, why: self ? "posted my address" : "scan request", url: `https://x.com/${t.handle}/status/${t.id}` }, text: scanReplyText(r, token, self), scan: { token, risk: r.risk, grade: r.grade, symbol: r.symbol, self }, cost };
+        const f = r.facts || {}; const warns = (r.checks || []).filter(c => c.level !== "pass").map(c => String(c.title).toLowerCase());
+        const selfFacts = [`rug likelihood ${r.risk}/100 (${r.grade})`, f.holders != null ? `${f.holders} holders` : "", f.creatorShare != null ? `creator holds ${Number(f.creatorShare).toFixed(2)}%` : "", f.graduated ? "graduated, trading in a real pool" : "",
+          ...(r.checks || []).filter(c => c.level === "pass").slice(0, 4).map(c => String(c.title).toLowerCase()), warns.length ? `the only flags: ${warns.join(", ")}` : "no flags at all"].filter(Boolean).join("; ");
+        return { target: { ...t, why: self ? "posted my address" : "scan request", url: `https://x.com/${t.handle}/status/${t.id}` }, text: scanReplyText(r, token, self), selfFacts, scan: { token, risk: r.risk, grade: r.grade, symbol: r.symbol, self }, cost };
       } catch (e) { feed.scans.push({ token, handle: t.handle, at: iso(now), error: String(e.message).slice(0, 100) }); log("scan request failed:", String(e.message).slice(0, 120)); }
     }
   } catch (e) { log("scan mentions read failed:", e.status || "", String(e.message).slice(0, 120)); }
@@ -781,7 +784,12 @@ if (status === "awake") {
       const slot = feed.posts.length;
       readCost += await readRoom(feed); ctx.room = feed.room;
       const scan = await findScanRequest(feed); readCost += scan.cost;
-      if (scan.target) {
+      if (scan.target && scan.scan.self) {
+        // someone shared the cat's own address: the model answers, warm and funny, with the scan numbers in hand
+        ctx.replyTo = scan.target; ctx.scan = scan.scan;
+        ctx.postAngle = `they shared your contract address with their followers. thank them the way a cat thanks anyone (by taking credit), be funny, and be plainly favorable about yourself: you ran your own scan just now and it says ${scan.selfFacts}. quote one or two of those numbers exactly. no price talk, no promises, no advice`;
+        log("own address posted by", `@${scan.target.handle}; self scan:`, scan.selfFacts);
+      } else if (scan.target) {
         ctx.replyTo = scan.target; ctx.scan = scan.scan; ctx.prebuiltPost = X_API ? scan.text : `@${scan.target.handle} ${scan.text}`;
         ctx.postAngle = `you just scanned ${scan.scan.symbol} for them (rug likelihood ${scan.scan.risk}/100); the reply itself is already written, so think about what scanning strangers' tokens for free says about you`;
         log("scan request from", `@${scan.target.handle}:`, scan.text);
@@ -834,7 +842,7 @@ if (status === "awake") {
       const n = feed.thoughts.length;
       // Post on the clock: whenever POST_INTERVAL_MIN has passed since the last post.
       let text = ctx.prebuiltPost || cleanPost(t.post, ctx, feed);
-      if (ctx.prebuiltPost) event(ctx.scan.self ? `@${ctx.replyTo.handle} posted my address, so i scanned myself: ${ctx.scan.risk}/100, ${ctx.scan.grade}` : `scanned ${ctx.scan.symbol} for @${ctx.replyTo.handle}: rug likelihood ${ctx.scan.risk}/100, ${ctx.scan.grade}`);
+      if (ctx.scan) event(ctx.scan.self ? `@${ctx.replyTo.handle} posted my address, so i scanned myself: ${ctx.scan.risk}/100, ${ctx.scan.grade}` : `scanned ${ctx.scan.symbol} for @${ctx.replyTo.handle}: rug likelihood ${ctx.scan.risk}/100, ${ctx.scan.grade}`);
       if (t.post && !text) log("post dropped by the rules:", JSON.stringify(t.post));
       // A post is due every POST_INTERVAL_MIN. If the chosen line was empty or broke a rule, fall back to the other drafts,
       // then ask once more with the rules spelled out, so a tick on the clock does not go by silent.
