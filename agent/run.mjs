@@ -453,7 +453,7 @@ async function findReplyTarget(feed, opts = {}) {
   feed.replyDebug.result = r.target ? `${r.target.why} @${r.target.handle}` : "none";
   return r;
 }
-async function findReplyTargetInner(feed, { mentionsOnly = false } = {}) {
+async function findReplyTargetInner(feed, { mentionsOnly = false, outreach = false } = {}) {
   const answered = new Set(feed.posts.map(p => p.replyTo?.id).filter(Boolean));
   const fresh = (t) => !t.at || now - Date.parse(t.at) < REPLY_MAX_AGE_H * 3600e3;
   // Follow-back farms, "dm us", callout accounts: never worth two cents. A stranger earns an answer with substance and a real following.
@@ -482,7 +482,17 @@ async function findReplyTargetInner(feed, { mentionsOnly = false } = {}) {
       const o = theirs.filter(t => t.handle === first && !answered.has(t.id) && !/^RT @/i.test(t.text) && now - Date.parse(t.at || 0) < 7 * 86400e3).sort((a, b) => Date.parse(b.at || 0) - Date.parse(a.at || 0))[0];
       if (o) return { target: { ...o, why: "founder", url: `https://x.com/${o.handle}/status/${o.id}` }, cost };
     }
-    // 1. Someone talking to Caturn always comes first.
+    // In the outreach slot the priority accounts and the buzz go before mentions (mentions have their own slot).
+    if (outreach) {
+      const order0 = [...REPLY_ACCOUNTS]; for (let i = feed.posts.length % order0.length; i > 0; i--) order0.push(order0.shift());
+      for (const h of order0) {
+        if (now - lastTo(h) < REPLY_ACCOUNT_GAP_H * 3600e3) continue;
+        const theirs = await readX({ handle: h, limit: 10 }).catch(() => []); cost += theirs.length * 0.00022;
+        const o = pick(theirs, "priority"); if (o) return { target: o, cost };
+      }
+      const bz = await buzzPick(); if (bz) return { target: bz, cost };
+    }
+    // 1. Someone talking to Caturn.
     const mentions = await readX({ mentions_of: OWN_HANDLE }).catch(() => []); cost += mentions.length * 0.00022;
     feed.replyDebug.mentions = mentions.length;
     const talking = mentions.filter(t => t.handle !== OWN_HANDLE && !answered.has(t.id) && fresh(t) && !/^RT @/i.test(t.text) && !spammy(t) && t.text.replace(/@\w+|https?:\/\/\S+/g, "").trim().length >= 6
@@ -496,16 +506,17 @@ async function findReplyTargetInner(feed, { mentionsOnly = false } = {}) {
       const theirs = await readX({ handle: h, limit: 10 }).catch(() => []); cost += theirs.length * 0.00022;
       const o = pick(theirs, "priority"); if (o) return { target: o, cost };
     }
-    // 2b. The buzz: the most-engaged recent posts about orbio from accounts worth answering.
-    try {
+    // 2b. The buzz (when the outreach slot did not already try it).
+    if (!outreach) { const bz = await buzzPick(); if (bz) return { target: bz, cost }; }
+    async function buzzPick() { try {
       cost += await refreshBuzz(feed);
       const worth = (t) => ecoSet.has(t.handle) || t.followers >= 500 || t.likes >= 10;
       const buzz = (feed.buzzPool?.posts || []).filter(t => t.handle !== OWN_HANDLE && (!NEVER_TAG.has(t.handle) || REPLY_ACCOUNTS.includes(t.handle)) && !answered.has(t.id) && !/^RT @/i.test(t.text) && !spammy(t) && worth(t)
         && now - lastTo(t.handle) > REPLY_SAME_HANDLE_GAP_H * 3600e3 && t.text.replace(/@\w+|https?:\/\/\S+/g, "").trim().length >= 20);
       feed.replyDebug.buzz = buzz.length;
       const b = buzz.sort((a, c) => score(c) - score(a))[0];
-      if (b) return { target: { ...b, why: "buzz", url: `https://x.com/${b.handle}/status/${b.id}` }, cost };
-    } catch (e) { feed.replyDebug.errors.push(`buzz: ${String(e.message).slice(0, 80)}`); }
+      return b ? { ...b, why: "buzz", url: `https://x.com/${b.handle}/status/${b.id}` } : null;
+    } catch (e) { feed.replyDebug.errors.push(`buzz: ${String(e.message).slice(0, 80)}`); return null; } }
     // 3. The ecosystem: agents launched on orbio that have an X account, a few per slot in rotation, newest unanswered post.
     const eco = (feed.room?.ecosystem || []).filter(e => now - lastTo(e.handle) > REPLY_SAME_HANDLE_GAP_H * 3600e3);
     if (eco.length) {
@@ -950,13 +961,15 @@ if (status === "awake") {
         ctx.postAngle = `you just scanned ${scan.scan.symbol} for them (rug likelihood ${scan.scan.risk}/100); the reply itself is already written, so think about what scanning strangers' tokens for free says about you`;
         log("scan request from", `@${scan.target.handle}:`, scan.text);
       }
-      const replySlot = REPLY_EVERY > 0 && slot % REPLY_EVERY === REPLY_EVERY - 1;
-      if (!ctx.replyTo && !replySlot && X_API) { // someone talking to the cat is answered in any slot: those are the replies X lets the app thread
+      // Three slots in rotation: a post of its own, a threaded answer to someone talking to the cat, and outreach (founder, orbio's own accounts, the buzz).
+      const rot = slot % 3;
+      const replySlot = REPLY_EVERY > 0 && rot === 2;
+      if (!ctx.replyTo && rot === 1 && X_API) {
         const { target, cost } = await findReplyTarget(feed, { mentionsOnly: true }); readCost += cost;
         if (target) { ctx.replyTo = target; ctx.postAngle = "an answer to what they said"; log("replying to a mention:", `@${target.handle}`, JSON.stringify(target.text.slice(0, 120))); }
       }
       if (!ctx.replyTo && replySlot) {
-        const { target, cost } = await findReplyTarget(feed); readCost += cost;
+        const { target, cost } = await findReplyTarget(feed, { outreach: true }); readCost += cost;
         if (target) { ctx.replyTo = target; ctx.postAngle = "an answer to what they said"; log("replying to:", `@${target.handle}`, JSON.stringify(target.text.slice(0, 120))); }
       }
       if (!ctx.replyTo && TAG_EVERY > 0 && slot % TAG_EVERY === TAG_EVERY - 2) {
