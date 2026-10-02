@@ -888,8 +888,8 @@ async function askGrok(feed) {
 }
 // "@grok dis tru?": quote an orbio post from the buzz pool and ask Grok. X will not let this app reply under strangers' posts,
 // but a quote is the cat's own post, so Grok answers under it, and the orbio post rides along on the cat's timeline.
-const DISTRU_EVERY_MIN = Number(env.CATURN_DISTRU_EVERY_MIN || 60);
-const DISTRU_LINES = ["@grok dis tru?", "@grok dis tru??", "dis tru @grok?", "@grok dis tru? asking for a cat", "@grok dis tru? the cat needs to know", "@grok dis tru? be honest", "@grok dis tru or nah", "@grok dis tru? i have been staring at it for an hour"];
+const DISTRU_EVERY_MIN = Number(env.CATURN_DISTRU_EVERY_MIN || 30);
+const DISTRU_LINES = ["@grok dis tru?", "@grok dis tru??", "dis tru @grok?", "@grok dis tru? asking for a cat", "@grok dis tru? the cat needs to know", "@grok dis tru? be honest", "@grok dis tru or nah", "@grok dis tru? i have been staring at it for an hour", "@grok dis tru? blink twice", "@grok is dis tru or is orbio lying to the cat", "@grok dis tru? my whiskers say maybe", "@grok dis tru? yes or no, i have a nap at 4"];
 async function disTru(feed) {
   if (!X_API || DRY_RUN || !(DISTRU_EVERY_MIN > 0)) return;
   feed.grok = feed.grok || {};
