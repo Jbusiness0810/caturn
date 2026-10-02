@@ -1207,7 +1207,9 @@ if (status === "awake") {
           if (ctx.replyTo && !canThread) ctx.replyTo.threaded = false;
           const addressed = ctx.replyTo && !text.toLowerCase().startsWith("@" + ctx.replyTo.handle) ? `@${ctx.replyTo.handle} ${text}` : text;
           const poll = X_API && !ctx.replyTo && !mediaIds.length && ctx.postFormat?.name === "poll" && t.poll?.length >= 2 && text === cleanPost(t.post, ctx, feed) ? t.poll : null;
-          let p = canThread ? await replyOnX(text, ctx.replyTo.id) : ctx.replyTo ? await postToX(delink(addressed).slice(0, 270)) : mediaIds.length ? await postOnX(outText, { mediaIds }) : poll ? await postOnX(text2, { poll }) : (withScan || withBoard) ? await postOnX(text2) : await postToX(text2);
+          // An answer X will not let this app thread still carries their post: the link turns into a card under the cat's words
+          const carded = ctx.replyTo && !canThread && X_API && ctx.replyTo.url && addressed.length <= 255 ? `${addressed} ${ctx.replyTo.url.replace("twitter.com/i/web", "x.com/" + ctx.replyTo.handle)}` : null;
+          let p = canThread ? await replyOnX(text, ctx.replyTo.id) : carded ? await postOnX(carded) : ctx.replyTo ? await postToX(delink(addressed).slice(0, 270)) : mediaIds.length ? await postOnX(outText, { mediaIds }) : poll ? await postOnX(text2, { poll }) : (withScan || withBoard) ? await postOnX(text2) : await postToX(text2);
           if (p.via === "x-api" && p.status === "failed") {
             // the X app refused (billing, permissions, a rule): say so in the feed and send the words through orbio instead
             event(`x api refused the post (${String(p.err || "unknown").slice(0, 90)}); sent it through orbio instead`);
@@ -1216,7 +1218,7 @@ if (status === "awake") {
           }
           if (p.error) { log("post skipped:", p.error); event(`post refused by x: ${String(p.error).slice(0, 80)}`); }
           else {
-            const rec = { at: iso(now), text: ctx.replyTo && !canThread ? delink(addressed).slice(0, 270) : outText, id: p.id, url: p.url, status: p.status, cost: Number((p.cost + readCost).toFixed(6)), via: p.via || "orbio" };
+            const rec = { at: iso(now), text: carded && p.via === "x-api" ? carded : ctx.replyTo && !canThread ? delink(addressed).slice(0, 270) : outText, id: p.id, url: p.url, status: p.status, cost: Number((p.cost + readCost).toFixed(6)), via: p.via || "orbio" };
             if (p.err) rec.error = String(p.err).slice(0, 200);
             if (!ctx.replyTo && ctx.postFormat) rec.format = ctx.postFormat.name;
             if (poll && p.via === "x-api" && p.status !== "failed") rec.poll = poll;
