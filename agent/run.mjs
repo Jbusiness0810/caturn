@@ -32,7 +32,7 @@ const OWN_HANDLE = (env.CATURN_X_HANDLE || "caturn_rh").toLowerCase();
 const PINNED_TAG_HANDLES = (env.CATURN_TAG_HANDLES || "errandboard").split(",").map(s => s.trim().replace(/^@/, "").toLowerCase()).filter(Boolean);
 const TAG_EVERY  = Number(env.CATURN_TAG_EVERY || 8);
 const IMAGE_EVERY = Number(env.CATURN_IMAGE_EVERY || 5);  // one post in N carries a picture the cat had made for it (0 = never; needs the X app)
-const IMAGE_MODELS = (env.CATURN_IMAGE_MODELS || "google/gemini-3.1-flash-image,openai/gpt-image-1-mini,bytedance-seed/seedream-5-0-flash").split(",").map(s => s.trim()).filter(Boolean);
+const IMAGE_MODELS = (env.CATURN_IMAGE_MODELS || "bytedance-seed/seedream-5-0-pro,bytedance-seed/seedream-5-0-lite,bytedance-seed/seedream-5-0-flash").split(",").map(s => s.trim()).filter(Boolean);
 // One look for every picture, so the timeline reads as one artist: quiet conceptual still life, the joke carried by objects.
 const IMAGE_STYLE = "Minimal conceptual still-life photograph. Plain warm cream paper background, soft natural daylight from the upper left, a gentle soft shadow, lots of empty space, one small arrangement near the center. Muted natural colors with at most one accent color. Real objects, tactile, slightly whimsical. No text, no letters, no numbers, no logos, no people, no watermark. Square composition.";
 const CA_EVERY   = Number(env.CATURN_CA_EVERY || 6);     // append the real contract address to one post in N (0 = never)     // tag someone in roughly one post in five (0 = never)
