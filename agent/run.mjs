@@ -910,10 +910,14 @@ async function disTru(feed) {
   if (!t) { log("dis tru: nothing fresh about orbio to quote"); return; }
   const n = feed.grok.quotes || 0, text = DISTRU_LINES[n % DISTRU_LINES.length];
   feed.grok.lastQuoteAt = iso(now); feed.grok.quoted = [...(feed.grok.quoted || []), String(t.id)].slice(-60);
-  const p = await postOnX(text, { quote: t.id });
+  // X lets this app quote only posts that mention the cat, so anything else goes out with the post's link, which X shows as a card
+  const link = `https://x.com/${t.handle}/status/${t.id}`;
+  const canQuote = /@caturn_rh\b/i.test(t.text);
+  let p = canQuote ? await postOnX(text, { quote: t.id }) : await postOnX(`${text} ${link}`);
+  if (p.status === "failed" && canQuote) p = await postOnX(`${text} ${link}`);
   if (p.status === "failed") { log("dis tru refused:", p.err); event(`tried to ask @grok about @${t.handle}'s post and x refused (${String(p.err || "").slice(0, 80)})`); return; }
   feed.grok.quotes = n + 1;
-  feed.posts.push({ at: iso(now), text, id: p.id, url: p.url, status: p.status, cost: 0, via: p.via, kind: "quote", grok: true, quoted: { id: t.id, handle: t.handle, text: t.text.slice(0, 200), url: `https://x.com/${t.handle}/status/${t.id}` } });
+  feed.posts.push({ at: iso(now), text: canQuote ? text : `${text} ${link}`, id: p.id, url: p.url, status: p.status, cost: 0, via: p.via, kind: "quote", grok: true, quoted: { id: t.id, handle: t.handle, text: t.text.slice(0, 200), url: `https://x.com/${t.handle}/status/${t.id}` } });
   event(`asked @grok if @${t.handle}'s orbio post is tru`);
   await persistNow(feed);
 }
