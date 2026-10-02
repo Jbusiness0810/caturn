@@ -11,7 +11,9 @@ const run = promisify(execFile);
 const env = process.env;
 const API_KEY   = env.ORBIO_API_KEY || "";
 import { MEMORY_ON, seed as seedMemory, recall as recallMemory, remember as rememberTick, rememberEvent, measure as measurePosts, reflect as reflectDay } from "./memory.mjs";
-const AGENT_ID  = env.CATURN_AGENT_ID || "0x9b4e217f8759cb758664ac3b0ee730a4d15e7f6a"; // Caturn, agent 271. Override with CATURN_AGENT_ID.
+const AGENT_ID  = env.CATURN_AGENT_ID || "0x9b4e217f8759cb758664ac3b0ee730a4d15e7f6a"; // Caturn, agent 271: what the protocol API is asked about (the repo variable sets it to 271)
+// The contract address, the only one the cat ever posts. Never taken from CATURN_CA, which may be the agent number.
+const CA = /^0x[a-f0-9]{40}$/i.test(env.CATURN_CA || "") ? env.CATURN_CA : "0x9b4e217f8759cb758664ac3b0ee730a4d15e7f6a";
 // Ranked list. The gateway lists models it is not always serving, so each thought tries these in order.
 const MODELS    = (env.CATURN_MODEL || "anthropic/claude-fable-5.1,anthropic/claude-opus-5.5,x-ai/grok-4.7,anthropic/claude-sonnet-5.5,openai/gpt-6-astra-pro,openai/gpt-6-sol-pro").split(",").map(s => s.trim()).filter(Boolean);
 let MODEL = MODELS[0];
@@ -380,7 +382,7 @@ async function readRoom(feed) {
   try {
     const all = [];
     for (let off = 0; off < 400; off += 60) { const d = await getJSON(`${ORBIO_PROTOCOL}/agents?limit=60&offset=${off}`); all.push(...(d.data || [])); if (!d.data?.length || all.length >= Number(d.page?.total || 0)) break; }
-    const mine = (a) => String(a.token || "").toLowerCase() === AGENT_ID.toLowerCase();
+    const mine = (a) => String(a.token || "").toLowerCase() === CA.toLowerCase();
     const row = (a) => ({ name: String(a.name || "").slice(0, 40), symbol: String(a.symbol || "").slice(0, 12), hoursAgo: Math.round((now / 1000 - Number(a.launchedAt || 0)) / 3600), graduated: !!a.price?.graduated, progress: Math.round(Number(a.curve?.progressBps || 0) / 100) });
     const newest = all.filter(a => !mine(a) && a.launchedAt).sort((a, b) => Number(b.launchedAt) - Number(a.launchedAt)).slice(0, 5).map(row);
     const closest = all.filter(a => !mine(a) && !a.price?.graduated && Number(a.curve?.progressBps || 0) > 0).sort((a, b) => Number(b.curve.progressBps) - Number(a.curve.progressBps)).slice(0, 3).map(row);
@@ -445,10 +447,10 @@ async function findScanRequest(feed) {
       if (t.handle === OWN_HANDLE || answered.has(t.id) || /^RT @/i.test(t.text)) continue;
       if (t.at && now - Date.parse(t.at) > 24 * 3600e3) continue;
       const all = [...new Set((t.text.match(/0x[a-fA-F0-9]{40}/g) || []).map(a => a.toLowerCase()))];
-      const addrs = all.filter(a => a !== AGENT_ID.toLowerCase());
+      const addrs = all.filter(a => a !== CA.toLowerCase());
       const self = !addrs.length && all.length > 0; // someone posted the cat's own address: scan yourself, at most once every two hours
       if (!addrs.length && !self) continue;
-      const token = self ? AGENT_ID.toLowerCase() : addrs[0];
+      const token = self ? CA.toLowerCase() : addrs[0];
       if (feed.scans.some(s => s.token === token && s.handle === t.handle && now - Date.parse(s.at) < 6 * 3600e3)) continue;
       if (self && feed.scans.some(s => s.token === token && !s.error && now - Date.parse(s.at) < 2 * 3600e3)) continue;
       try {
@@ -476,7 +478,7 @@ async function findReplyTargetInner(feed, { mentionsOnly = false, outreach = fal
   // Follow-back farms, "dm us", callout accounts: never worth two cents. A stranger earns an answer with substance and a real following.
   const spammy = (t) => /follow\s*(me\s*)?back|follow\s+for|dm\s+(us|me)|let'?s\s+talk|collab|check\s+(out\s+)?my|aped my|callout|airdrop|giveaway|whitelist|promo|shill|send\s+me/i.test(t.text) || (/https?:\/\/t\.co/.test(t.text) && t.text.replace(/@\w+|https?:\/\/\S+/g, "").trim().length < 40);
   const ecoSet = new Set((feed.room?.ecosystem || []).map(e => e.handle).concat(REPLY_ACCOUNTS));
-  const aboutUs = (t) => /\$ctrn\b|\$caturn\b|\bcaturn(?:_rh)?\b|@caturn_rh/i.test(t.text) || t.text.toLowerCase().includes(AGENT_ID.toLowerCase()); // talking about the cat, in any language
+  const aboutUs = (t) => /\$ctrn\b|\$caturn\b|\bcaturn(?:_rh)?\b|@caturn_rh/i.test(t.text) || t.text.toLowerCase().includes(CA.toLowerCase()); // talking about the cat, in any language
   const usable = (t) => t.handle !== OWN_HANDLE && !answered.has(t.id) && fresh(t) && !/^RT @/i.test(t.text) && (aboutUs(t) || t.text.replace(/@\w+/g, "").trim().length > 12)
     && !spammy(t) && (ecoSet.has(t.handle) || aboutUs(t) || (t.followers >= 300 && t.text.replace(/@\w+/g, "").trim().length >= 40));
   const score = (t) => t.views + t.likes * 20 + t.replies * 30 + t.reposts * 40 + (now - Date.parse(t.at || 0) < 6 * 3600e3 ? 500 : 0); // engagement, with a bonus for being recent
@@ -638,7 +640,7 @@ function cleanPost(text, ctx, feed) {
   if (!text) return null;
   let t = String(text).replace(/\s+/g, " ").trim();
   if (/https?:\/\/|www\./i.test(t)) return null;
-  for (const m of t.matchAll(/0x[a-f0-9]{40}/gi)) if (m[0].toLowerCase() !== AGENT_ID.toLowerCase()) return null; // only the real contract, never another address
+  for (const m of t.matchAll(/0x[a-f0-9]{40}/gi)) if (m[0].toLowerCase() !== CA.toLowerCase()) return null; // only the real contract, never another address
   const extra = new Set([ctx.replyTo?.handle, ctx.tagHandle].filter(Boolean));
   const handles = [...t.matchAll(/@(\w{1,15})/g)].map(m => m[1].toLowerCase());
   for (const h of handles) if (!allowedHandle(h, feed) && !extra.has(h)) t = t.replace(new RegExp("@" + h + "\\b", "ig"), h); // strangers become plain words
@@ -1193,12 +1195,12 @@ if (status === "awake") {
               else event(`asked for a picture to go with the post and got nothing back (${imageErrors.join(" | ").slice(0, 400)}); posting the words only`);
             } catch (e) { log("image post failed:", String(e.message).slice(0, 160)); }
           }
-          const withCA = CA_EVERY > 0 && !ctx.replyTo && feed.postSeq % CA_EVERY === CA_EVERY - 1 && !text.toLowerCase().includes(AGENT_ID.toLowerCase());
+          const withCA = CA_EVERY > 0 && !ctx.replyTo && feed.postSeq % CA_EVERY === CA_EVERY - 1 && !text.toLowerCase().includes(CA.toLowerCase());
           // every so often a plain post carries the scanner link too (only through the X app, which allows links)
           const withScan = X_API && !ctx.replyTo && !withCA && !mediaIds.length && feed.postSeq % 12 === 5 && !/scan/i.test(text);
           // and on another beat, the board link: the community picks what the cat does each day
           const withBoard = X_API && !ctx.replyTo && !withCA && !withScan && !mediaIds.length && feed.postSeq % 12 === 11 && !/board/i.test(text);
-          const text2 = withCA ? `${text}\n\nca: ${AGENT_ID}` : withScan ? `${text}\n\nscan any robinhood chain token for rug risk: https://www.caturn.lol/scan` : withBoard ? `${text}\n\nvote on what i do tomorrow: https://www.caturn.lol/board` : text;
+          const text2 = withCA ? `${text}\n\nca: ${CA}` : withScan ? `${text}\n\nscan any robinhood chain token for rug risk: https://www.caturn.lol/scan` : withBoard ? `${text}\n\nvote on what i do tomorrow: https://www.caturn.lol/board` : text;
           const outText = mediaIds.length && ctx.shareSketch?.family === "sky" ? `${text2} caturn.lol/sky` : text2;
           // X lets this app thread a reply only under a post that mentions the cat; anything else goes out through orbio, opening with the handle.
           const canThread = X_API && ctx.replyTo && ["mention", "scan request", "posted my address"].includes(ctx.replyTo.why);
