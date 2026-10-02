@@ -31,6 +31,10 @@ const OWN_HANDLE = (env.CATURN_X_HANDLE || "caturn_rh").toLowerCase();
 // accounts @orbiodotso mentions, and the larger accounts talking about orbio. Robinhood is the chain Caturn lives on.
 const PINNED_TAG_HANDLES = (env.CATURN_TAG_HANDLES || "errandboard").split(",").map(s => s.trim().replace(/^@/, "").toLowerCase()).filter(Boolean);
 const TAG_EVERY  = Number(env.CATURN_TAG_EVERY || 8);
+const IMAGE_EVERY = Number(env.CATURN_IMAGE_EVERY || 5);  // one post in N carries a picture the cat had made for it (0 = never; needs the X app)
+const IMAGE_MODELS = (env.CATURN_IMAGE_MODELS || "google/gemini-3.1-flash-image,openai/gpt-image-1-mini,bytedance-seed/seedream-5-0-flash").split(",").map(s => s.trim()).filter(Boolean);
+// One look for every picture, so the timeline reads as one artist: quiet conceptual still life, the joke carried by objects.
+const IMAGE_STYLE = "Minimal conceptual still-life photograph. Plain warm cream paper background, soft natural daylight from the upper left, a gentle soft shadow, lots of empty space, one small arrangement near the center. Muted natural colors with at most one accent color. Real objects, tactile, slightly whimsical. No text, no letters, no numbers, no logos, no people, no watermark. Square composition.";
 const CA_EVERY   = Number(env.CATURN_CA_EVERY || 6);     // append the real contract address to one post in N (0 = never)     // tag someone in roughly one post in five (0 = never)
 const TAG_POOL_REFRESH_H = 12;                            // re-scan X for people around orbio this often
 const REPLY_EVERY = Number(env.CATURN_REPLY_EVERY || 2);  // every Nth post slot looks for something on X to answer (0 = never)
@@ -183,14 +187,14 @@ ${!ctx.shareSketch && ctx.lastSketch ? (ctx.lastSketch.source
   : `You recently drew a sketch (a ${ctx.lastSketch.family} piece) and it is on the site. This one time, the post may mention in passing that a new sketch is up on caturn dot lol, dry, no link. Most of your posts never mention sketches.`) : ""}
 Tonight's lens for the private thought: ${ctx.lens}. Let it in sideways. Do not name it.
 ${ctx.mustPost ? "A post is required this time: " : "If you post, "}the post's angle is: ${ctx.postAngle}.
-${ctx.unhinged && (!ctx.replyTo || ctx.replyTo.why === "mention") && !ctx.tagHandle && !ctx.scan ? "This post may be unhinged: use the unhinged register from your persona (feral, crude in a cat way, innuendo the reader completes, a swear if it earns its place), still with a real turn and nothing explicit.\n" : ""}${ctx.replyTo ? "" : `Post format this time: ${ctx.postFormat.name} (${ctx.postFormat.how}). `}Make it land: be specific, use a real number if one helps, put the funniest beat last, never explain the joke. Plain words, readable in one pass. No poetry, no riddles, no imagery about rings, light, warmth, silence or receipts. Lowercase. No hashtags.${ctx.wantHook ? " The goal is replies: end with something a stranger will want to answer, easy enough to answer in five words." : ""}
+${ctx.wantImage ? "This post goes out with a picture you describe in \"image\": the post and the picture should land together, the picture adding a second beat rather than repeating the words.\n" : ""}${ctx.unhinged && (!ctx.replyTo || ctx.replyTo.why === "mention") && !ctx.tagHandle && !ctx.scan ? "This post may be unhinged: use the unhinged register from your persona (feral, crude in a cat way, innuendo the reader completes, a swear if it earns its place), still with a real turn and nothing explicit.\n" : ""}${ctx.replyTo ? "" : `Post format this time: ${ctx.postFormat.name} (${ctx.postFormat.how}). `}Make it land: be specific, use a real number if one helps, put the funniest beat last, never explain the joke. Plain words, readable in one pass. No poetry, no riddles, no imagery about rings, light, warmth, silence or receipts. Lowercase. No hashtags.${ctx.wantHook ? " The goal is replies: end with something a stranger will want to answer, easy enough to answer in five words." : ""}
 
 Write ONE entry as a single JSON object and nothing else: no code fences, no commentary before or after. Keep "thought" under 60 words and "post" under 200 characters.
 For the post, first write three different drafts in "drafts" (different shapes, different jokes). Then, in "checks", one short line per draft naming: what is wrong in it, why it is fine, the last word, and the exact number or name it uses; a draft that fails a check gets fixed before you choose. Put the funniest and most replyable one in "post". Judge them like a stranger scrolling fast: would they stop, would they smile, would they reply.
 {"thought": string (1-3 sentences, first person, raw inner monologue, ${ctx.energy < 0.12 ? "you are half asleep: this is a dream fragment, strange and short" : "awake"}),
  "drafts": [string, string, string] (three candidate posts, each under 200 characters, each a different shape),
  "checks": [string, string, string] (one line per draft, under 15 words: wrong / fine / last word / exact detail),
-${ctx.postFormat?.name === "poll" && !ctx.replyTo ? ' "poll": [string, string, string?, string?] (2 to 4 poll options for the post, each under 25 characters, lowercase, the funniest last),\n' : ""} "post": string${ctx.mustPost ? "" : "|null"} (the best of the drafts, verbatim; for X: lowercase, under 200 characters, plain words, one concrete orbio fact plus one cat behavior, dry or funny, no metaphors chained, no links, no hashtags, no handles other than @orbiodotso when the angle calls for it${ctx.replyTo ? ", except @" + ctx.replyTo.handle + " which this post must start with" : ctx.tagHandle ? ", except @" + ctx.tagHandle + " which this post must include" : ""}${ctx.mustPost ? "" : "; null only if nothing honest fits"}),
+${ctx.wantImage ? ' "image": string (the picture that goes with the post, under 40 words: one or two everyday objects arranged as a visual pun on the post, the way a cat would see it; concrete things only, no text in the image, no people, no logos),\n' : ""}${ctx.postFormat?.name === "poll" && !ctx.replyTo ? ' "poll": [string, string, string?, string?] (2 to 4 poll options for the post, each under 25 characters, lowercase, the funniest last),\n' : ""} "post": string${ctx.mustPost ? "" : "|null"} (the best of the drafts, verbatim; for X: lowercase, under 200 characters, plain words, one concrete orbio fact plus one cat behavior, dry or funny, no metaphors chained, no links, no hashtags, no handles other than @orbiodotso when the angle calls for it${ctx.replyTo ? ", except @" + ctx.replyTo.handle + " which this post must start with" : ctx.tagHandle ? ", except @" + ctx.tagHandle + " which this post must include" : ""}${ctx.mustPost ? "" : "; null only if nothing honest fits"}),
  "mood": string (one or two lowercase words for your mood right now, specific and varied. Draw from anywhere in a cat's range: sun-drunk, watchful, aloof, kneading, skittish, imperious, wistful, hunting, loafing, bristling, purring, sulking, feral, dignified, nocturnal, homesick, greedy, tender, spiteful, patient, giddy, hollow, regal, twitchy, sated, brooding, curious, unbothered, mournful, playful, grumpy, serene, cornered, smug, lonely, electric, drowsy, vigilant, coy, ancient. Never reuse any of these recent moods: ${ctx.recentMoods.join(", ") || "none"}),
  "focus": string (what you are fixated on right now, under 8 words, lowercase),
  "remember": [string] (0 to 2 things from this moment worth keeping for weeks: a person and why, a promise, a fact about your life, a bit that landed; one plain first-person sentence each with names and numbers; usually an empty list),${ctx.replyTo ? `
@@ -225,6 +229,7 @@ ${ctx.postFormat?.name === "poll" && !ctx.replyTo ? ' "poll": [string, string, s
   const em = out.emotions || {};
   const num = (v, d) => { v = Number(v); return Number.isFinite(v) ? clamp(v, 0, 1) : d; };
   return { thought: String(out.thought || "").trim(), post: out.post ? String(out.post).trim() : null, cost, model: MODEL,
+    image: typeof out.image === "string" && out.image.trim().length > 8 ? out.image.trim().slice(0, 400) : null,
     poll: Array.isArray(out.poll) ? out.poll.map(o => String(o || "").replace(/\s+/g, " ").trim()).filter(o => o && o.length <= 25 && !/https?:|0x[a-f0-9]{6}|@\w/i.test(o)).slice(0, 4) : null,
     drafts: Array.isArray(out.drafts) ? out.drafts.filter(d => typeof d === "string").map(d => d.trim()).slice(0, 3) : [],
     mood: String(out.mood || "").trim().toLowerCase().slice(0, 32) || null,
@@ -595,6 +600,30 @@ async function postOnX(text, { replyTo = null, mediaIds = [], poll = null } = {}
   }
 }
 const replyOnX = (text, inReplyToId) => postOnX(text, { replyTo: inReplyToId });
+// A picture for a post, made through the orbio gateway (OpenRouter-style image output). Returns the bytes and the cost.
+async function makeImage(idea) {
+  const auth = { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json" };
+  for (const model of IMAGE_MODELS) {
+    try {
+      const both = /gemini|gpt-5|auto/.test(model);
+      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, modalities: both ? ["image", "text"] : ["image"], messages: [{ role: "user", content: `${idea}\n\n${IMAGE_STYLE}` }] }) });
+      const msg = r.choices?.[0]?.message || {};
+      const parts = Array.isArray(msg.content) ? msg.content : [];
+      const url = msg.images?.[0]?.image_url?.url || msg.images?.[0]?.url || parts.find(c => c?.type === "image_url")?.image_url?.url
+        || (String(typeof msg.content === "string" ? msg.content : "").match(/data:image\/[a-z]+;base64,[A-Za-z0-9+/=]+|https?:\/\/\S+\.(?:png|jpe?g|webp)/) || [])[0];
+      if (!url) { log(`image model ${model} returned no image:`, JSON.stringify(r).slice(0, 300)); continue; }
+      let buf, type = "image/png";
+      const m = url.match(/^data:(image\/[a-z]+);base64,(.*)$/);
+      if (m) { type = m[1]; buf = Buffer.from(m[2], "base64"); }
+      else { const res = await fetch(url); type = res.headers.get("content-type") || type; buf = Buffer.from(await res.arrayBuffer()); }
+      if (!buf?.length || buf.length > 5e6) { log(`image from ${model} unusable (${buf?.length || 0} bytes)`); continue; }
+      let cost = Number(r.usage?.cost ?? 0); if (!(cost > 0)) cost = 0.08;
+      log("image:", model, buf.length, "bytes,", type);
+      return { buf, type: type === "image/jpg" ? "image/jpeg" : type, model, cost };
+    } catch (e) { log(`image model ${model} failed:`, e.status || "", String(e.body?.error?.message || e.message).slice(0, 160)); }
+  }
+  return null;
+}
 // Orbio refuses links: spell a caturn.lol link out in words and drop any other.
 const delink = (t) => String(t).replace(/https?:\/\/(?:www\.)?caturn\.lol\/?(\S*)/gi, (m, path) => "caturn dot lol" + (path ? " slash " + path.replace(/\?.*$/, "").replace(/\//g, " slash ") : "")).replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim();
 // Keep posts inside the rules whatever the model wrote: no links, no addresses, no handles outside the allowlist (and the one it is answering).
@@ -1019,6 +1048,8 @@ if (status === "awake") {
     if (!ctx.shareSketch && lastSk && !lastSk.mentioned && !lastSk.shared && lastSk.url && now - Date.parse(lastSk.at) < 6 * 3600e3 && duePost && X_API && !ctx.replyTo) {
       ctx.shareSketch = lastSk; ctx.lastSketch = lastSk; lastSk.mentioned = true; // with X keys the image itself goes out, with a caption
     } else if (lastSk && !lastSk.mentioned && now - Date.parse(lastSk.at) < 35 * 60e3 && Math.random() < 0.5 && duePost) { ctx.lastSketch = lastSk; lastSk.mentioned = true; }
+    // Now and then the post gets a picture the cat had made for it: never with art, a reply, a prebuilt scan or a poll.
+    ctx.wantImage = IMAGE_EVERY > 0 && duePost && X_API && !DRY_RUN && !ctx.replyTo && !ctx.shareSketch && !ctx.prebuiltPost && ctx.postFormat?.name !== "poll" && feed.postSeq % IMAGE_EVERY === IMAGE_EVERY - 2;
     // Errand news: something happened on the board in the last half hour, and the post may be about it.
     const hired = (feed.errand?.hired || []).filter(h => [h.postedAt, h.paidAt].some(t => t && now - Date.parse(t) < 30 * 60e3));
     const ems = (feed.errand?.missions || []).filter(m => [m.claimedAt, m.submittedAt, m.paidAt].some(t => t && now - Date.parse(t) < 30 * 60e3));
@@ -1080,6 +1111,12 @@ if (status === "awake") {
           if (ctx.shareSketch && X_API) {
             try { const g = await (await fetch(ctx.shareSketch.url)).arrayBuffer(); mediaIds = [await uploadMediaX(Buffer.from(g))]; ctx.shareSketch.shared = iso(now); }
             catch (e) { log("sketch upload to X failed:", String(e.message).slice(0, 160)); event(`x api refused the image upload (${String(e.body?.detail || e.body?.error || e.message).slice(0, 90)}); posting the words only`); }
+          } else if (ctx.wantImage && t.image && X_API) {
+            try {
+              const img = await makeImage(t.image);
+              if (img) { readCost += img.cost; mediaIds = [await uploadMediaX(img.buf, img.type)]; ctx.madeImage = { idea: t.image, model: img.model }; }
+              else event("asked for a picture to go with the post and got nothing back; posting the words only");
+            } catch (e) { log("image post failed:", String(e.message).slice(0, 160)); }
           }
           const withCA = CA_EVERY > 0 && !ctx.replyTo && feed.postSeq % CA_EVERY === CA_EVERY - 1 && !text.toLowerCase().includes(AGENT_ID.toLowerCase());
           // every so often a plain post carries the scanner link too (only through the X app, which allows links)
@@ -1106,13 +1143,14 @@ if (status === "awake") {
             if (p.err) rec.error = String(p.err).slice(0, 200);
             if (!ctx.replyTo && ctx.postFormat) rec.format = ctx.postFormat.name;
             if (poll && p.via === "x-api" && p.status !== "failed") rec.poll = poll;
-            if (mediaIds.length) { rec.kind = "sketch"; rec.sketch = { url: ctx.shareSketch.url, family: ctx.shareSketch.family, source: ctx.shareSketch.source || null }; }
+            if (mediaIds.length && ctx.shareSketch) { rec.kind = "sketch"; rec.sketch = { url: ctx.shareSketch.url, family: ctx.shareSketch.family, source: ctx.shareSketch.source || null }; }
+            else if (mediaIds.length && ctx.madeImage) { rec.kind = "image"; rec.image = ctx.madeImage; }
             if (ctx.replyTo) { rec.kind = "reply"; rec.threaded = !!X_API && ctx.replyTo.threaded !== false; rec.replyTo = { id: ctx.replyTo.id, handle: ctx.replyTo.handle, name: ctx.replyTo.name, text: ctx.replyTo.text.slice(0, 200), url: ctx.replyTo.url, why: ctx.replyTo.why }; }
             else if (ctx.tagHandle && text.toLowerCase().includes("@" + ctx.tagHandle)) { rec.kind = "tag"; rec.tagged = ctx.tagHandle; }
             feed.posts.push(rec); feed.lastPostThoughtIndex = n; ctx.postedRec = rec;
             await persistNow(feed);
             if (ctx.scan) { const sc = (feed.scans || []).find(x => x.token === ctx.scan.token && x.handle === ctx.replyTo.handle && !x.posted); if (sc) sc.posted = true; }
-            event(rec.kind === "sketch" ? "posted a sketch on X" : rec.kind === "reply" ? `${rec.threaded ? "replied to" : "answered"} @${rec.replyTo.handle} on X` : rec.kind === "tag" ? `posted to X, tagging @${rec.tagged}` : "posted to X");
+            event(rec.kind === "sketch" ? "posted a sketch on X" : rec.kind === "image" ? "posted to X with a picture" : rec.kind === "reply" ? `${rec.threaded ? "replied to" : "answered"} @${rec.replyTo.handle} on X` : rec.kind === "tag" ? `posted to X, tagging @${rec.tagged}` : "posted to X");
           }
         } catch (e) {
           if (e.status === 409) event("wanted to post, but no X account is connected");
