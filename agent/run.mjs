@@ -582,10 +582,11 @@ async function uploadMediaX(buf, mediaType = "image/gif") {
   return id;
 }
 // One X API poster for everything that Orbio cannot do: threaded replies and posts with an image.
-async function postOnX(text, { replyTo = null, mediaIds = [], poll = null } = {}) {
+async function postOnX(text, { replyTo = null, mediaIds = [], poll = null, quote = null } = {}) {
   const url = "https://api.x.com/2/tweets";   // links are allowed here (X bills a link post higher, so only the say queue and the sky film carry them)
   const body = { text };
   if (replyTo) body.reply = { in_reply_to_tweet_id: String(replyTo) };
+  if (quote) body.quote_tweet_id = String(quote);
   if (mediaIds.length) body.media = { media_ids: mediaIds.map(String) };
   else if (poll?.length >= 2) body.poll = { options: poll, duration_minutes: 360 };
   try {
@@ -883,6 +884,29 @@ async function askGrok(feed) {
   feed.grok.count = (feed.grok.count || 0) + 1; feed.grok.asked = [...(feed.grok.asked || []), id].slice(-30);
   feed.posts.push({ at: iso(now), text, id: p.id, url: p.url, status: p.status, cost: 0, via: p.via, kind: "reply", threaded: true, grok: true, replyTo: { id, handle: OWN_HANDLE, name: "caturn", text: String(target.text).slice(0, 200), url: target.url, why: "asking grok" } });
   event("asked @grok about my own post");
+  await persistNow(feed);
+}
+// "@grok dis tru?": quote an orbio post from the buzz pool and ask Grok. X will not let this app reply under strangers' posts,
+// but a quote is the cat's own post, so Grok answers under it, and the orbio post rides along on the cat's timeline.
+const DISTRU_EVERY_MIN = Number(env.CATURN_DISTRU_EVERY_MIN || 60);
+const DISTRU_LINES = ["@grok dis tru?", "@grok dis tru??", "dis tru @grok?", "@grok dis tru? asking for a cat", "@grok dis tru? the cat needs to know", "@grok dis tru? be honest", "@grok dis tru or nah", "@grok dis tru? i have been staring at it for an hour"];
+async function disTru(feed) {
+  if (!X_API || DRY_RUN || !(DISTRU_EVERY_MIN > 0)) return;
+  feed.grok = feed.grok || {};
+  if (feed.grok.lastQuoteAt && now - Date.parse(feed.grok.lastQuoteAt) < DISTRU_EVERY_MIN * 60e3) return;
+  await refreshBuzz(feed).catch(() => 0);
+  const quoted = new Set((feed.grok.quoted || []).map(String));
+  const score = (t) => (t.views || 0) + (t.likes || 0) * 20 + (t.replies || 0) * 30 + (t.reposts || 0) * 40;
+  const t = (feed.buzzPool?.posts || []).filter(t => t.handle !== OWN_HANDLE && t.handle !== "grok" && !quoted.has(String(t.id)) && now - Date.parse(t.at || 0) < 24 * 3600e3
+    && !/^RT @/i.test(t.text) && t.text.replace(/@\w+|https?:\/\/\S+/g, "").trim().length >= 30).sort((a, b) => score(b) - score(a))[0];
+  if (!t) { log("dis tru: nothing fresh about orbio to quote"); return; }
+  const n = feed.grok.quotes || 0, text = DISTRU_LINES[n % DISTRU_LINES.length];
+  feed.grok.lastQuoteAt = iso(now); feed.grok.quoted = [...(feed.grok.quoted || []), String(t.id)].slice(-60);
+  const p = await postOnX(text, { quote: t.id });
+  if (p.status === "failed") { log("dis tru refused:", p.err); event(`tried to ask @grok about @${t.handle}'s post and x refused (${String(p.err || "").slice(0, 80)})`); return; }
+  feed.grok.quotes = n + 1;
+  feed.posts.push({ at: iso(now), text, id: p.id, url: p.url, status: p.status, cost: 0, via: p.via, kind: "quote", grok: true, quoted: { id: t.id, handle: t.handle, text: t.text.slice(0, 200), url: `https://x.com/${t.handle}/status/${t.id}` } });
+  event(`asked @grok if @${t.handle}'s orbio post is tru`);
   await persistNow(feed);
 }
 async function saySomething(feed) {
@@ -1208,6 +1232,7 @@ if (status === "awake") {
 await saySomething(feed);
 await announceBuild(feed);
 try { await askGrok(feed); } catch (e) { log("grok ask failed:", String(e.message).slice(0, 160)); }
+try { await disTru(feed); } catch (e) { log("dis tru failed:", String(e.message).slice(0, 160)); }
 if (MEMORY_ON && !DRY_RUN && API_KEY) {
   try { await measurePosts(feed, readX); } catch (e) { log("measure failed:", e.message); }
   try { await reflectDay(feed, async (messages, max_tokens) => { const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model: MODELS[1] || MODELS[0], messages, max_tokens, temperature: 0.5 }) }); return { text: r.choices?.[0]?.message?.content || "", cost: Number(r.usage?.cost || 0) }; }); } catch (e) { log("reflect failed:", e.message); }
