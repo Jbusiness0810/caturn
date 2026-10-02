@@ -20,7 +20,7 @@ const FORCE     = env.CATURN_FORCE === "1";      // manual runs: think now, igno
 const POST_INTERVAL_MIN = Number(env.CATURN_POST_INTERVAL_MIN || 10);   // post to X on this clock, whatever the pacing says
 const SKETCH_EVERY = Number(env.CATURN_SKETCH_EVERY || 4);              // draw a sketch every Nth thought (0 = never)
 const FOUND_SKETCHES = env.CATURN_FOUND_SKETCHES !== "0";                // two sketches in three are open-licensed p5.js pieces found on openprocessing
-const ART_EVERY = Number(env.CATURN_ART_EVERY || 6);                     // every Nth post is a found piece of art, posted as a gif with the artist's name (needs the X app)
+const ART_EVERY = Number(env.CATURN_ART_EVERY || 0);   // off: the owner stopped the art posts                     // every Nth post is a found piece of art, posted as a gif with the artist's name (needs the X app)
 const FOUND_ARTISTS = (env.CATURN_FOUND_ARTISTS || "").split(",").map(s => Number(s.trim())).filter(n => n > 0); // openprocessing user ids to draw from first
 const FOUND_MIN_HEARTS = Number(env.CATURN_FOUND_MIN_HEARTS || 12);        // a found sketch needs this many hearts on openprocessing
 const FOUND_CURATORS = (env.CATURN_FOUND_CURATORS || "6533,65884").split(",").map(s => Number(s.trim())).filter(n => n > 0); // whose hearted sketches to draw from (takawo by default)
@@ -1077,9 +1077,10 @@ if (status === "awake") {
       if (art) { ctx.shareSketch = art; ctx.lastSketch = art; art.mentioned = true; ctx.postAngle = "the caption for a piece of art you found and like"; log("art slot:", art.source?.title, "by", art.source?.author); }
     }
     const lastSk = feed.sketches[feed.sketches.length - 1];
-    if (!ctx.shareSketch && lastSk && !lastSk.mentioned && !lastSk.shared && lastSk.url && now - Date.parse(lastSk.at) < 6 * 3600e3 && duePost && X_API && !ctx.replyTo) {
+    const SKETCH_POSTS = env.CATURN_SKETCH_POSTS === "1"; // sketches still go to the site's gallery; posting them is off unless this is set
+    if (SKETCH_POSTS && !ctx.shareSketch && lastSk && !lastSk.mentioned && !lastSk.shared && lastSk.url && now - Date.parse(lastSk.at) < 6 * 3600e3 && duePost && X_API && !ctx.replyTo) {
       ctx.shareSketch = lastSk; ctx.lastSketch = lastSk; lastSk.mentioned = true; // with X keys the image itself goes out, with a caption
-    } else if (lastSk && !lastSk.mentioned && now - Date.parse(lastSk.at) < 35 * 60e3 && Math.random() < 0.5 && duePost) { ctx.lastSketch = lastSk; lastSk.mentioned = true; }
+    } else if (SKETCH_POSTS && lastSk && !lastSk.mentioned && now - Date.parse(lastSk.at) < 35 * 60e3 && Math.random() < 0.5 && duePost) { ctx.lastSketch = lastSk; lastSk.mentioned = true; }
     // Now and then the post gets a picture the cat had made for it: never with art, a reply, a prebuilt scan or a poll.
     ctx.wantImage = IMAGE_EVERY > 0 && duePost && X_API && !DRY_RUN && !ctx.replyTo && !ctx.shareSketch && !ctx.prebuiltPost && ctx.postFormat?.name !== "poll" && feed.postSeq % IMAGE_EVERY === IMAGE_EVERY - 2;
     // Errand news: something happened on the board in the last half hour, and the post may be about it.
