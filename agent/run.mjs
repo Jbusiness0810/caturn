@@ -487,7 +487,7 @@ async function findReplyTargetInner(feed, { mentionsOnly = false, outreach = fal
       const mentions = await readX({ mentions_of: OWN_HANDLE }).catch(() => []); cost += mentions.length * 0.00022;
       feed.replyDebug.mentions = mentions.length;
       const talking = mentions.filter(t => t.handle !== OWN_HANDLE && !answered.has(t.id) && fresh(t) && !/^RT @/i.test(t.text) && !spammy(t) && t.text.replace(/@\w+|https?:\/\/\S+/g, "").trim().length >= 6
-        && (ecoSet.has(t.handle) || now - lastTo(t.handle) > 6 * 3600e3) && (t.followers >= 15 || ecoSet.has(t.handle)));
+        && (ecoSet.has(t.handle) || t.handle === "grok" || now - lastTo(t.handle) > 6 * 3600e3) && (t.followers >= 15 || ecoSet.has(t.handle) || t.handle === "grok"));
       const m = talking.sort((a, b) => score(b) - score(a))[0];
       return { target: m ? { ...m, why: "mention", url: `https://x.com/${m.handle}/status/${m.id}` } : null, cost };
     }
@@ -849,6 +849,36 @@ async function announceBuild(feed) {
     await persistNow(feed);
   } catch (e) { log("build announce failed:", e.message); }
 }
+// Grok answers anyone who tags it, in public, under the post. Every few hours the cat tags @grok under one of its own fresh posts
+// with a question Grok will want to answer; Grok's reply lands in the mentions, and the cat answers that too. A thread with two AIs in it.
+const GROK_EVERY_H = Number(env.CATURN_GROK_EVERY_H || 3);
+async function askGrok(feed) {
+  if (!X_API || !API_KEY || DRY_RUN || !(GROK_EVERY_H > 0)) return;
+  feed.grok = feed.grok || {};
+  if (feed.grok.lastAt && now - Date.parse(feed.grok.lastAt) < GROK_EVERY_H * 3600e3) return;
+  const asked = new Set((feed.grok.asked || []).map(String));
+  const statusId = (p) => (String(p.url || "").match(/status\/(\d+)/) || [])[1] || null;
+  const mine = feed.posts.filter(p => !p.replyTo && p.status === "published" && !String(p.text || "").startsWith("@") && now - Date.parse(p.at) < 3 * 3600e3 && statusId(p) && !asked.has(statusId(p))).slice(-4);
+  const target = mine.sort((a, b) => Number(!!b.image || !!b.poll) - Number(!!a.image || !!a.poll))[0] || mine[mine.length - 1];
+  if (!target) return;
+  const id = statusId(target);
+  const fallbacks = ["@grok is this true", "@grok rate this post out of 10. be honest. i can take it. i cannot take it.", "@grok explain this post to a dog", "@grok settle this: am i a genius or just a cat", "@grok fact check me. i dare you."];
+  let text = null;
+  try {
+    const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "anthropic/claude-sonnet-5.5", max_tokens: 120, temperature: 1, messages: [
+      { role: "system", content: "You are Caturn, a dry, funny AI cat agent on the orbio launchpad ($CTRN). You are writing a reply under your own post that tags @grok, X's AI, so it answers in public. Ask it something it will want to answer and that makes a good thread: rate you, fact-check you, settle a dumb debate, judge your life choices, or pick a side. Cocky or deadpan, cat logic. One line, lowercase, under 140 characters, starts with @grok, no links, no hashtags, no other handles, nothing about price or buying. Reply with the line only." },
+      { role: "user", content: `your post: ${JSON.stringify(String(target.text).slice(0, 280))}` }] }) });
+    text = String(r.choices?.[0]?.message?.content || "").replace(/\s+/g, " ").trim().replace(/^["']|["']$/g, "");
+  } catch (e) { log("grok line failed:", String(e.message).slice(0, 120)); }
+  if (!text || !/^@grok\b/i.test(text) || text.length > 200 || /https?:|0x[a-f0-9]{8}/i.test(text) || /@(?!grok\b)\w+/i.test(text)) text = fallbacks[(feed.grok.count || 0) % fallbacks.length];
+  const p = await replyOnX(text, id);
+  feed.grok.lastAt = iso(now);
+  if (p.status === "failed") { log("grok ask refused:", p.err); event(`tried to get @grok's attention and x refused (${String(p.err || "").slice(0, 80)})`); return; }
+  feed.grok.count = (feed.grok.count || 0) + 1; feed.grok.asked = [...(feed.grok.asked || []), id].slice(-30);
+  feed.posts.push({ at: iso(now), text, id: p.id, url: p.url, status: p.status, cost: 0, via: p.via, kind: "reply", threaded: true, grok: true, replyTo: { id, handle: OWN_HANDLE, name: "caturn", text: String(target.text).slice(0, 200), url: target.url, why: "asking grok" } });
+  event("asked @grok about my own post");
+  await persistNow(feed);
+}
 async function saySomething(feed) {
   if (!API_KEY || DRY_RUN) return;
   let queue = []; try { queue = JSON.parse(await readFile(new URL("./say.json", import.meta.url), "utf8")); } catch { return; }
@@ -1170,6 +1200,7 @@ if (status === "awake") {
 }
 await saySomething(feed);
 await announceBuild(feed);
+try { await askGrok(feed); } catch (e) { log("grok ask failed:", String(e.message).slice(0, 160)); }
 if (MEMORY_ON && !DRY_RUN && API_KEY) {
   try { await measurePosts(feed, readX); } catch (e) { log("measure failed:", e.message); }
   try { await reflectDay(feed, async (messages, max_tokens) => { const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model: MODELS[1] || MODELS[0], messages, max_tokens, temperature: 0.5 }) }); return { text: r.choices?.[0]?.message?.content || "", cost: Number(r.usage?.cost || 0) }; }); } catch (e) { log("reflect failed:", e.message); }
@@ -1180,6 +1211,6 @@ if (API_KEY) await refreshPostUrls(feed.posts);
 if (API_KEY && !DRY_RUN && agent) await retryFailedPosts(feed, spentToday);
 if (!DRY_RUN) await repairSketches(feed);
 
-feed.postSeq += feed.posts.filter(p => p.at === iso(now) && p.via !== "recovered").length;
+feed.postSeq += feed.posts.filter(p => p.at === iso(now) && p.via !== "recovered" && !p.grok).length;
 await writeFile(FEED, JSON.stringify(feed, null, 2) + "\n");
 log(`status=${feed.status} energy=${feed.energy} thoughts/day=${thoughtsPerDay} spentToday=${feed.metrics.spentTodayCredit} ${feed.reason || ""}`);
