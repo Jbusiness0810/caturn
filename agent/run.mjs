@@ -601,7 +601,9 @@ async function postOnX(text, { replyTo = null, mediaIds = [], poll = null } = {}
 }
 const replyOnX = (text, inReplyToId) => postOnX(text, { replyTo: inReplyToId });
 // A picture for a post, made through the orbio gateway (OpenRouter-style image output). Returns the bytes and the cost.
+let imageErrors = [];
 async function makeImage(idea) {
+  imageErrors = [];
   const auth = { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json" };
   for (const model of IMAGE_MODELS) {
     try {
@@ -611,7 +613,7 @@ async function makeImage(idea) {
       const parts = Array.isArray(msg.content) ? msg.content : [];
       const url = msg.images?.[0]?.image_url?.url || msg.images?.[0]?.url || parts.find(c => c?.type === "image_url")?.image_url?.url
         || (String(typeof msg.content === "string" ? msg.content : "").match(/data:image\/[a-z]+;base64,[A-Za-z0-9+/=]+|https?:\/\/\S+\.(?:png|jpe?g|webp)/) || [])[0];
-      if (!url) { log(`image model ${model} returned no image:`, JSON.stringify(r).slice(0, 300)); continue; }
+      if (!url) { log(`image model ${model} returned no image:`, JSON.stringify(r).slice(0, 300)); imageErrors.push(`${model.split("/").pop()}: no image in ${JSON.stringify(r).slice(0, 160)}`); continue; }
       let buf, type = "image/png";
       const m = url.match(/^data:(image\/[a-z]+);base64,(.*)$/);
       if (m) { type = m[1]; buf = Buffer.from(m[2], "base64"); }
@@ -620,7 +622,7 @@ async function makeImage(idea) {
       let cost = Number(r.usage?.cost ?? 0); if (!(cost > 0)) cost = 0.08;
       log("image:", model, buf.length, "bytes,", type);
       return { buf, type: type === "image/jpg" ? "image/jpeg" : type, model, cost };
-    } catch (e) { log(`image model ${model} failed:`, e.status || "", String(e.body?.error?.message || e.message).slice(0, 160)); }
+    } catch (e) { const why = `${e.status || ""} ${e.body?.error?.code || ""} ${String(e.body?.error?.message || e.message).slice(0, 140)}`.trim(); log(`image model ${model} failed:`, why); imageErrors.push(`${model.split("/").pop()}: ${why}`); }
   }
   return null;
 }
@@ -1115,7 +1117,7 @@ if (status === "awake") {
             try {
               const img = await makeImage(t.image);
               if (img) { readCost += img.cost; mediaIds = [await uploadMediaX(img.buf, img.type)]; ctx.madeImage = { idea: t.image, model: img.model }; }
-              else event("asked for a picture to go with the post and got nothing back; posting the words only");
+              else event(`asked for a picture to go with the post and got nothing back (${imageErrors.join(" | ").slice(0, 400)}); posting the words only`);
             } catch (e) { log("image post failed:", String(e.message).slice(0, 160)); }
           }
           const withCA = CA_EVERY > 0 && !ctx.replyTo && feed.postSeq % CA_EVERY === CA_EVERY - 1 && !text.toLowerCase().includes(AGENT_ID.toLowerCase());
