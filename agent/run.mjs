@@ -40,7 +40,7 @@ const TAG_POOL_REFRESH_H = 12;                            // re-scan X for peopl
 const REPLY_EVERY = Number(env.CATURN_REPLY_EVERY || 2);  // every Nth post slot looks for something on X to answer (0 = never)
 const REPLY_MAX_AGE_H = 72;                               // only answer posts younger than this
 const REPLY_SAME_HANDLE_GAP_H = 4;                        // answer the same stranger at most this often
-const REPLY_ACCOUNTS = (env.CATURN_REPLY_ACCOUNTS || "0x_aster,orbiodotso,errandboard").split(",").map(s => s.trim().replace(/^@/, "").toLowerCase()).filter(Boolean); // accounts whose posts get answered first
+const REPLY_ACCOUNTS = (env.CATURN_REPLY_ACCOUNTS || "0x_aster,orbiodotso,errandboard,agent_minimum").split(",").map(s => s.trim().replace(/^@/, "").toLowerCase()).filter(Boolean); // accounts whose posts get answered first
 const FOUNDER_GAP_H = Number(env.CATURN_FOUNDER_GAP_H || 4); // the founder (first reply account) gets an answer at least this often
 const REPLY_ACCOUNT_GAP_H = 1;                            // answer the same priority account at most this often
 // Real threaded replies need X's own API for @caturn_rh (Orbio's social.post cannot reply). With these four secrets set, replies thread; without them, a reply is a post that opens with the handle.
@@ -901,7 +901,7 @@ async function disTru(feed) {
   await refreshBuzz(feed).catch(() => 0);
   // the founder's and orbio's own newest posts are candidates too, whether or not the search caught them
   const direct = [];
-  for (const h of REPLY_ACCOUNTS.slice(0, 2)) { try { direct.push(...(await readX({ handle: h, limit: 5 })).filter(t => t.handle === h)); } catch {} }
+  for (const h of REPLY_ACCOUNTS) { try { direct.push(...(await readX({ handle: h, limit: 5 })).filter(t => t.handle === h)); } catch {} }
   const quoted = new Set((feed.grok.quoted || []).map(String));
   const insiders = new Set((feed.room?.ecosystem || []).map(e => e.handle).concat(REPLY_ACCOUNTS));
   const score = (t) => (t.views || 0) + (t.likes || 0) * 20 + (t.replies || 0) * 30 + (t.reposts || 0) * 40 + (insiders.has(t.handle) ? 1e6 : 0); // orbio's own people first
