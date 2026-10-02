@@ -24,6 +24,7 @@ concurrency:
 jobs:
   tick:
     runs-on: ubuntu-latest
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4
         with: { ref: master }
@@ -64,7 +65,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}                    # lets gh upload sketch GIFs to the rolling "sketches" release
           CATURN_CHECK: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
           FORCE_FIRST: ${{ github.event_name != 'schedule' && '1' || '' }}
-          LOOP: ${{ (github.event.inputs.say == '' && (vars.CATURN_LOOP_TICKS || secrets.CATURN_LOOP_TICKS || '22')) || '1' }}
+          LOOP: ${{ (github.event.inputs.say == '' && '33') || '1' }}   # 33 ticks of 10 minutes is 5.5 hours, inside GitHub's 6-hour job limit; short loops left hour-long gaps
         run: |
           git config user.name "caturn-bot"
           git config user.email "caturn-bot@users.noreply.github.com"
