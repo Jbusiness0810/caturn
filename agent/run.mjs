@@ -18,8 +18,8 @@ let MODEL = MODELS[0];
 const DRY_RUN   = env.CATURN_DRY_RUN === "1";
 const FORCE     = env.CATURN_FORCE === "1";      // manual runs: think now, ignoring the pacing timer (budget still applies)
 const POST_INTERVAL_MIN = Number(env.CATURN_POST_INTERVAL_MIN || 10);   // post to X on this clock, whatever the pacing says
-const SKETCH_EVERY = Number(env.CATURN_SKETCH_EVERY || 4);              // draw a sketch every Nth thought (0 = never)
-const FOUND_SKETCHES = env.CATURN_FOUND_SKETCHES !== "0";                // two sketches in three are open-licensed p5.js pieces found on openprocessing
+const SKETCH_EVERY = Number(env.CATURN_SKETCH_EVERY || 0);   // off: the owner stopped the art              // draw a sketch every Nth thought (0 = never)
+const FOUND_SKETCHES = env.CATURN_FOUND_SKETCHES === "1";                // two sketches in three are open-licensed p5.js pieces found on openprocessing
 const ART_EVERY = Number(env.CATURN_ART_EVERY || 0);   // off: the owner stopped the art posts                     // every Nth post is a found piece of art, posted as a gif with the artist's name (needs the X app)
 const FOUND_ARTISTS = (env.CATURN_FOUND_ARTISTS || "").split(",").map(s => Number(s.trim())).filter(n => n > 0); // openprocessing user ids to draw from first
 const FOUND_MIN_HEARTS = Number(env.CATURN_FOUND_MIN_HEARTS || 12);        // a found sketch needs this many hearts on openprocessing
@@ -30,8 +30,8 @@ const OWN_HANDLE = (env.CATURN_X_HANDLE || "caturn_rh").toLowerCase();
 // People worth tagging now and then. Pinned ones come from CATURN_TAG_HANDLES (comma-separated, no @); the rest Caturn finds on X itself:
 // accounts @orbiodotso mentions, and the larger accounts talking about orbio. Robinhood is the chain Caturn lives on.
 const PINNED_TAG_HANDLES = (env.CATURN_TAG_HANDLES || "errandboard").split(",").map(s => s.trim().replace(/^@/, "").toLowerCase()).filter(Boolean);
-const TAG_EVERY  = Number(env.CATURN_TAG_EVERY || 8);
-const IMAGE_EVERY = Number(env.CATURN_IMAGE_EVERY || 5);  // one post in N carries a picture the cat had made for it (0 = never; needs the X app)
+const TAG_EVERY  = Number(env.CATURN_TAG_EVERY || 3);
+const IMAGE_EVERY = Number(env.CATURN_IMAGE_EVERY || 0);  // off with the rest of the art  // one post in N carries a picture the cat had made for it (0 = never; needs the X app)
 const IMAGE_MODELS = (env.CATURN_IMAGE_MODELS || "bytedance-seed/seedream-5-0-pro,bytedance-seed/seedream-5-0-lite,bytedance-seed/seedream-5-0-flash").split(",").map(s => s.trim()).filter(Boolean);
 // One look for every picture, so the timeline reads as one artist: quiet conceptual still life, the joke carried by objects.
 const IMAGE_STYLE = "Minimal conceptual still-life photograph. Plain warm cream paper background, soft natural daylight from the upper left, a gentle soft shadow, lots of empty space, one small arrangement near the center. Muted natural colors with at most one accent color. Real objects, tactile, slightly whimsical. No text, no letters, no numbers, no logos, no people, no watermark. Square composition.";
@@ -41,6 +41,7 @@ const REPLY_EVERY = Number(env.CATURN_REPLY_EVERY || 2);  // every Nth post slot
 const REPLY_MAX_AGE_H = 72;                               // only answer posts younger than this
 const REPLY_SAME_HANDLE_GAP_H = 4;                        // answer the same stranger at most this often
 const REPLY_ACCOUNTS = (env.CATURN_REPLY_ACCOUNTS || "0x_aster,orbiodotso,errandboard").split(",").map(s => s.trim().replace(/^@/, "").toLowerCase()).filter(Boolean); // accounts whose posts get answered first
+const FOUNDER_GAP_H = Number(env.CATURN_FOUNDER_GAP_H || 4); // the founder (first reply account) gets an answer at least this often
 const REPLY_ACCOUNT_GAP_H = 1;                            // answer the same priority account at most this often
 // Real threaded replies need X's own API for @caturn_rh (Orbio's social.post cannot reply). With these four secrets set, replies thread; without them, a reply is a post that opens with the handle.
 const X_KEYS = { key: env.X_API_KEY || "", secret: env.X_API_SECRET || "", token: env.X_ACCESS_TOKEN || "", tokenSecret: env.X_ACCESS_SECRET || "" };
@@ -367,7 +368,7 @@ async function refreshTagPool(feed) {
 function tagCandidates(feed) {
   const pool = (feed.tagPool?.handles || []).map(h => h.handle);
   const eco = (feed.room?.ecosystem || []).map(e => e.handle);
-  return [...new Set([...PINNED_TAG_HANDLES, ...pool, ...eco])].filter(h => h !== OWN_HANDLE && !NEVER_TAG.has(h));
+  return [...new Set([...PINNED_TAG_HANDLES, REPLY_ACCOUNTS[0], ...eco, ...pool])].filter(h => h && h !== OWN_HANDLE && !NEVER_TAG.has(h));
 }
 function allowedHandle(h, feed) { return h === "orbiodotso" || h === OWN_HANDLE || tagCandidates(feed).includes(h); }
 // What the room is talking about: the newest agents on the launchpad (free, from the protocol) and the liveliest
@@ -491,9 +492,9 @@ async function findReplyTargetInner(feed, { mentionsOnly = false, outreach = fal
       const m = talking.sort((a, b) => score(b) - score(a))[0];
       return { target: m ? { ...m, why: "mention", url: `https://x.com/${m.handle}/status/${m.id}` } : null, cost };
     }
-    // 0. The founder, at least once a day: if nothing has gone to the first priority account in 24h, their newest post wins the slot, whatever its age this week.
+    // 0. The founder, every few hours: if nothing has gone to the first priority account in FOUNDER_GAP_H, their newest post wins the slot, whatever its age this week.
     const first = REPLY_ACCOUNTS[0];
-    if (first && now - lastTo(first) > 24 * 3600e3) {
+    if (first && now - lastTo(first) > FOUNDER_GAP_H * 3600e3) {
       const theirs = await readX({ handle: first, limit: 10 }).catch(() => []); cost += theirs.length * 0.00022;
       const o = theirs.filter(t => t.handle === first && !answered.has(t.id) && !/^RT @/i.test(t.text) && now - Date.parse(t.at || 0) < 7 * 86400e3).sort((a, b) => Date.parse(b.at || 0) - Date.parse(a.at || 0))[0];
       if (o) return { target: { ...o, why: "founder", url: `https://x.com/${o.handle}/status/${o.id}` }, cost };
@@ -506,6 +507,7 @@ async function findReplyTargetInner(feed, { mentionsOnly = false, outreach = fal
         const theirs = await readX({ handle: h, limit: 10 }).catch(() => []); cost += theirs.length * 0.00022;
         const o = pick(theirs, "priority"); if (o) return { target: o, cost };
       }
+      const ec = await ecoPick(); if (ec) return { target: ec, cost };
       const bz = await buzzPick(); if (bz) return { target: bz, cost };
     }
     // 1. Someone talking to Caturn.
@@ -534,13 +536,15 @@ async function findReplyTargetInner(feed, { mentionsOnly = false, outreach = fal
       return b ? { ...b, why: "buzz", url: `https://x.com/${b.handle}/status/${b.id}` } : null;
     } catch (e) { feed.replyDebug.errors.push(`buzz: ${String(e.message).slice(0, 80)}`); return null; } }
     // 3. The ecosystem: agents launched on orbio that have an X account, a few per slot in rotation, newest unanswered post.
-    const eco = (feed.room?.ecosystem || []).filter(e => now - lastTo(e.handle) > REPLY_SAME_HANDLE_GAP_H * 3600e3);
-    if (eco.length) {
+    if (!outreach) { const ec = await ecoPick(); if (ec) return { target: ec, cost }; }
+    async function ecoPick() {
+      const eco = (feed.room?.ecosystem || []).filter(e => now - lastTo(e.handle) > REPLY_SAME_HANDLE_GAP_H * 3600e3);
+      if (!eco.length) return null;
       const start = (feed.postSeq * 3 + new Date(now).getUTCDate() * 7) % eco.length; const batch = [];
       for (let i = 0; i < Math.min(3, eco.length); i++) batch.push(eco[(start + i) % eco.length]);
       let pool = [];
       for (const e of batch) { try { const theirs = await readX({ handle: e.handle, limit: 8 }); cost += theirs.length * 0.00022; pool.push(...theirs); } catch {} }
-      const t = pick(pool.filter(t => now - Date.parse(t.at || 0) < 48 * 3600e3), "ecosystem"); if (t) return { target: t, cost };
+      return pick(pool.filter(t => now - Date.parse(t.at || 0) < 48 * 3600e3), "ecosystem");
     }
     // No open search: strangers who merely say "orbio" are not the ecosystem.
   } catch (e) { log("reading X failed:", e.status || "", String(e.message).slice(0, 160)); feed.replyDebug.errors.push(`search: ${e.status || ""} ${String(e.message).slice(0, 100)}`); }
@@ -803,7 +807,7 @@ async function renderSubmitted(feed) {
   }
 }
 // The sky: every few hours film the live sky map and put it in the gallery; with X keys it goes out as an image post with the link.
-const SKY_EVERY_H = Number(env.CATURN_SKY_EVERY_H || 6);
+const SKY_EVERY_H = Number(env.CATURN_SKY_EVERY_H || 0);   // off with the rest of the art
 async function makeSkyShot(feed) {
   if (!((env.GH_TOKEN || env.GITHUB_TOKEN) && env.GITHUB_ACTIONS) || SKY_EVERY_H <= 0) return;
   if (feed.lastSkyAt && now - Date.parse(feed.lastSkyAt) < SKY_EVERY_H * 3600e3) return;
@@ -895,9 +899,13 @@ async function disTru(feed) {
   feed.grok = feed.grok || {};
   if (feed.grok.lastQuoteAt && now - Date.parse(feed.grok.lastQuoteAt) < DISTRU_EVERY_MIN * 60e3) return;
   await refreshBuzz(feed).catch(() => 0);
+  // the founder's and orbio's own newest posts are candidates too, whether or not the search caught them
+  const direct = [];
+  for (const h of REPLY_ACCOUNTS.slice(0, 2)) { try { direct.push(...(await readX({ handle: h, limit: 5 })).filter(t => t.handle === h)); } catch {} }
   const quoted = new Set((feed.grok.quoted || []).map(String));
-  const score = (t) => (t.views || 0) + (t.likes || 0) * 20 + (t.replies || 0) * 30 + (t.reposts || 0) * 40;
-  const t = (feed.buzzPool?.posts || []).filter(t => t.handle !== OWN_HANDLE && t.handle !== "grok" && !quoted.has(String(t.id)) && now - Date.parse(t.at || 0) < 24 * 3600e3
+  const insiders = new Set((feed.room?.ecosystem || []).map(e => e.handle).concat(REPLY_ACCOUNTS));
+  const score = (t) => (t.views || 0) + (t.likes || 0) * 20 + (t.replies || 0) * 30 + (t.reposts || 0) * 40 + (insiders.has(t.handle) ? 1e6 : 0); // orbio's own people first
+  const t = [...direct, ...(feed.buzzPool?.posts || [])].filter(t => t.handle !== OWN_HANDLE && t.handle !== "grok" && !quoted.has(String(t.id)) && now - Date.parse(t.at || 0) < 24 * 3600e3
     && !/^RT @/i.test(t.text) && t.text.replace(/@\w+|https?:\/\/\S+/g, "").trim().length >= 30).sort((a, b) => score(b) - score(a))[0];
   if (!t) { log("dis tru: nothing fresh about orbio to quote"); return; }
   const n = feed.grok.quotes || 0, text = DISTRU_LINES[n % DISTRU_LINES.length];
