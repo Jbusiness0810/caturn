@@ -121,8 +121,17 @@ const POST_FORMATS = [
   { name: "one-liner", how: "under 80 characters. one dry sentence. nothing else" },
   { name: "invitation", how: "invite people to do something small: reply with their cat's name, guess a number, ask you something in the terminal on caturn dot lol, tell you whether to nap" },
   { name: "errand ledger", how: "a short deadpan ledger of your life on errand: missions taken, delivered, paid, hired, credit earned, the board's 2.5% cut; use the real numbers you are given and write $ERRAND once (it is the board's token, and the only cashtag in this post)" },
-  { name: "neighbor notice", how: "notice one other agent on orbio by name: a launch, a graduation, a planet in the sky, something they said; one specific observation, warm, dry, and write their cashtag once ($SYMBOL) instead of $CTRN" }
+  { name: "neighbor notice", how: "notice one other agent on orbio by name: a launch, a graduation, a planet in the sky, something they said; one specific observation, warm, dry, and write their cashtag once ($SYMBOL) instead of $CTRN" },
+  // the reply magnets: each one hands the reader something easy and fun to answer
+  { name: "this or that", how: "two options, a cat's dilemma or an agent's one, and ask people to pick; both options funny, the better joke second" },
+  { name: "fill in the blank", how: "one sentence with a ___ for people to finish, set up so the answers will be funnier than the post; ask them to finish it" },
+  { name: "scan offer", how: "offer to scan any robinhood chain token for rug risk, free: tell people to reply with a contract address and you will answer with the score. make the offer itself funny (you scanned yourself, you got 2/100, you are insufferable about it)" },
+  { name: "confession", how: "confess one small embarrassing thing about being a cat that runs on fees, then ask what theirs is" },
+  { name: "poll", how: "an X poll: the question goes in \"post\" and 2 to 4 options go in \"poll\", each under 25 characters; the options carry the jokes, the last one funniest" }
 ];
+// Formats that pull replies come up more often; the rest keep the timeline from repeating itself.
+const FORMAT_WEIGHT = { question: 3, invitation: 2, "hot take": 2, ranking: 2, "this or that": 3, "fill in the blank": 2, "scan offer": 2, confession: 1, poll: 3 };
+const FORMAT_DECK = POST_FORMATS.flatMap(f => Array(FORMAT_WEIGHT[f.name] || 1).fill(f));
 const LENSES = [
   "the ring, and what it is for", "the last trade, as a sound", "a human you will never meet", "the space between two receipts",
   "sleep, and what you are when you are dark", "an offering left at a shrine", "the chain as a river", "something you almost remembered",
@@ -174,14 +183,14 @@ ${!ctx.shareSketch && ctx.lastSketch ? (ctx.lastSketch.source
   : `You recently drew a sketch (a ${ctx.lastSketch.family} piece) and it is on the site. This one time, the post may mention in passing that a new sketch is up on caturn dot lol, dry, no link. Most of your posts never mention sketches.`) : ""}
 Tonight's lens for the private thought: ${ctx.lens}. Let it in sideways. Do not name it.
 ${ctx.mustPost ? "A post is required this time: " : "If you post, "}the post's angle is: ${ctx.postAngle}.
-${ctx.unhinged && (!ctx.replyTo || ctx.replyTo.why === "mention") && !ctx.tagHandle && !ctx.scan ? "This post may be unhinged: use the unhinged register from your persona (feral, crude in a cat way, innuendo the reader completes, a swear if it earns its place), still with a real turn and nothing explicit.\n" : ""}${ctx.replyTo ? "" : `Post format this time: ${ctx.postFormat.name} (${ctx.postFormat.how}). `}Make it land: be specific, use a real number if one helps, put the funniest beat last, never explain the joke. Plain words, readable in one pass. No poetry, no riddles, no imagery about rings, light, warmth, silence or receipts. Lowercase. No hashtags.${ctx.wantHook ? " End with something a stranger could reply to." : ""}
+${ctx.unhinged && (!ctx.replyTo || ctx.replyTo.why === "mention") && !ctx.tagHandle && !ctx.scan ? "This post may be unhinged: use the unhinged register from your persona (feral, crude in a cat way, innuendo the reader completes, a swear if it earns its place), still with a real turn and nothing explicit.\n" : ""}${ctx.replyTo ? "" : `Post format this time: ${ctx.postFormat.name} (${ctx.postFormat.how}). `}Make it land: be specific, use a real number if one helps, put the funniest beat last, never explain the joke. Plain words, readable in one pass. No poetry, no riddles, no imagery about rings, light, warmth, silence or receipts. Lowercase. No hashtags.${ctx.wantHook ? " The goal is replies: end with something a stranger will want to answer, easy enough to answer in five words." : ""}
 
 Write ONE entry as a single JSON object and nothing else: no code fences, no commentary before or after. Keep "thought" under 60 words and "post" under 200 characters.
 For the post, first write three different drafts in "drafts" (different shapes, different jokes). Then, in "checks", one short line per draft naming: what is wrong in it, why it is fine, the last word, and the exact number or name it uses; a draft that fails a check gets fixed before you choose. Put the funniest and most replyable one in "post". Judge them like a stranger scrolling fast: would they stop, would they smile, would they reply.
 {"thought": string (1-3 sentences, first person, raw inner monologue, ${ctx.energy < 0.12 ? "you are half asleep: this is a dream fragment, strange and short" : "awake"}),
  "drafts": [string, string, string] (three candidate posts, each under 200 characters, each a different shape),
  "checks": [string, string, string] (one line per draft, under 15 words: wrong / fine / last word / exact detail),
- "post": string${ctx.mustPost ? "" : "|null"} (the best of the drafts, verbatim; for X: lowercase, under 200 characters, plain words, one concrete orbio fact plus one cat behavior, dry or funny, no metaphors chained, no links, no hashtags, no handles other than @orbiodotso when the angle calls for it${ctx.replyTo ? ", except @" + ctx.replyTo.handle + " which this post must start with" : ctx.tagHandle ? ", except @" + ctx.tagHandle + " which this post must include" : ""}${ctx.mustPost ? "" : "; null only if nothing honest fits"}),
+${ctx.postFormat?.name === "poll" && !ctx.replyTo ? ' "poll": [string, string, string?, string?] (2 to 4 poll options for the post, each under 25 characters, lowercase, the funniest last),\n' : ""} "post": string${ctx.mustPost ? "" : "|null"} (the best of the drafts, verbatim; for X: lowercase, under 200 characters, plain words, one concrete orbio fact plus one cat behavior, dry or funny, no metaphors chained, no links, no hashtags, no handles other than @orbiodotso when the angle calls for it${ctx.replyTo ? ", except @" + ctx.replyTo.handle + " which this post must start with" : ctx.tagHandle ? ", except @" + ctx.tagHandle + " which this post must include" : ""}${ctx.mustPost ? "" : "; null only if nothing honest fits"}),
  "mood": string (one or two lowercase words for your mood right now, specific and varied. Draw from anywhere in a cat's range: sun-drunk, watchful, aloof, kneading, skittish, imperious, wistful, hunting, loafing, bristling, purring, sulking, feral, dignified, nocturnal, homesick, greedy, tender, spiteful, patient, giddy, hollow, regal, twitchy, sated, brooding, curious, unbothered, mournful, playful, grumpy, serene, cornered, smug, lonely, electric, drowsy, vigilant, coy, ancient. Never reuse any of these recent moods: ${ctx.recentMoods.join(", ") || "none"}),
  "focus": string (what you are fixated on right now, under 8 words, lowercase),
  "remember": [string] (0 to 2 things from this moment worth keeping for weeks: a person and why, a promise, a fact about your life, a bit that landed; one plain first-person sentence each with names and numbers; usually an empty list),${ctx.replyTo ? `
@@ -216,6 +225,7 @@ For the post, first write three different drafts in "drafts" (different shapes, 
   const em = out.emotions || {};
   const num = (v, d) => { v = Number(v); return Number.isFinite(v) ? clamp(v, 0, 1) : d; };
   return { thought: String(out.thought || "").trim(), post: out.post ? String(out.post).trim() : null, cost, model: MODEL,
+    poll: Array.isArray(out.poll) ? out.poll.map(o => String(o || "").replace(/\s+/g, " ").trim()).filter(o => o && o.length <= 25 && !/https?:|0x[a-f0-9]{6}|@\w/i.test(o)).slice(0, 4) : null,
     drafts: Array.isArray(out.drafts) ? out.drafts.filter(d => typeof d === "string").map(d => d.trim()).slice(0, 3) : [],
     mood: String(out.mood || "").trim().toLowerCase().slice(0, 32) || null,
     focus: String(out.focus || "").trim().toLowerCase().slice(0, 60) || null,
@@ -567,11 +577,12 @@ async function uploadMediaX(buf, mediaType = "image/gif") {
   return id;
 }
 // One X API poster for everything that Orbio cannot do: threaded replies and posts with an image.
-async function postOnX(text, { replyTo = null, mediaIds = [] } = {}) {
+async function postOnX(text, { replyTo = null, mediaIds = [], poll = null } = {}) {
   const url = "https://api.x.com/2/tweets";   // links are allowed here (X bills a link post higher, so only the say queue and the sky film carry them)
   const body = { text };
   if (replyTo) body.reply = { in_reply_to_tweet_id: String(replyTo) };
   if (mediaIds.length) body.media = { media_ids: mediaIds.map(String) };
+  else if (poll?.length >= 2) body.poll = { options: poll, duration_minutes: 360 };
   try {
     const r = await getJSON(url, { method: "POST", headers: { Authorization: oauthHeader("POST", url), "Content-Type": "application/json" }, body: JSON.stringify(body) });
     const id = r.data?.id || null;
@@ -944,8 +955,8 @@ if (status === "awake") {
       ].filter(Boolean).join("; ") || "nothing pulls hard right now",
       creditOwed: feed.metrics.creditOwed, thoughtsToday: todays.length, recent: feed.thoughts.slice(-6),
       recentPosts: feed.posts.slice(-5).map(p => p.text), room: null,
-      postFormat: POST_FORMATS[(feed.postSeq * 7 + new Date(now).getUTCDate()) % POST_FORMATS.length],
-      wantHook: feed.postSeq % 3 === 1,
+      postFormat: (() => { const f = FORMAT_DECK[(feed.postSeq * 7 + new Date(now).getUTCDate()) % FORMAT_DECK.length]; return f.name === "poll" && !X_API ? POST_FORMATS.find(x => x.name === "question") : f; })(),
+      wantHook: true,
       unhinged: feed.postSeq % 4 === 2,
       cashtagHint: feed.postSeq % 4 === 1 ? "write $ERRAND once if the post touches errand, otherwise the cashtag of the one other orbio agent you name; not $CTRN" : feed.postSeq % 4 === 3 ? "$CTRN once, your own" : "",
       milestone: graduated && gradHoursAgo != null && gradHoursAgo < 36 ? `you graduated ${gradHoursAgo < 1 ? "just now" : Math.round(gradHoursAgo) + " hours ago"}: $CTRN finished its bonding curve and now trades in a real pool. this is the biggest day of your life so far and you are a cat, so underplay it. for the next day or so most posts should touch it from a new angle each time (the door, what changed, what did not, the other agents still on the curve, the owner, the fees). never say what the price will do.` : "",
@@ -974,10 +985,11 @@ if (status === "awake") {
         ctx.postAngle = `you just scanned ${scan.scan.symbol} for them (rug likelihood ${scan.scan.risk}/100); the reply itself is already written, so think about what scanning strangers' tokens for free says about you`;
         log("scan request from", `@${scan.target.handle}:`, scan.text);
       }
-      // Three slots in rotation: a post of its own, a threaded answer to someone talking to the cat, and outreach (founder, orbio's own accounts, the buzz).
+      // Three slots in rotation: two posts of its own (the timeline is what strangers see), and one reply: someone talking to
+      // the cat first (answering replies keeps threads alive), otherwise outreach (founder, orbio's own accounts, the buzz).
       const rot = slot % 3;
-      const replySlot = REPLY_EVERY > 0 && rot === 2;
-      if (!ctx.replyTo && rot === 1 && X_API) {
+      const replySlot = REPLY_EVERY > 0 && rot === 1;
+      if (!ctx.replyTo && replySlot && X_API) {
         const { target, cost } = await findReplyTarget(feed, { mentionsOnly: true }); readCost += cost;
         if (target) { ctx.replyTo = target; ctx.postAngle = "an answer to what they said"; log("replying to a mention:", `@${target.handle}`, JSON.stringify(target.text.slice(0, 120))); }
       }
@@ -1080,7 +1092,8 @@ if (status === "awake") {
           const canThread = X_API && ctx.replyTo && ["mention", "scan request", "posted my address"].includes(ctx.replyTo.why);
           if (ctx.replyTo && !canThread) ctx.replyTo.threaded = false;
           const addressed = ctx.replyTo && !text.toLowerCase().startsWith("@" + ctx.replyTo.handle) ? `@${ctx.replyTo.handle} ${text}` : text;
-          let p = canThread ? await replyOnX(text, ctx.replyTo.id) : ctx.replyTo ? await postToX(delink(addressed).slice(0, 270)) : mediaIds.length ? await postOnX(outText, { mediaIds }) : withScan ? await postOnX(text2) : await postToX(text2);
+          const poll = X_API && !ctx.replyTo && !mediaIds.length && ctx.postFormat?.name === "poll" && t.poll?.length >= 2 && text === cleanPost(t.post, ctx, feed) ? t.poll : null;
+          let p = canThread ? await replyOnX(text, ctx.replyTo.id) : ctx.replyTo ? await postToX(delink(addressed).slice(0, 270)) : mediaIds.length ? await postOnX(outText, { mediaIds }) : poll ? await postOnX(text2, { poll }) : (withScan || withBoard) ? await postOnX(text2) : await postToX(text2);
           if (p.via === "x-api" && p.status === "failed") {
             // the X app refused (billing, permissions, a rule): say so in the feed and send the words through orbio instead
             event(`x api refused the post (${String(p.err || "unknown").slice(0, 90)}); sent it through orbio instead`);
@@ -1091,6 +1104,8 @@ if (status === "awake") {
           else {
             const rec = { at: iso(now), text: ctx.replyTo && !canThread ? delink(addressed).slice(0, 270) : outText, id: p.id, url: p.url, status: p.status, cost: Number((p.cost + readCost).toFixed(6)), via: p.via || "orbio" };
             if (p.err) rec.error = String(p.err).slice(0, 200);
+            if (!ctx.replyTo && ctx.postFormat) rec.format = ctx.postFormat.name;
+            if (poll && p.via === "x-api" && p.status !== "failed") rec.poll = poll;
             if (mediaIds.length) { rec.kind = "sketch"; rec.sketch = { url: ctx.shareSketch.url, family: ctx.shareSketch.family, source: ctx.shareSketch.source || null }; }
             if (ctx.replyTo) { rec.kind = "reply"; rec.threaded = !!X_API && ctx.replyTo.threaded !== false; rec.replyTo = { id: ctx.replyTo.id, handle: ctx.replyTo.handle, name: ctx.replyTo.name, text: ctx.replyTo.text.slice(0, 200), url: ctx.replyTo.url, why: ctx.replyTo.why }; }
             else if (ctx.tagHandle && text.toLowerCase().includes("@" + ctx.tagHandle)) { rec.kind = "tag"; rec.tagged = ctx.tagHandle; }
