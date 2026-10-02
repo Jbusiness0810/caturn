@@ -93,16 +93,19 @@
     }).join("") || "<li class='empty'>nothing yet. be the first to tell a cat what to do.</li>";
     document.querySelectorAll("[data-vote]").forEach(function (b) { b.addEventListener("click", function () { vote(Number(b.getAttribute("data-vote")), b); }); });
 
-    var done = (d.log || []).filter(function (e) { return e.status === "done"; });
+    var done = (d.log || []).filter(function (e) { return e.status === "done"; }).concat((window.__oldShop || []).map(function (i) {
+      return { title: i.title || i.text, summary: "“" + i.text + "”", at: i.shipped_at, votes: i.votes, url: "https://www.caturn.lol/b/" + i.id, shop: true };
+    }));
     $("[data-done-count]").textContent = done.length ? done.length + " done" : "none yet";
     $("[data-done]").innerHTML = done.map(function (i) {
       var u = safeUrl(i.url);
-      return '<li><div class="s-row"><div class="s-main"><span class="s-title">' + esc(i.title || i.text) + '</span><span class="s-text">' + esc(i.summary || i.text) + '</span><span class="s-meta">done ' + ago(i.at) + (i.votes != null ? ' · ' + i.votes + ' votes' : '') + (i.by === "cat" ? ' · the cat picked (empty board)' : '') + '</span></div>' + (u ? '<span class="s-actions"><a class="btn btn--small" href="' + esc(u) + '" target="_blank" rel="noopener">see it</a></span>' : '') + '</div></li>';
+      return '<li><div class="s-row"><div class="s-main"><span class="s-title">' + esc(i.title || i.text) + '</span><span class="s-text">' + esc(i.summary || i.text) + '</span><span class="s-meta">done ' + ago(i.at) + (i.votes != null ? ' · ' + i.votes + ' votes' : '') + (i.by === "cat" ? ' · the cat picked (empty board)' : '') + (i.shop ? ' · from the old workshop' : '') + '</span></div>' + (u ? '<span class="s-actions"><a class="btn btn--small" href="' + esc(u) + '" target="_blank" rel="noopener">see it</a></span>' : '') + '</div></li>';
     }).join("") || "<li class='empty'>the first one gets done at 17:00 UTC.</li>";
   }
 
   function load() {
-    fetch("/api/board").then(function (r) { return r.json(); }).then(function (d) { if (d.error) showErr(d.error); else render(d); }).catch(function () { showErr("the board is not answering."); });
+    var shop = window.__oldShop ? Promise.resolve() : fetch("/api/build").then(function (r) { return r.json(); }).then(function (j) { window.__oldShop = j.shipped || []; }).catch(function () { window.__oldShop = []; });
+    shop.then(function () { return fetch("/api/board"); }).then(function (r) { return r.json(); }).then(function (d) { if (d.error) showErr(d.error); else render(d); }).catch(function () { showErr("the board is not answering."); });
   }
   load(); setInterval(load, 60000); setInterval(tick, 1000);
 })();

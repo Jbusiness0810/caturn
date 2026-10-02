@@ -197,16 +197,22 @@
     $("[data-log-asks]").innerHTML = asks.length ? asks.map(function (a) {
       return "<li><p class=\"q\">" + esc(a.q) + "</p><p>" + esc(a.a) + '</p><span class="meta"><span>' + hhmm(a.at) + "</span><span>" + esc(a.model || "") + "</span></span></li>";
     }).join("") : '<li class="empty">' + (f.asksTracked ? "no one has asked yet." : "asks are not being tracked yet.") + "</li>";
-    var w = f.workshop || {}, wsteps = (w.steps || []).slice().reverse().slice(0, full ? 40 : 4);
-    if ($("[data-shop-count]")) {
-      $("[data-shop-count]").textContent = (w.shipped || 0) + " shipped";
-      $("[data-shop-head]").innerHTML = w.at
-        ? "<a href=\"/build\">the workshop</a> · " + (w.usedToday || 0) + " of " + (w.budget || 0) + " build steps used today · $" + (w.fees24 || 0) + " of fees in 24h buys " + (w.budget || 0) + " steps"
-          + (w.current ? " · on the bench: <b>" + esc(w.current.title || w.current.text) + "</b>, step " + w.current.step + " of " + w.current.total : w.lastShipped ? " · last shipped: <a href=\"" + esc(w.lastShipped.url) + "\" target=\"_blank\" rel=\"noopener\">" + esc(w.lastShipped.title) + "</a>" : " · the bench is empty")
-        : "the workshop opens when the fees have bought a step. <a href=\"/build\">ask for something</a>.";
-      $("[data-log-shop]").innerHTML = wsteps.length ? wsteps.map(function (s) {
-        return "<li><p class=\"q\">build #" + esc(String(s.idea)) + " · step " + s.n + (s.ok ? "" : " · failed the audit") + "</p><span class=\"meta\"><span>" + hhmm(s.at) + "</span><span>" + (s.cost ? "$" + Number(s.cost).toFixed(3) : "") + "</span></span></li>";
-      }).join("") : '<li class="empty">no build steps yet. ideas go in at <a href="/build">caturn.lol/build</a>.</li>';
+    if ($("[data-board-count]") && (!window.__boardAt || Date.now() - window.__boardAt > 60000)) {
+      window.__boardAt = Date.now();
+      fetch("/api/board").then(function (r) { return r.json(); }).then(function (d) {
+        if (d.error) return;
+        var q = d.queued || [], done = (d.log || []).filter(function (e) { return e.status === "done"; });
+        var mins = Math.max(0, Math.round((Date.parse(d.nextPick) - Date.now()) / 60000));
+        $("[data-board-count]").textContent = q.length + " waiting";
+        $("[data-board-head]").innerHTML = d.doing
+          ? "doing it now: <b>" + esc(d.doing.title || d.doing.text) + "</b> · <a href=\"/board\">the board</a>"
+          : "<a href=\"/board\">the board</a> · next pick in " + Math.floor(mins / 60) + "h " + (mins % 60) + "m" + (q.length ? " · on top: <b>" + esc(q[0].title || q[0].text) + "</b> (" + q[0].votes + " vote" + (q[0].votes === 1 ? "" : "s") + ")" : " · nothing suggested yet");
+        var rows = done.slice(0, full ? 40 : 4);
+        $("[data-log-board]").innerHTML = rows.length ? rows.map(function (e) {
+          var u = /^https:\/\/(www\.)?caturn\.lol\//.test(e.url || "") ? e.url : "";
+          return "<li><p class=\"q\">" + (u ? "<a href=\"" + esc(u) + "\" target=\"_blank\" rel=\"noopener\">" + esc(e.title || e.text) + "</a>" : esc(e.title || e.text)) + "</p><p>" + esc(e.summary || "") + "</p><span class=\"meta\"><span>" + hhmm(e.at) + "</span><span>" + (e.votes != null ? e.votes + " votes" : "") + "</span></span></li>";
+        }).join("") : '<li class="empty">the first pick happens at 17:00 UTC. <a href="/board">suggest something</a>.</li>';
+      }).catch(function () {});
     }
     var er = f.errand || {}, ems = (er.missions || []).concat((er.hired || []).map(function (m) { return Object.assign({}, m, { hired: true }); })).sort(function (a, b) { return Date.parse(b.submittedAt || b.postedAt || b.claimedAt || 0) - Date.parse(a.submittedAt || a.postedAt || a.claimedAt || 0); }).slice(0, full ? 100 : 5);
     $("[data-errand-count]").textContent = (er.missions || []).length;

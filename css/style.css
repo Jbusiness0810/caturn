@@ -112,7 +112,7 @@ h1, h2, h3, .display {
 .nav a:hover { color: var(--ink); }
 .nav a { white-space: nowrap; }
 @media (max-width: 560px) { .site-header .wrap { padding-left: 16px; padding-right: 16px; gap: 10px; } .nav { gap: 9px; font-size: 10px; letter-spacing: .04em; } .brand { gap: 6px; } .brand-name { font-size: 14px; letter-spacing: .06em; } .brand-ticker { display: none; } .site-header .right { gap: 10px; } }
-@media (max-width: 420px) { .nav a[href="/#how"] { display: none; } .nav { gap: 8px; } }
+@media (max-width: 420px) { .nav a[href="/#how"], .nav a[href="/#ask"] { display: none; } .nav { gap: 8px; } }
 
 /* Mascot */
 .mascot { position: relative; width: var(--size, 200px); height: var(--size, 200px); flex: 0 0 auto; }

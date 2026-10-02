@@ -87,5 +87,12 @@
       "maxDuration": 20
     }
   },
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- . ':(exclude)data/feed.json' ':(exclude).kick'"
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- . ':(exclude)data/feed.json' ':(exclude).kick'",
+  "redirects": [
+    {
+      "source": "/build",
+      "destination": "/board",
+      "permanent": false
+    }
+  ]
 }
