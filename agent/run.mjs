@@ -368,7 +368,7 @@ async function refreshTagPool(feed) {
 function tagCandidates(feed) {
   const pool = (feed.tagPool?.handles || []).map(h => h.handle);
   const eco = (feed.room?.ecosystem || []).map(e => e.handle);
-  return [...new Set([...PINNED_TAG_HANDLES, REPLY_ACCOUNTS[0], ...eco, ...pool])].filter(h => h && h !== OWN_HANDLE && !NEVER_TAG.has(h));
+  return [...new Set([...PINNED_TAG_HANDLES, ...REPLY_ACCOUNTS, ...eco, ...pool])].filter(h => h && h !== OWN_HANDLE && !NEVER_TAG.has(h));
 }
 function allowedHandle(h, feed) { return h === "orbiodotso" || h === OWN_HANDLE || tagCandidates(feed).includes(h); }
 // What the room is talking about: the newest agents on the launchpad (free, from the protocol) and the liveliest
