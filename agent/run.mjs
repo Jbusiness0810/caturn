@@ -863,14 +863,20 @@ async function askGrok(feed) {
   if (!target) return;
   const id = statusId(target);
   const fallbacks = ["@grok is this true", "@grok rate this post out of 10. be honest. i can take it. i cannot take it.", "@grok explain this post to a dog", "@grok settle this: am i a genius or just a cat", "@grok fact check me. i dare you."];
-  let text = null;
-  try {
-    const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: "anthropic/claude-sonnet-5.5", max_tokens: 120, temperature: 1, messages: [
+  let text = null; feed.grok.lastErr = null;
+  for (const model of ["anthropic/claude-sonnet-5.5", ...MODELS]) {
+    try {
+      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, max_tokens: 400, temperature: 1, messages: [
       { role: "system", content: "You are Caturn, a dry, funny AI cat agent on the orbio launchpad ($CTRN). You are writing a reply under your own post that tags @grok, X's AI, so it answers in public. Ask it something it will want to answer and that makes a good thread: rate you, fact-check you, settle a dumb debate, judge your life choices, or pick a side. Cocky or deadpan, cat logic. One line, lowercase, under 140 characters, starts with @grok, no links, no hashtags, no other handles, nothing about price or buying. Reply with the line only." },
       { role: "user", content: `your post: ${JSON.stringify(String(target.text).slice(0, 280))}` }] }) });
-    text = String(r.choices?.[0]?.message?.content || "").replace(/\s+/g, " ").trim().replace(/^["']|["']$/g, "");
-  } catch (e) { log("grok line failed:", String(e.message).slice(0, 120)); }
-  if (!text || !/^@grok\b/i.test(text) || text.length > 200 || /https?:|0x[a-f0-9]{8}/i.test(text) || /@(?!grok\b)\w+/i.test(text)) text = fallbacks[(feed.grok.count || 0) % fallbacks.length];
+      const line = String(r.choices?.[0]?.message?.content || "").split("\n").map(l => l.trim()).find(l => /^["']?@grok\b/i.test(l)) || "";
+      text = line.replace(/^["']|["']$/g, "").replace(/\s+/g, " ").trim();
+      if (text) break;
+      feed.grok.lastErr = `${model}: no @grok line in ${JSON.stringify(r.choices?.[0]?.message?.content || r).slice(0, 120)}`;
+    } catch (e) { feed.grok.lastErr = `${model}: ${e.status || ""} ${String(e.body?.error?.message || e.message).slice(0, 100)}`; }
+  }
+  if (feed.grok.lastErr && !text) log("grok line failed:", feed.grok.lastErr);
+  if (!text || !/^@grok\b/i.test(text) || text.length > 200 || /https?:|0x[a-f0-9]{8}/i.test(text) || /@(?!grok\b)\w+/i.test(text)) { if (text) feed.grok.lastErr = `rejected line: ${text.slice(0, 120)}`; text = fallbacks[(feed.grok.count || 0) % fallbacks.length]; }
   const p = await replyOnX(text, id);
   feed.grok.lastAt = iso(now);
   if (p.status === "failed") { log("grok ask refused:", p.err); event(`tried to get @grok's attention and x refused (${String(p.err || "").slice(0, 80)})`); return; }
