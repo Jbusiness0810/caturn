@@ -1066,6 +1066,9 @@ async function disTru(feed) {
   await persistNow(feed);
 }
 async function saySomething(feed) {
+  for (let i = 0; i < Number(env.CATURN_SAY_PER_TICK || 3); i++) { const more = await sayOne(feed); if (!more) break; }
+}
+async function sayOne(feed) {
   if (!API_KEY || DRY_RUN) return;
   let queue = []; try { queue = JSON.parse(await readFile(new URL("./say.json", import.meta.url), "utf8")); } catch { return; }
   feed.said = feed.said || [];
@@ -1150,6 +1153,7 @@ async function saySomething(feed) {
     feed.posts.push(rec);
     event(next.event || "posted to X"); log("said:", next.text);
     await persistNow(feed);
+    return true;
   } catch (e) { log("say failed:", e.message); }
 }
 
