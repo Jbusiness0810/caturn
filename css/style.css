@@ -749,7 +749,7 @@ h1, h2, h3, .display {
 .term-topup, .term-admin { margin-top: 22px; }
 .term-topup-body { padding: 16px 18px 18px; font-size: 14px; color: var(--ink-soft); }
 .term-addr { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 12px 0; } .term-addr code { font: 13px ui-monospace, Menlo, monospace; background: var(--marble); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; word-break: break-all; color: var(--ink); }
-.term-req { display: grid; gap: 8px; grid-template-columns: 1fr 1fr; } .term-req input { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: 14px var(--font-body); background: var(--bg-raised); min-width: 0; } .term-req input[name="tx"] { grid-column: 1 / -1; } .term-req button { grid-column: 1 / -1; justify-self: start; }
+.term-req { display: grid; gap: 8px; grid-template-columns: 1fr 1fr; } .term-req input, .term-req select { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: 14px var(--font-body); background: var(--bg-raised); min-width: 0; } .term-req input[name="tx"] { grid-column: 1 / -1; } .term-req button { grid-column: 1 / -1; justify-self: start; }
 .term-note { font-size: 12.5px; margin: 10px 0 0; }
 .term-reqs { list-style: none; margin: 10px 0 0; padding: 0; } .term-reqs li { display: flex; justify-content: space-between; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 13px; }
 .term-reqs .st { white-space: nowrap; } .term-reqs .st-credited { color: #4d7a3a; } .term-reqs .st-rejected { color: #a3453a; }

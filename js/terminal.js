@@ -1,4 +1,4 @@
-// Rent the cat's brain: sign in with a wallet, top up with crypto (reviewed by the owner), chat with frontier models.
+// Rent the cat's brain: sign in with a wallet, deposit ETH, USDG or $CTRN on Robinhood Chain (credited automatically from the chain), chat with frontier models.
 (function () {
   var $ = function (s, r) { return (r || document).querySelector(s); };
   if (!$("[data-term]")) return;
@@ -53,18 +53,20 @@
       wbtn.textContent = a.wallet.slice(0, 6) + "…" + a.wallet.slice(-4) + " · sign out";
       winfo.textContent = money(a.credit) + " of compute left · " + money(a.spent) + " used";
       $("[data-term-credit]").textContent = money(a.credit) + " of compute";
-      $("[data-term-req-note]").textContent = "credit lands on " + a.wallet.slice(0, 6) + "…" + a.wallet.slice(-4) + " once the payment is checked.";
+      if (!depBusy) $("[data-term-dep-note]").textContent = "deposits from " + a.wallet.slice(0, 6) + "…" + a.wallet.slice(-4) + " are credited as soon as they confirm.";
     } else {
       wbtn.textContent = "Connect wallet"; winfo.textContent = "sign in with any EVM wallet. one signature, no gas.";
       $("[data-term-credit]").textContent = "not signed in";
+      $("[data-term-dep-note]").textContent = "connect a wallet first.";
     }
+    var as = $("[data-term-asset]"); if (!as.options.length && d.assets) as.innerHTML = d.assets.map(function (x) { return '<option value="' + esc(x.symbol) + '">' + esc(x.symbol) + "</option>"; }).join("");
     if (!d.open) showErr("the cat's compute is reserved for the cat right now. top ups still work; chat opens again soon.");
-    $("[data-term-reqs]").innerHTML = (d.requests || []).map(function (r) {
-      return "<li><span>" + esc(r.amount + " " + r.asset + " on " + r.chain) + "</span><span class=\"st st-" + esc(r.status) + "\">" + (r.status === "credited" ? "credited " + money(r.credit) : esc(r.status)) + "</span></li>";
+    if (d.deposits) $("[data-term-deps]").innerHTML = d.deposits.map(function (r) {
+      return '<li><span>' + esc(r.amount + " " + r.asset) + ' · <a href="https://robinhoodchain.blockscout.com/tx/' + esc(r.tx_hash) + '" target="_blank" rel="noopener">tx</a></span><span class="st st-credited">credited ' + money(r.credit) + "</span></li>";
     }).join("");
   }
   function load() {
-    fetch("/api/terminal" + (token ? "?token=" + encodeURIComponent(token) : "")).then(function (r) { return r.json(); }).then(function (d) {
+    return fetch("/api/terminal" + (token ? "?token=" + encodeURIComponent(token) : "")).then(function (r) { return r.json(); }).then(function (d) {
       if (d.error) return showErr(d.error);
       if (token && !d.account) { token = null; store.set("caturn:termtoken", null); }
       render(d);
@@ -105,29 +107,57 @@
       .then(function () { busy = false; $("[data-term-send]").disabled = false; });
   });
 
-  // top up
-  $("[data-term-copy]").addEventListener("click", function () { var a = $("[data-term-addr]").textContent; try { navigator.clipboard.writeText(a); this.textContent = "copied"; } catch (e) {} });
-  $("[data-term-req]").addEventListener("submit", function (e) {
-    e.preventDefault(); if (!token) { showErr("sign in first so the credit lands on your wallet."); return; }
-    var f = e.target, body = { action: "request", token: token, chain: f.chain.value, asset: f.asset.value, amount: f.amount.value, tx: f.tx.value };
-    api(body).then(function (x) { if (!x.ok) return showErr(x.j.error || "that did not file."); f.reset(); showErr(""); $("[data-term-req-note]").textContent = "filed. the cat's owner will check it and credit your wallet."; load(); });
-  });
-
-  // owner view: caturn.lol/terminal#admin=<key> (the key stays in the browser; a hash is never sent in requests)
-  var adminKey = (location.hash.match(/admin=([^&]+)/) || [])[1];
-  function loadAdmin() {
-    fetch("/api/terminal?admin=" + encodeURIComponent(adminKey)).then(function (r) { return r.json(); }).then(function (d) {
-      if (d.error) return showErr("admin: " + d.error);
-      $("[data-term-admin]").hidden = false;
-      $("[data-admin-bal]").textContent = d.balance != null ? "cat balance " + money(d.balance) : "";
-      $("[data-admin-list]").innerHTML = (d.pending || []).map(function (r) {
-        return '<li class="adm"><span><b>' + esc(r.amount + " " + r.asset) + "</b> on " + esc(r.chain) + "<br><code>" + esc(r.tx) + "</code><br>from " + esc(r.wallet) + '</span><span class="adm-act"><input type="number" min="0" step="0.01" placeholder="usd value" data-usd="' + r.id + '"><button class="btn btn--small" data-credit="' + r.id + '">credit</button><button class="btn btn--small btn--ghost" data-reject="' + r.id + '">reject</button></span></li>';
-      }).join("") || "<li>nothing waiting.</li>";
-      document.querySelectorAll("[data-credit]").forEach(function (b) { b.addEventListener("click", function () { var id = b.getAttribute("data-credit"), usd = $('[data-usd="' + id + '"]').value; api({ action: "credit", admin: adminKey, id: id, usd: usd }).then(function (x) { if (!x.ok) return showErr(x.j.error); loadAdmin(); }); }); });
-      document.querySelectorAll("[data-reject]").forEach(function (b) { b.addEventListener("click", function () { api({ action: "reject", admin: adminKey, id: b.getAttribute("data-reject") }).then(function () { loadAdmin(); }); }); });
+  // deposits: the user signs a transfer to the cat's wallet; the server reads it back from the chain
+  var depBusy = false, depNote = $("[data-term-dep-note]");
+  $("[data-term-copy]").addEventListener("click", function () { var a = $("[data-term-addr]").textContent, b = this; try { navigator.clipboard.writeText(a); b.textContent = "copied"; } catch (e) {} });
+  function units(amount, decimals) {
+    var m = String(amount).trim().match(/^(\d*)(?:\.(\d*))?$/); if (!m || !(m[1] || m[2])) return null;
+    var frac = (m[2] || "").slice(0, decimals); while (frac.length < decimals) frac += "0";
+    var v = BigInt((m[1] || "0") + frac); return v > 0n ? v : null;
+  }
+  var pad = function (h) { return ("0".repeat(64) + h).slice(-64); };
+  function onChain() {
+    var hexId = "0x" + info.chainId.toString(16);
+    return provider.request({ method: "eth_chainId" }).then(function (c) {
+      if (String(c).toLowerCase() === hexId) return;
+      return provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: hexId }] }).catch(function (e) {
+        if (e && e.code === 4001) throw e;
+        return provider.request({ method: "wallet_addEthereumChain", params: [{ chainId: hexId, chainName: "Robinhood Chain", nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 }, rpcUrls: [info.rpc], blockExplorerUrls: ["https://robinhoodchain.blockscout.com"] }] });
+      });
     });
   }
-  if (adminKey) loadAdmin();
+  function confirm(tx, tries) {
+    return api({ action: "deposit", token: token, tx: tx }).then(function (x) {
+      if (x.status === 202 || (!x.ok && x.status >= 500)) {
+        if (tries > 60) throw new Error("still waiting on the chain. reload in a minute; it credits once it confirms.");
+        return new Promise(function (r) { setTimeout(r, 3000); }).then(function () { return confirm(tx, tries + 1); });
+      }
+      if (!x.ok) throw new Error(x.j.error || "that deposit did not check out.");
+      return x.j;
+    });
+  }
+  $("[data-term-dep]").addEventListener("submit", function (e) {
+    e.preventDefault(); if (depBusy) return;
+    if (!token || !info || !info.account) { showErr("connect a wallet first."); return; }
+    var f = e.target, asset = (info.assets || []).filter(function (x) { return x.symbol === f.asset.value; })[0];
+    if (!asset) return showErr("pick a coin.");
+    var amt = units(f.amount.value, asset.native ? 18 : asset.decimals); if (!amt) return showErr("enter an amount.");
+    if (asset.usd && Number(f.amount.value) * asset.usd < info.minUsd) return showErr("the minimum is $" + info.minUsd + ".");
+    showErr(""); depBusy = true; $("[data-term-dep-btn]").disabled = true; depNote.textContent = "check your wallet…";
+    var from = info.account.wallet;
+    choose().then(onChain).then(function () {
+      var tx = asset.native ? { from: from, to: info.payTo, value: "0x" + amt.toString(16) }
+        : { from: from, to: asset.address, value: "0x0", data: "0xa9059cbb" + pad(info.payTo.slice(2)) + pad(amt.toString(16)) };
+      return provider.request({ method: "eth_sendTransaction", params: [tx] });
+    }).then(function (hash) {
+      depNote.textContent = "sent. waiting for the chain to confirm…";
+      return confirm(String(hash), 0);
+    }).then(function (j) {
+      f.amount.value = "";
+      return load().then(function () { depNote.textContent = j.already ? "that deposit was already credited." : "credited " + money(j.credited) + " of compute. go ask it something."; });
+    }).catch(function (e) { depNote.textContent = ""; showErr(readable(e)); })
+      .then(function () { depBusy = false; $("[data-term-dep-btn]").disabled = false; });
+  });
 
   draw(); load();
 })();

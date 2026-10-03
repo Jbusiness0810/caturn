@@ -75,27 +75,18 @@
 
     <section class="term-topup">
       <div class="con-card">
-        <div class="con-bar"><span>top up</span><span>$0.70 of crypto buys $1 of compute</span></div>
+        <div class="con-bar"><span>deposit</span><span>$0.70 of crypto buys $1 of compute</span></div>
         <div class="term-topup-body">
-          <p>Send any token to the cat's wallet on any EVM chain (Ethereum, Robinhood Chain, Base, Arbitrum and others), then file the payment below. The cat's owner checks it and credits your wallet, usually within a few hours.</p>
-          <div class="term-addr"><code data-term-addr>…</code><button type="button" class="btn btn--small btn--ghost" data-term-copy>copy</button></div>
-          <form class="term-req" data-term-req>
-            <input name="chain" placeholder="chain (e.g. Robinhood Chain)" maxlength="40" required>
-            <input name="asset" placeholder="coin (e.g. ETH, USDC)" maxlength="20" required>
-            <input name="amount" placeholder="amount sent" maxlength="30" required>
-            <input name="tx" placeholder="transaction hash" maxlength="120" required>
-            <button type="submit" class="btn btn--small">File payment</button>
+          <p>Pay from your own wallet on Robinhood Chain with ETH, USDG or $CTRN. You sign one transfer to the cat's wallet; the terminal reads it off the chain and credits you automatically. Minimum $1.</p>
+          <form class="term-req" data-term-dep>
+            <select name="asset" data-term-asset></select>
+            <input name="amount" placeholder="amount" inputmode="decimal" maxlength="30" required>
+            <button type="submit" class="btn btn--small" data-term-dep-btn>Deposit with wallet</button>
           </form>
-          <p class="term-note" data-term-req-note>sign in first so the credit lands on your wallet.</p>
-          <ul class="term-reqs" data-term-reqs></ul>
+          <p class="term-note" data-term-dep-note>connect a wallet first.</p>
+          <p class="term-note">cat's wallet: <code data-term-addr>…</code> <button type="button" class="btn btn--small btn--ghost" data-term-copy>copy</button></p>
+          <ul class="term-reqs" data-term-deps></ul>
         </div>
-      </div>
-    </section>
-
-    <section class="term-admin" data-term-admin hidden>
-      <div class="con-card">
-        <div class="con-bar"><span>owner: payments to review</span><span data-admin-bal></span></div>
-        <ul class="term-reqs" data-admin-list></ul>
       </div>
     </section>
   </div>

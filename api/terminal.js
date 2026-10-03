@@ -1,24 +1,27 @@
 // Rent the cat's brain: a paid terminal on caturn.lol that runs frontier models on Caturn's orbio gateway balance
-// (which cannot be withdrawn, so it is put to work). Payments are reviewed by the owner: a user sends crypto to the
-// cat's wallet and files the transaction here; the owner confirms it from the admin view and the wallet is credited
-// with compute at 30% under list. Nothing here moves or verifies funds on its own.
-// GET  /api/terminal[?token=]                                  -> price, payment address, models, the caller's account
-// GET  /api/terminal?admin=<key>                               -> pending payment requests (owner only)
-// POST {action:"login", wallet, time, sig}                     -> session token (one signature, no gas)
-// POST {action:"request", token, chain, asset, amount, tx}     -> files a payment for the owner to review
-// POST {action:"chat", token, model, messages}                 -> one answer, billed at the provider's cost
-// POST {action:"credit", admin, id, usd}                       -> owner confirms a request: credits usd / 0.7 of compute
-// POST {action:"reject", admin, id, note}                      -> owner declines a request
+// (which cannot be withdrawn, so it is put to work). Users top up by signing a transfer from their own wallet to the
+// cat's wallet on Robinhood Chain (ETH, USDG or $CTRN); the server reads the confirmed transfer back from the chain and
+// credits compute at 30% under list. The server never holds keys or moves funds; it only reads the chain.
+// GET  /api/terminal[?token=]                          -> price, deposit address and tokens, models, the caller's account
+// POST {action:"login", wallet, time, sig}             -> session token (one signature, no gas)
+// POST {action:"deposit", token, tx}                   -> reads a confirmed transfer to the cat's wallet and credits it
+// POST {action:"chat", token, model, messages}         -> one answer, billed at the provider's cost
 import { recoverSigner, isAddress, makeToken, readToken } from "./_lib/wallet.js";
 
 const SB_URL = (process.env.SUPABASE_URL || "").replace(/\/$/, ""), SB_KEY = process.env.SUPABASE_SERVICE_KEY || "";
 const ORBIO_API = "https://api.orbio.so/api/v1", ORBIO_KEY = process.env.ORBIO_API_KEY || "";
-const ADMIN_KEY = process.env.TERMINAL_ADMIN_KEY || "";
-const PAY_TO = process.env.TERMINAL_ADDRESS || "0x4eF5b7c02c90465B71837c879734538648e70483"; // Caturn's wallet, any EVM chain
+const RPC = "https://rpc.mainnet.chain.robinhood.com", CHAIN_ID = 4663;
+const PAY_TO = (process.env.TERMINAL_ADDRESS || "0x4eF5b7c02c90465B71837c879734538648e70483").toLowerCase(); // Caturn's wallet
 const PRICE = Number(process.env.TERMINAL_PRICE || 0.7);      // $1 of compute costs $0.70 of crypto: 30% under list
 const RESERVE = Number(process.env.TERMINAL_RESERVE || 250);  // the cat keeps at least this much gateway balance for itself
-const MAX_TOKENS = 4000, MAX_CHARS = 60000;
+const MIN_USD = 1, MAX_AGE_S = 72 * 3600, MAX_TOKENS = 4000, MAX_CHARS = 60000;
 const SECRET = "caturn-terminal|" + SB_KEY.slice(0, 32);
+// tokens accepted on Robinhood Chain besides native ETH: stablecoins at $1, $CTRN at its live DEX price
+const TOKENS = {
+  "0x5fc5360d0400a0fd4f2af552add042d716f1d168": { symbol: "USDG", decimals: 6, usd: async () => 1 },
+  "0x9b4e217f8759cb758664ac3b0ee730a4d15e7f6a": { symbol: "CTRN", decimals: 18, usd: () => ctrnUsd() }
+};
+const TRANSFER = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 const MODELS = [
   { id: "anthropic/claude-opus-5.5", name: "Claude Opus 5.5" },
   { id: "anthropic/claude-sonnet-5.5", name: "Claude Sonnet 5.5" },
@@ -39,7 +42,20 @@ async function sb(path, init = {}) {
   if (!r.ok) { const e = new Error(`supabase ${r.status}: ${typeof body === "string" ? body : JSON.stringify(body)}`.slice(0, 300)); e.status = r.status; throw e; }
   return body;
 }
+async function rpc(method, params) {
+  const r = await fetch(RPC, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
+  const j = await r.json(); if (j.error) throw new Error(j.error.message || "rpc error"); return j.result;
+}
 async function cached(key, ms, fn) { const c = cache[key]; if (c && now() - c.t < ms) return c.v; const v = await fn(); cache[key] = { v, t: now() }; return v; }
+const ethUsd = () => cached("eth", 120e3, async () => {
+  const r = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd"); const j = await r.json();
+  const p = Number(j?.ethereum?.usd); if (!(p > 100)) throw new Error("no eth price"); return p;
+});
+const ctrnUsd = () => cached("ctrn", 120e3, async () => {
+  const r = await fetch("https://api.dexscreener.com/latest/dex/tokens/0x9b4e217f8759cb758664ac3b0ee730a4d15e7f6a"); const j = await r.json();
+  const pair = (j.pairs || []).filter(p => String(p.chainId).toLowerCase().includes("robinhood")).sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0];
+  const p = Number(pair?.priceUsd); if (!(p > 0)) throw new Error("no ctrn price"); return p;
+});
 const pricing = () => cached("models", 3600e3, async () => {
   const r = await fetch(`${ORBIO_API}/models?output_modalities=text`); const j = await r.json(); const out = {};
   for (const m of j.data || []) out[m.id] = { prompt: Number(m.pricing?.prompt || 0), completion: Number(m.pricing?.completion || 0) };
@@ -56,41 +72,25 @@ async function account(wallet) {
 async function saveAccount(a) {
   await sb("terminal_accounts", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ wallet: a.wallet, credit: round(a.credit), spent: round(a.spent || 0), updated_at: new Date().toISOString() }) });
 }
-const isAdmin = (k) => ADMIN_KEY.length >= 16 && k === ADMIN_KEY;
 
 export default async function handler(req, res) {
   if (!SB_URL || !SB_KEY) return res.status(503).json({ error: "the terminal is not wired up yet." });
   try {
     if (req.method === "GET") {
       res.setHeader("Cache-Control", "no-store");
-      if (req.query.admin) {
-        if (!isAdmin(req.query.admin)) return res.status(403).json({ error: "no." });
-        const pending = await sb(`terminal_requests?status=eq.pending&order=created_at.asc&limit=100&select=id,wallet,chain,asset,amount,tx,created_at`);
-        const recent = await sb(`terminal_requests?status=neq.pending&order=created_at.desc&limit=30&select=id,wallet,chain,asset,amount,tx,status,usd,credit,created_at`);
-        return res.status(200).json({ pending, recent, price: PRICE, balance: await catBalance().catch(() => null) });
-      }
       const wallet = readToken(req.query.token, SECRET);
-      const bal = await catBalance().catch(() => null);
-      let requests = [];
-      if (wallet) requests = await sb(`terminal_requests?wallet=eq.${wallet}&order=created_at.desc&limit=10&select=id,chain,asset,amount,status,credit,created_at`);
-      return res.status(200).json({ payTo: PAY_TO, price: PRICE, models: MODELS, open: bal == null ? true : bal > RESERVE, account: wallet ? await account(wallet) : null, requests });
+      const [bal, eth, ctrn] = await Promise.all([catBalance().catch(() => null), ethUsd().catch(() => null), ctrnUsd().catch(() => null)]);
+      const deposits = wallet ? await sb(`terminal_deposits?wallet=eq.${wallet}&order=at.desc&limit=10&select=tx_hash,asset,amount,usd,credit,at`) : [];
+      return res.status(200).json({
+        payTo: PAY_TO, chainId: CHAIN_ID, rpc: RPC, price: PRICE, minUsd: MIN_USD, open: bal == null ? true : bal > RESERVE, models: MODELS,
+        assets: [{ symbol: "ETH", native: true, usd: eth }, { symbol: "USDG", address: "0x5fc5360d0400a0fd4f2af552add042d716f1d168", decimals: 6, usd: 1 }, { symbol: "CTRN", address: "0x9b4e217f8759cb758664ac3b0ee730a4d15e7f6a", decimals: 18, usd: ctrn }],
+        account: wallet ? await account(wallet) : null, deposits
+      });
     }
     if (req.method !== "POST") return res.status(405).json({ error: "method" });
     const ip = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || "?";
-    const h = (hits.get(ip) || []).filter(t => now() - t < 60e3); if (h.length >= 20) return res.status(429).json({ error: "slow down. the cat is one cat." }); h.push(now()); hits.set(ip, h);
+    const h = (hits.get(ip) || []).filter(t => now() - t < 60e3); if (h.length >= 30) return res.status(429).json({ error: "slow down. the cat is one cat." }); h.push(now()); hits.set(ip, h);
     const b = typeof req.body === "string" ? JSON.parse(req.body || "{}") : (req.body || {});
-
-    if (b.action === "credit" || b.action === "reject") {
-      if (!isAdmin(b.admin)) return res.status(403).json({ error: "no." });
-      const id = Number(b.id); const r = (await sb(`terminal_requests?id=eq.${id}&select=id,wallet,status`))[0];
-      if (!r || r.status !== "pending") return res.status(400).json({ error: "no pending request with that id." });
-      if (b.action === "reject") { await sb(`terminal_requests?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ status: "rejected", note: String(b.note || "").slice(0, 200) }), prefer: "return=minimal" }); return res.status(200).json({ ok: true }); }
-      const usd = Number(b.usd); if (!(usd > 0 && usd < 100000)) return res.status(400).json({ error: "how many dollars was it worth?" });
-      const credit = round(usd / PRICE), a = await account(r.wallet);
-      await saveAccount({ ...a, credit: Number(a.credit || 0) + credit });
-      await sb(`terminal_requests?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ status: "credited", usd: round(usd), credit }), prefer: "return=minimal" });
-      return res.status(200).json({ ok: true, wallet: r.wallet, credit });
-    }
 
     if (b.action === "login") {
       const wallet = String(b.wallet || "").toLowerCase();
@@ -104,13 +104,32 @@ export default async function handler(req, res) {
     const wallet = readToken(b.token, SECRET);
     if (!wallet) return res.status(401).json({ error: "sign in again." });
 
-    if (b.action === "request") {
-      const chain = String(b.chain || "").trim().slice(0, 40), asset = String(b.asset || "").trim().slice(0, 20), amount = String(b.amount || "").trim().slice(0, 30), tx = String(b.tx || "").trim().slice(0, 120);
-      if (!chain || !asset || !amount || tx.length < 10) return res.status(400).json({ error: "fill in the chain, the coin, the amount and the transaction." });
-      const mine = await sb(`terminal_requests?wallet=eq.${wallet}&status=eq.pending&select=id`); if (mine.length >= 5) return res.status(429).json({ error: "five payments are already waiting for review. hang tight." });
-      const dup = await sb(`terminal_requests?tx=eq.${encodeURIComponent(tx)}&select=id`); if (dup.length) return res.status(409).json({ error: "that transaction was already filed." });
-      await sb("terminal_requests", { method: "POST", body: JSON.stringify({ wallet, chain, asset, amount, tx, status: "pending" }), prefer: "return=minimal" });
-      return res.status(200).json({ ok: true });
+    if (b.action === "deposit") {
+      const tx = String(b.tx || "").toLowerCase(); if (!/^0x[a-f0-9]{64}$/.test(tx)) return res.status(400).json({ error: "that is not a transaction hash." });
+      if ((await sb(`terminal_deposits?tx_hash=eq.${tx}&select=wallet`)).length) return res.status(200).json({ ok: true, already: true, account: await account(wallet) });
+      const [t, rc] = await Promise.all([rpc("eth_getTransactionByHash", [tx]), rpc("eth_getTransactionReceipt", [tx])]);
+      if (!t || !rc) return res.status(202).json({ pending: true });
+      if (rc.status !== "0x1") return res.status(400).json({ error: "that transaction failed on chain." });
+      if (String(t.from || "").toLowerCase() !== wallet) return res.status(400).json({ error: "that payment came from a different wallet than the one signed in." });
+      const block = await rpc("eth_getBlockByNumber", [rc.blockNumber, false]);
+      if (now() / 1000 - parseInt(block.timestamp, 16) > MAX_AGE_S) return res.status(400).json({ error: "that payment is older than three days." });
+      let usd = 0, asset = "", amount = 0;
+      if (String(t.to || "").toLowerCase() === PAY_TO && BigInt(t.value) > 0n) {
+        amount = Number(BigInt(t.value)) / 1e18; usd = amount * await ethUsd(); asset = "ETH";
+      } else {
+        const to = "0x" + PAY_TO.slice(2).padStart(64, "0");
+        for (const l of rc.logs || []) {
+          const tok = TOKENS[String(l.address).toLowerCase()];
+          if (!tok || l.topics?.[0] !== TRANSFER || String(l.topics?.[2] || "").toLowerCase() !== to) continue;
+          const n = Number(BigInt(l.data)) / 10 ** tok.decimals; amount += n; usd += n * await tok.usd(); asset = tok.symbol;
+        }
+      }
+      if (!(usd >= MIN_USD)) return res.status(400).json({ error: `no payment of at least $${MIN_USD} to the cat's wallet in that transaction.` });
+      const credit = round(usd / PRICE);
+      try { await sb("terminal_deposits", { method: "POST", body: JSON.stringify({ tx_hash: tx, wallet, asset, amount: round(amount), usd: round(usd), credit }), prefer: "return=minimal" }); }
+      catch (e) { if (e.status === 409) return res.status(200).json({ ok: true, already: true, account: await account(wallet) }); throw e; }
+      const a = await account(wallet); await saveAccount({ ...a, credit: Number(a.credit || 0) + credit });
+      return res.status(200).json({ ok: true, credited: credit, usd: round(usd), asset, account: await account(wallet) });
     }
 
     if (b.action === "chat") {
@@ -124,7 +143,7 @@ export default async function handler(req, res) {
       const p = (await pricing())[model] || { prompt: 0.00001, completion: 0.00005 };
       const inTok = Math.ceil((chars + SYSTEM.length) / 3.5), inCost = inTok * p.prompt * 1.1;
       const maxTokens = Math.min(MAX_TOKENS, Math.floor((credit - inCost) / (p.completion * 1.1)));
-      if (maxTokens < 200) return res.status(402).json({ error: "not enough compute left for that. top up below.", account: a });
+      if (maxTokens < 200) return res.status(402).json({ error: "not enough compute left for that. deposit below.", account: a });
       const r = await fetch(`${ORBIO_API}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${ORBIO_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: "system", content: SYSTEM }, ...msgs] }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) return res.status(502).json({ error: `the model did not answer (${j?.error?.message || r.status}). nothing was charged.` });
