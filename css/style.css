@@ -766,3 +766,5 @@ h1, h2, h3, .display {
 .term-read { color: #9a9284; font-size: 13px; }
 .term-auto { display: flex; gap: 8px; align-items: center; }
 .term-gh { margin-top: 18px; }
+.term-pick select { width: 100%; max-width: 420px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: 14px var(--font-body); background: var(--bg-raised); }
+.term-pick .term-note { margin-top: 8px; }

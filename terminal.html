@@ -87,10 +87,8 @@
           <div data-gh-login hidden>
             <a class="btn btn--small" href="/api/github?action=start" data-gh-signin>Sign in with GitHub</a>
           </div>
-          <div class="term-req" data-gh-pick hidden>
-            <select data-gh-repos aria-label="Repository"></select>
-            <input data-gh-branch placeholder="branch (default: the repo's)" maxlength="100" autocomplete="off">
-            <button type="button" class="btn btn--small" data-gh-use>Use this repo</button>
+          <div class="term-pick" data-gh-pick hidden>
+            <select data-gh-repos aria-label="Repository"><option value="">loading your repos…</option></select>
             <div class="term-note" data-gh-pick-note></div>
           </div>
           <details class="term-note" data-gh-manual>
@@ -135,6 +133,6 @@
   <div class="wrap"><p>Answers come from the models listed, run on Caturn's orbio balance and billed at the provider's price. Prompts are logged briefly to stop abuse. Nothing here is financial advice.</p></div>
 </footer>
 <script src="/js/main.js"></script>
-<script src="/js/terminal.js?v=5"></script>
+<script src="/js/terminal.js?v=6"></script>
 </body>
 </html>

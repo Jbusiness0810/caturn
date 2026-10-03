@@ -96,7 +96,7 @@
     var on = !!(gh && gh.repo), pick = $("[data-gh-pick]");
     $("[data-gh-on]").hidden = !on; $("[data-gh-manual]").hidden = on;
     $("[data-gh-login]").hidden = on || !ghCfg.enabled || !!ghLogin;
-    var showPick = !on && !!ghLogin; if (showPick && pick.hidden) { pick.hidden = false; loadRepos(); } else if (!showPick) pick.hidden = true;
+    var showPick = !!ghLogin; if (showPick && pick.hidden) { pick.hidden = false; loadRepos(); } else if (!showPick) pick.hidden = true;
     $("[data-gh-state]").textContent = on ? gh.repo + " · " + gh.branch : ghLogin ? "signed in · pick a repo" : "not connected";
     if (on) { $("[data-gh-info]").textContent = "connected to " + gh.repo + " on " + gh.branch + " · " + (gh.tree || []).length + ((gh.tree || []).length === 1 ? " file" : " files"); $("[data-gh-auto]").checked = !!gh.auto; }
     $("[data-term-text]").placeholder = on ? "ask anything, or tell it what to build in " + gh.repo : "ask anything";
@@ -126,31 +126,33 @@
   if (hm) { ghLogin = decodeURIComponent(hm[1]); store.set("caturn:ghlogin", ghLogin); }
   if (hm || he) { try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {} }
   if (he) showErr(decodeURIComponent(he[1]));
+  // one dropdown like Claude's: your repos, and a last option that opens GitHub to let the cat into more
+  var ADD = "__add";
   function loadRepos() {
-    var sel = $("[data-gh-repos]"), note = $("[data-gh-pick-note]");
-    note.textContent = "loading your repos…";
-    var t = { token: ghLogin };
-    // the install link comes from /api/github, so wait for it before drawing the list
+    var sel = $("[data-gh-repos]"), note = $("[data-gh-pick-note]"), t = { token: ghLogin };
+    sel.innerHTML = '<option value="">loading your repos…</option>'; note.innerHTML = "";
     cfgReady.then(function () { return ghApi("/user/installations?per_page=100", t); }).then(function (r) {
       return Promise.all((r.installations || []).map(function (i) { return ghApi("/user/installations/" + i.id + "/repositories?per_page=100", t).then(function (x) { return x.repositories || []; }); }));
     }).then(function (lists) {
-      var repos = [].concat.apply([], lists).filter(function (r) { return !r.permissions || r.permissions.push; });
-      sel.innerHTML = repos.map(function (r) { return '<option value="' + esc(r.full_name) + '">' + esc(r.full_name) + "</option>"; }).join("");
-      [sel, $("[data-gh-branch]"), $("[data-gh-use]")].forEach(function (el) { el.hidden = !repos.length; });
-      // same tab: after picking repos GitHub sends the user back here, signed in
-      var url = esc(ghCfg.installUrl || ""), out = ' <button type="button" class="term-new" data-gh-signout>sign out of github</button>';
-      note.innerHTML = repos.length
-        ? repos.length + " repo" + (repos.length > 1 ? "s" : "") + " you let the cat into." + (url ? ' <a class="textlink" href="' + url + '">add more repos</a> ·' : "") + out
-        : "signed in. now pick which repos the cat may work in." + (url ? '<p style="margin:10px 0"><a class="btn btn--small" href="' + url + '">Choose repos on GitHub</a></p>' : "") + out;
-      $("[data-gh-signout]").addEventListener("click", function () { ghLogin = null; store.set("caturn:ghlogin", null); ghRender(); });
+      var repos = [].concat.apply([], lists).filter(function (r) { return !r.permissions || r.permissions.push; }).map(function (r) { return r.full_name; }).sort();
+      var cur = gh && gh.repo;
+      sel.innerHTML = '<option value="">' + (repos.length ? "select a repo" : "no repos yet") + "</option>" +
+        repos.map(function (r) { return '<option value="' + esc(r) + '"' + (r === cur ? " selected" : "") + ">" + esc(r) + "</option>"; }).join("") +
+        (ghCfg.installUrl ? '<option value="' + ADD + '">＋ add repos on GitHub…</option>' : "");
+      note.innerHTML = (repos.length ? "" : "pick “add repos on GitHub” to choose which repos the cat may work in. ") + '<button type="button" class="term-new" data-gh-signout>sign out of github</button>';
+      $("[data-gh-signout]").addEventListener("click", function () { ghLogin = null; store.set("caturn:ghlogin", null); gh = null; ghSave(); ghRender(); });
     }).catch(function (er) {
       if (/github 401/.test(er.message)) { ghLogin = null; store.set("caturn:ghlogin", null); ghRender(); return showErr("your github sign-in expired. sign in again."); }
-      note.textContent = String(er.message).slice(0, 160);
+      sel.innerHTML = '<option value="">could not load your repos</option>'; note.textContent = String(er.message).slice(0, 160);
     });
   }
-  $("[data-gh-use]").addEventListener("click", function () { var r = $("[data-gh-repos]").value; if (r) connect(r, $("[data-gh-branch]").value.trim(), ghLogin); });
+  $("[data-gh-repos]").addEventListener("change", function (e) {
+    var v = e.target.value; if (!v) return;
+    if (v === ADD) { location.href = ghCfg.installUrl; return; }
+    if (!gh || gh.repo !== v) connect(v, "", ghLogin);
+  });
   var cfgReady = fetch("/api/github").then(function (r) { return r.json(); }).then(function (c) { ghCfg = c || {}; ghRender(); }).catch(function () {});
-  $("[data-gh-off]").addEventListener("click", function () { gh = null; ghFiles = {}; pending = {}; ghSave(); ghRender(); });
+  $("[data-gh-off]").addEventListener("click", function () { $("[data-gh-repos]").value = ""; gh = null; ghFiles = {}; pending = {}; ghSave(); ghRender(); });
   $("[data-gh-auto]").addEventListener("change", function (e) { if (gh) { gh.auto = e.target.checked; ghSave(); } });
   $("[data-gh-discard]").addEventListener("click", function () { pending = {}; ghRender(); });
   function ghCommit() {
