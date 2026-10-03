@@ -977,7 +977,7 @@ async function saySomething(feed) {
     if (xLen(text) > 280) { log("say skipped: too long even with links counted as 23:", xLen(text)); return; }
     if (rt && !X_API && !text.toLowerCase().startsWith("@" + rt.handle)) text = `@${rt.handle} ${text}`;
     let media = null, imageUrl = null;
-    if (next.image && API_KEY && !rt) {
+    if (next.image && API_KEY) {
       try {
         const img = await makeImage(String(next.image), { style: false });
         if (img) {
@@ -990,7 +990,7 @@ async function saySomething(feed) {
         } else event(`made no picture for the queued post (${imageErrors.join(" | ").slice(0, 300)}); posting the words only`);
       } catch (e) { log("say image failed:", String(e.message).slice(0, 160)); }
     }
-    let p = X_API ? (rt ? await replyOnX(text, rt.id) : await postOnX(text, { media })) : null;
+    let p = X_API ? await postOnX(text, { replyTo: rt ? rt.id : null, media }) : null;
     if (!p || p.status === "failed") { if (p) event(`x api refused the say post (${String(p.err || "unknown").slice(0, 90)}); sent it through orbio instead`); text = delink(text).slice(0, 270); p = await postToX(text); }
     if (p.error) { log("say skipped:", p.error); return; }
     const rec = { at: iso(now), text, id: p.id, url: p.url, status: p.status, cost: Number(((p.cost || 0) + readCostSay).toFixed(6)), kind: rt ? "reply" : "say", via: p.via || "orbio" };
