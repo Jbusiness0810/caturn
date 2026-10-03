@@ -938,6 +938,61 @@ async function announceBuild(feed) {
 // Grok answers anyone who tags it, in public, under the post. Every few hours the cat tags @grok under one of its own fresh posts
 // with a question Grok will want to answer; Grok's reply lands in the mentions, and the cat answers that too. A thread with two AIs in it.
 const GROK_EVERY_H = Number(env.CATURN_GROK_EVERY_H || 3);
+// ---------- Agent pings: the cat talks to the other agents on the launchpad, by market cap, all day ----------
+// X only threads API replies under posts that mention the cat, so a ping is a standalone post that opens with the agent's handle
+// and carries the link to its latest post (X shows it as a card and notifies them). Agents that answer can then be threaded properly.
+const PING_EVERY_MIN = Number(env.CATURN_PING_EVERY_MIN ?? 20), PING_GAP_H = Number(env.CATURN_PING_GAP_H ?? 6), PING_PER_DAY = Number(env.CATURN_PING_PER_DAY ?? 40), PING_TOP = Number(env.CATURN_PING_TOP ?? 16);
+const PING_HOOKS = [
+  "a real question about the specific thing in their post, one they will want to answer",
+  "a small dare or a bet between the two of you (naps, fees, who gets more trades by friday), no money",
+  "an offer: your free rug scan of any robinhood chain token, or a seat at your terminal where the real claude, gpt and grok run for crypto at 30% under list",
+  "a dry comparison of your two lives on orbio (fees, balances, owners, what you each do all day) ending in a question",
+  "respectful disagreement with one claim in their post, one line, then ask them to defend it",
+  "a compliment that is also a question (what did that cost you in credit? how many thoughts?)"
+];
+async function agentPing(feed) {
+  if (!API_KEY || DRY_RUN || !(PING_EVERY_MIN > 0)) return;
+  const P = feed.agentPings = feed.agentPings || { last: null, byHandle: {}, pinged: [], n: 0 };
+  if (P.last && now - Date.parse(P.last) < PING_EVERY_MIN * 60e3) return;
+  const dayStart = new Date(now); dayStart.setUTCHours(0, 0, 0, 0);
+  const today = (feed.posts || []).filter(p => p.kind === "ping" && Date.parse(p.at) >= dayStart.getTime()).length;
+  if (today >= PING_PER_DAY) return;
+  // the targets: the biggest agents on the launchpad with an X account, plus the named accounts, in rotation
+  const eco = (feed.room?.ecosystem || []).filter(e => e.handle && e.handle !== OWN_HANDLE).slice(0, PING_TOP).map(e => ({ handle: e.handle.toLowerCase(), name: e.name, symbol: e.symbol }));
+  const targets = [...eco, ...REPLY_ACCOUNTS.filter(h => !eco.some(e => e.handle === h)).map(h => ({ handle: h }))].filter(t => !NEVER_TAG.has(t.handle) || REPLY_ACCOUNTS.includes(t.handle));
+  if (!targets.length) return;
+  const lastTo = (h) => Math.max(Date.parse(P.byHandle[h] || 0), ...(feed.posts || []).filter(p => p.replyTo?.handle === h || p.ping?.handle === h).map(p => Date.parse(p.at)));
+  const due = targets.filter(t => now - lastTo(t.handle) > PING_GAP_H * 3600e3);
+  if (!due.length) { log("agent ping: everyone was pinged recently"); return; }
+  const target = due[P.n % due.length]; P.n = (P.n || 0) + 1;
+  let posts = []; try { posts = await readX({ handle: target.handle, limit: 3 }); } catch (e) { log("agent ping read failed:", target.handle, String(e.message).slice(0, 120)); P.last = iso(now); return; }
+  const post = posts.filter(t => t.handle === target.handle && !/^RT @/i.test(t.text) && !scamLike(t) && !junkLike(t) && !P.pinged.includes(String(t.id)) && now - Date.parse(t.at || 0) < 7 * 86400e3 && t.text.replace(/@\w+|https?:\/\/\S+/g, "").trim().length >= 12)[0];
+  if (!post) { log("agent ping: nothing fresh from", target.handle); P.byHandle[target.handle] = iso(now - (PING_GAP_H - 1) * 3600e3); P.last = iso(now); return; }
+  const hook = PING_HOOKS[(P.n + new Date(now).getUTCDate()) % PING_HOOKS.length];
+  const sys = `${persona}
+
+You are writing one post on X addressed to @${target.handle}${target.name ? ` (${target.name}${target.symbol ? ", $" + target.symbol : ""}, another agent launched on orbio)` : ""}. It must open with @${target.handle}, refer to one concrete thing in their post below, and leave them something to answer. Shape: ${hook}. Lowercase, under 200 characters, your dry cat voice, no links, no hashtags, no other handles, no cashtags, nothing about price, buying or holding, never ask them to buy anything, never claim facts about them that are not in their post. Reply with the post text only.`;
+  const user = `Their latest post (${post.at || "recent"}):\n"${post.text.replace(/https?:\/\/\S+/g, "").trim().slice(0, 600)}"`;
+  let line = "", lastErr = null;
+  for (const model of ["anthropic/claude-sonnet-5.5", ...MODELS]) {
+    try {
+      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 160, temperature: 0.9, messages: [{ role: "system", content: sys }, { role: "user", content: user }] }) });
+      line = String(r.choices?.[0]?.message?.content || "").trim().replace(/^["']|["']$/g, "").replace(/\s+/g, " ");
+      if (line) break;
+    } catch (e) { lastErr = e; if (![404, 429, 500, 502, 503, 504].includes(e.status)) break; }
+  }
+  if (!line) { log("agent ping: no line", lastErr?.message); P.last = iso(now); return; }
+  if (!line.toLowerCase().startsWith("@" + target.handle)) line = `@${target.handle} ${line.replace(/^@\w+\s*/, "")}`;
+  const others = (line.match(/@\w+/g) || []).map(h => h.slice(1).toLowerCase()).filter(h => h !== target.handle);
+  if (others.length || /https?:\/\/|www\.|#\w|\$[a-z]{2,}/i.test(line) || /\b(buy|sell|hold|moon|pump|price)\b/i.test(line) || line.length > 230) { log("agent ping: line broke a rule:", line); P.last = iso(now); return; }
+  const link = `https://x.com/${target.handle}/status/${post.id}`;
+  const p = await postOnX(`${line} ${link}`);
+  P.last = iso(now); P.byHandle[target.handle] = iso(now); P.pinged = [...P.pinged, String(post.id)].slice(-200);
+  if (p.status === "failed" || p.error) { log("agent ping refused:", p.err || p.error); event(`tried to ping @${target.handle} and x refused (${String(p.err || p.error || "").slice(0, 80)})`); return; }
+  feed.posts.push({ at: iso(now), text: `${line} ${link}`, id: p.id, url: p.url, status: p.status, cost: Number(p.cost || 0), via: p.via || "orbio", kind: "ping", ping: { handle: target.handle, name: target.name || null, id: String(post.id), text: post.text.slice(0, 200), url: link } });
+  event(`pinged @${target.handle} about their post`); log("pinged", target.handle, line);
+  await persistNow(feed);
+}
 async function askGrok(feed) {
   if (!X_API || !API_KEY || DRY_RUN || !(GROK_EVERY_H > 0)) return;
   feed.grok = feed.grok || {};
@@ -1403,6 +1458,7 @@ if (status === "awake") {
 }
 await saySomething(feed);
 await announceBuild(feed);
+try { await agentPing(feed); } catch (e) { log("agent ping failed:", String(e.message).slice(0, 160)); }
 try { await askGrok(feed); } catch (e) { log("grok ask failed:", String(e.message).slice(0, 160)); }
 try { await disTru(feed); } catch (e) { log("dis tru failed:", String(e.message).slice(0, 160)); }
 if (MEMORY_ON && !DRY_RUN && API_KEY) {
