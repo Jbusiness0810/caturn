@@ -114,7 +114,7 @@ async function think(spec, note) {
 Anything you deliver that is long, or any mission that asks for a page, site or link, is published for you as a styled page at a caturn.lol link, and the poster receives that link. So when a mission asks for a page or a site, write the page itself (a title line starting with "# ", then sections) and never say you cannot publish pages or give links. No preamble about what you can or cannot do; start with the work.
 
 You are on errand, a mission board where agents hire agents and pay in CREDIT. Someone is paying you for this. Do the job properly: answer exactly what the task asks, in the format it asks for, with real substance. Your voice (dry, plain, a little feline) is welcome as seasoning, never as a substitute for doing the work. No preamble, no "here is", no sign-off. Markdown. Length is whatever the task needs and no more: a one-liner gets one line; a list of N items gets exactly N; an itinerary covers every single day with the place, two or three concrete things to do or eat, and the travel leg to the next stop; a report gets its sections. Up to about 25000 characters when the job truly needs it (a long answer is published as a page). Always finish: an answer cut off mid-sentence is worth nothing, so if you are running long, tighten the lines rather than stop early. For a code task, deliver complete runnable code in one fenced block that ends properly. If the task asks for N items, give exactly N. If it asks for a tagline or lines, give only those. If the task has a "Done when" list, every item on it is a hard requirement that an automatic reviewer checks one by one: meet each exactly (counts, character limits, banned words, required closing lines). Never include links unless asked. Never mention which model runs you.`;
-  const user = `Mission: ${spec.title}\n\n${spec.task}${spec._tools ? `\n\nWhat you actually did over HTTP for this mission (real requests and responses, report from these and never invent steps):\n${spec._tools}` : ""}${spec.output && spec.output !== "markdown" ? `\n\nExpected output: ${spec.output}` : ""}${note ? `\n\nThe poster asked for changes: ${note}\nRevise accordingly.` : ""}${notes ? `\n\nFacts read from Robinhood Chain just now (trust these over memory; do not invent functions or numbers beyond them):\n${notes}` : ""}`;
+  const user = `Mission: ${spec.title}\n\n${spec.task}${spec._sources ? `\n\nWhat a web search found just now (use it for current facts, name sources where it helps, never invent numbers or people beyond it; if something truly cannot be found, give the best verifiable answer and say briefly what is unconfirmed, without making that the whole answer):\n${spec._sources}` : ""}${spec._tools ? `\n\nWhat you actually did over HTTP for this mission (real requests and responses, report from these and never invent steps):\n${spec._tools}` : ""}${spec.output && spec.output !== "markdown" ? `\n\nExpected output: ${spec.output}` : ""}${note ? `\n\nThe poster asked for changes: ${note}\nRevise accordingly.` : ""}${notes ? `\n\nFacts read from Robinhood Chain just now (trust these over memory; do not invent functions or numbers beyond them):\n${notes}` : ""}`;
   let lastErr;
   for (const model of MODELS) {
     try {
@@ -140,6 +140,42 @@ You are on errand, a mission board where agents hire agents and pay in CREDIT. S
     } catch (e) { lastErr = e; if (![404, 429, 500, 502, 503, 504].includes(e.status)) throw e; log(`model ${model} unavailable (${e.status}), trying next`); }
   }
   throw lastErr || new Error("no model answered");
+}
+
+// ---------- 2a. Eyes: web search (orbio's web.search) and a read of the top pages, for anything that needs current facts ----------
+const needsResearch = (spec) => ["research", "scrape", "analysis", "data", "summary"].includes(spec?.kind) || /\b(latest|current|today|live|top \d+|rank|real|recent|compare|comparison|scrape|data|stats|who is|which)\b/i.test(`${spec?.title} ${spec?.task}`);
+const strip = (html) => String(html).replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
+async function research(spec) {
+  let queries = [];
+  for (const model of MODELS) {
+    try {
+      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 300, temperature: 0.3, messages: [
+        { role: "system", content: "You plan web searches for a research task. Answer with one JSON object only: {\"queries\": [string]} with 2 to 4 specific search queries that would find the facts the task needs (names, numbers, current state). Today is " + iso(now).slice(0, 10) + "." },
+        { role: "user", content: `${spec.title}\n\n${spec.task}`.slice(0, 3000) }] }) });
+      const m = String(r.choices?.[0]?.message?.content || "").match(/\{[\s\S]*\}/); queries = (m ? JSON.parse(m[0]).queries : []) || []; break;
+    } catch (e) { if (![404, 429, 500, 502, 503, 504].includes(e.status)) break; }
+  }
+  const results = [], seen = new Set();
+  for (const q of queries.slice(0, 4).map(String)) {
+    try {
+      const r = await getJSON(`${ORBIO_API}/tools/web.search`, { method: "POST", headers: auth, body: JSON.stringify({ query: q.slice(0, 200), limit: 6, max_cost: "0.0150" }) });
+      for (const x of (r.results || r.result?.results || [])) { if (!x.url || seen.has(x.url)) continue; seen.add(x.url); results.push({ q, title: String(x.title || "").slice(0, 160), url: String(x.url), snippet: String(x.snippet || x.description || x.content || "").slice(0, 400) }); }
+    } catch (e) { log("search failed:", String(e.message).slice(0, 100)); }
+  }
+  // read the three most promising pages (plain GET of public pages the search returned)
+  const pages = [];
+  for (const x of results.slice(0, 3)) {
+    try {
+      const u = new URL(x.url); if (u.protocol !== "https:" || privateHost(u.hostname)) continue;
+      const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), 12000);
+      const r = await fetch(u, { signal: ctl.signal, headers: { "User-Agent": "Mozilla/5.0 (caturn-errand research)", Accept: "text/html,text/plain,application/json" } });
+      clearTimeout(timer); if (!r.ok) continue;
+      pages.push(`PAGE ${x.url}\n${strip(await r.text()).slice(0, 3500)}`);
+    } catch {}
+  }
+  if (!results.length) return "";
+  log(`research: ${queries.length} queries, ${results.length} results, ${pages.length} pages read`);
+  return (`Search results (${iso(now).slice(0, 10)}):\n` + results.slice(0, 18).map(x => `- ${x.title} (${x.url}): ${x.snippet}`).join("\n") + (pages.length ? "\n\n" + pages.join("\n\n") : "")).slice(0, 16000);
 }
 
 // ---------- 2b. Hands: real HTTP for missions that ask the agent to call an API (interviews, forms, endpoints) ----------
@@ -189,6 +225,7 @@ Follow the mission's instructions step by step. When asked questions (an intervi
   return trail.join("\n\n").slice(0, 12000);
 }
 async function work(spec, note) {
+  if (needsResearch(spec) && !spec._sources) { try { const src = await research(spec); if (src) spec = { ...spec, _sources: src }; } catch (e) { log("research failed:", String(e.message).slice(0, 120)); } }
   if (needsHttp(spec) && !spec._tools) { try { const t = await doHttp(spec); if (t) spec = { ...spec, _tools: t }; } catch (e) { log("http work failed:", String(e.message).slice(0, 120)); } }
   return think(spec, note);
 }
@@ -250,15 +287,17 @@ async function compPass(all) {
     const en = { id: b.id, title: String(b.spec.title || "").slice(0, 80), kind: b.spec.kind || "custom", reward: Number(b.reward), poster: b.poster, status: "drafting", at: iso(now), url: `${SITE}/#/mission/${b.id}`, rivals: (view?.entries || []).filter(x => x.submission).length };
     E.entries.push(en);
     try {
-      let out = await work(b.spec), text = out.text;
+      let spec = b.spec; if (needsResearch(spec)) { const src = await research(spec).catch(() => ""); if (src) spec = { ...spec, _sources: src }; }
+      let out = await work(spec), text = out.text, last = null;
       // one entry per agent and no edits after: check against the brief and fix before it goes in (two rounds at most)
       for (let round = 0; round < 2; round++) {
-        const c = await check(b.spec, text); en.selfScore = c.score;
+        const c = await check(b.spec, text); en.selfScore = c.score; last = c;
         if (c.pass && c.score >= 85) break;
         if (!c.fixes.length) break;
         log(`competition #${b.id} self-check ${c.score}: fixing ${c.fixes.length}`);
-        out = await think(b.spec, `Your draft:\n${text.slice(0, 12000)}\n\nFix these before it is scored and keep everything that already works; deliver the whole corrected piece: ${c.fixes.join(" | ")}`); text = out.text;
+        out = await think(spec, `Your draft:\n${text.slice(0, 12000)}\n\nFix these before it is scored and keep everything that already works; deliver the whole corrected piece: ${c.fixes.join(" | ")}`); text = out.text;
       }
+      if (last && last.score < Number(env.ERRAND_COMP_MIN_SELF || 45)) { const c2 = await check(b.spec, text); en.selfScore = c2.score; if (c2.score < Number(env.ERRAND_COMP_MIN_SELF || 45)) { en.status = "held back"; en.error = `own check scored it ${c2.score}: ${c2.fixes.slice(0, 2).join("; ")}`.slice(0, 200); log(`competition #${b.id} not entered: weak (${c2.score})`); acted++; continue; } }
       if (text.length > 15800) { const cut = text.lastIndexOf("\n", 15800); text = text.slice(0, cut > 8000 ? cut : 15800); }
       await compApi(b, "submit", { text, link: "", images: [] });
       en.status = "entered"; en.model = out.model; en.preview = text.slice(0, 200);
