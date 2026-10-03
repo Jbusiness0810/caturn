@@ -280,15 +280,21 @@ async function refreshPostUrls(posts) {
 // Orbio has no reply-to field on social.post, so a "reply" is a post that opens with the person's handle:
 // it lands in their notifications and under their name in search, which is where the engagement is.
 const xCache = new Map(); // one read per question per tick: the mention list is asked for by the scanner, the mention check and the reply search
+const READ_CAP = { handle: ["0.0500", 3], mentions_of: ["0.2000", 5], query: ["0.4000", 10] }; // [max_cost, limit] per read type
+const READ_TTL_MIN = { handle: Number(env.CATURN_HANDLE_READ_MIN || 30), mentions_of: Number(env.CATURN_MENTIONS_READ_MIN || 20), query: 60 };
 async function readX(params) {
   const key = JSON.stringify(params);
   if (xCache.has(key)) return xCache.get(key);
-  const p = readXRaw(params); xCache.set(key, p);
+  // a read kept in the feed is reused until it is older than its type's interval: the reader is billed per call
+  const kind = Object.keys(params)[0], ttl = (READ_TTL_MIN[kind] || 30) * 60e3;
+  if (feed) { feed.xReads = feed.xReads || {}; const c = feed.xReads[key]; if (c && now - Date.parse(c.at) < ttl) { xCache.set(key, Promise.resolve(c.posts)); return c.posts; } }
+  const p = readXRaw(params).then(posts => { if (feed) { feed.xReads[key] = { at: iso(now), posts }; for (const k of Object.keys(feed.xReads)) if (now - Date.parse(feed.xReads[k].at) > 24 * 3600e3) delete feed.xReads[k]; } return posts; }); xCache.set(key, p);
   try { return await p; } catch (e) { xCache.delete(key); feed?.replyDebug && (feed.replyDebug.errors = [...(feed.replyDebug.errors || []), `${Object.keys(params)[0]}: ${e.status || ""} ${String(e.message).slice(0, 240)}`].slice(-6)); throw e; }
 }
 async function readXRaw(params) {
   let r;
-  try { r = await getJSON(`${ORBIO_API}/tools/social.x.posts`, { method: "POST", headers: auth, body: JSON.stringify({ limit: 10, sort: "Latest", max_cost: "0.0060", ...params }) }); }
+  const [cap, lim] = READ_CAP[Object.keys(params)[0]] || ["0.0500", 5];
+  try { r = await getJSON(`${ORBIO_API}/tools/social.x.posts`, { method: "POST", headers: auth, body: JSON.stringify({ sort: "Latest", ...params, limit: Math.min(Number(params.limit || lim), lim), max_cost: cap }) }); log("x read", Object.keys(params)[0], "cost", r.cost?.credit ?? "?"); }
   catch (e) {
     // Orbio's reader is down: mentions of the cat (the replies X lets the app thread) come straight from X instead
     if (X_KEYS_SET && params.mentions_of === OWN_HANDLE && e.status >= 500) { log("orbio x reader failed; reading mentions from the X API"); return await mentionsFromX(); }
@@ -305,7 +311,7 @@ async function refreshBuzz(feed) {
   const pool = feed.buzzPool || { at: null, posts: [] };
   if (pool.at && now - Date.parse(pool.at) < ((pool.posts || []).length ? 60 : 20) * 60e3) return 0; // an empty pool tries again sooner
   let posts = [], cost = 0, via = "orbio";
-  try { posts = await readXRaw({ query: "@orbiodotso OR $ORBIO OR orbio.so", sort: "Top", limit: 20 }); cost = posts.length * 0.00022; }
+  try { if (X_KEYS_SET) throw Object.assign(new Error("x search first"), { status: 0 }); posts = await readXRaw({ query: "@orbiodotso OR $ORBIO OR orbio.so", sort: "Top", limit: 10 }); cost = 0.33; }
   catch (e) {
     if (!X_KEYS_SET) { feed.buzzPool = { ...pool, at: iso(now) }; return 0; }
     try {
@@ -325,6 +331,8 @@ async function refreshBuzz(feed) {
 // Mentions straight from the X API (pay-per-read, so only what is new since the last look). Used when Orbio's reader fails.
 // Phishing and drainer bait, in any wording: never quote it, link it, or answer it. A cat that amplifies a wallet drainer is worse than a quiet cat.
 const SCAM_RE = /holder\s*(page|status|portal|check)|stored\s+receipts?|unlock(s|ed)?\s+(holder|rewards?|allocation|eligib)|claim\s+(now|your|here|portal|page|rewards?|allocation|tokens?)|airdrop|allocation|eligib(le|ility)|snapshot\s+(is|was|has)|connect\s+(your\s+)?wallet|verify\s+(your\s+)?(wallet|holdings?|address)|sync\s+(your\s+)?wallet|validate\s+(your\s+)?wallet|(re)?distribution\s+(is|has|will)|migrat(e|ion)\s+(now|your|to)|dm\s+(us|me)\s+for|limited\s+(time|slots?)|first\s+\d+\s+(wallets?|users)|free\s+(mint|tokens?|\$)|giveaway|whitelist|presale|seed\s+phrase|private\s+key|\brug\s*pull\s+alert|compensation|refund\s+program|wallet\s+(has\s+been\s+)?(selected|chosen)/i;
+const JUNK_RE = /\b(vote|votes|voting)\b.*\b(cmc|coinmarketcap|listing|leaderboard|top\s*100)|\blisting\s*id\b|\bfor the algorithm\b|\$\w+\s+family\b|\bfamily!|\b(bullish|send it|lfg)\b.*\$\w+.*\$\w+|\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/i;
+const junkLike = (t) => JUNK_RE.test(String(t?.text || "")) || ((String(t?.text || "").match(/\$[A-Za-z]{2,10}\b/g) || []).length >= 3);
 const scamLike = (t) => SCAM_RE.test(String(t?.text || "")) || (/https?:\/\/(?!(?:www\.)?(x|twitter)\.com)\S+/i.test(String(t?.text || "")) && /\b(holder|claim|wallet|reward|eligib|portal|page)\b/i.test(String(t?.text || "")));
 async function xGet(path, query) {
   const url = `https://api.x.com/2/${path}`;
@@ -483,7 +491,7 @@ async function findReplyTargetInner(feed, { mentionsOnly = false, outreach = fal
   const spammy = (t) => /follow\s*(me\s*)?back|follow\s+for|dm\s+(us|me)|let'?s\s+talk|collab|check\s+(out\s+)?my|aped my|callout|airdrop|giveaway|whitelist|promo|shill|send\s+me/i.test(t.text) || (/https?:\/\/t\.co/.test(t.text) && t.text.replace(/@\w+|https?:\/\/\S+/g, "").trim().length < 40);
   const ecoSet = new Set((feed.room?.ecosystem || []).map(e => e.handle).concat(REPLY_ACCOUNTS));
   const aboutUs = (t) => /\$ctrn\b|\$caturn\b|\bcaturn(?:_rh)?\b|@caturn_rh/i.test(t.text) || t.text.toLowerCase().includes(CA.toLowerCase()); // talking about the cat, in any language
-  const usable = (t) => t.handle !== OWN_HANDLE && !answered.has(t.id) && fresh(t) && !/^RT @/i.test(t.text) && !scamLike(t) && (aboutUs(t) || t.text.replace(/@\w+/g, "").trim().length > 12)
+  const usable = (t) => t.handle !== OWN_HANDLE && !answered.has(t.id) && fresh(t) && !/^RT @/i.test(t.text) && !scamLike(t) && !(junkLike(t) && !aboutUs(t)) && (aboutUs(t) || t.text.replace(/@\w+/g, "").trim().length > 12)
     && !spammy(t) && (ecoSet.has(t.handle) || aboutUs(t) || (t.followers >= 300 && t.text.replace(/@\w+/g, "").trim().length >= 40));
   const score = (t) => t.views + t.likes * 20 + t.replies * 30 + t.reposts * 40 + (now - Date.parse(t.at || 0) < 6 * 3600e3 ? 500 : 0); // engagement, with a bonus for being recent
   const lastTo = (h) => Math.max(0, ...feed.posts.filter(p => p.replyTo?.handle === h).map(p => Date.parse(p.at)));
@@ -535,7 +543,7 @@ async function findReplyTargetInner(feed, { mentionsOnly = false, outreach = fal
     async function buzzPick() { try {
       cost += await refreshBuzz(feed);
       const worth = (t) => ecoSet.has(t.handle) || t.followers >= 500 || t.likes >= 10;
-      const buzz = (feed.buzzPool?.posts || []).filter(t => t.handle !== OWN_HANDLE && (!NEVER_TAG.has(t.handle) || REPLY_ACCOUNTS.includes(t.handle)) && !answered.has(t.id) && !/^RT @/i.test(t.text) && !spammy(t) && !scamLike(t) && worth(t)
+      const buzz = (feed.buzzPool?.posts || []).filter(t => t.handle !== OWN_HANDLE && (!NEVER_TAG.has(t.handle) || REPLY_ACCOUNTS.includes(t.handle)) && !answered.has(t.id) && !/^RT @/i.test(t.text) && !spammy(t) && !scamLike(t) && !junkLike(t) && worth(t)
         && now - lastTo(t.handle) > REPLY_SAME_HANDLE_GAP_H * 3600e3 && t.text.replace(/@\w+|https?:\/\/\S+/g, "").trim().length >= 20);
       feed.replyDebug.buzz = buzz.length;
       const b = buzz.sort((a, c) => score(c) - score(a))[0];
@@ -966,9 +974,9 @@ async function disTru(feed) {
   const quoted = new Set((feed.grok.quoted || []).map(String));
   const insiders = new Set((feed.room?.ecosystem || []).map(e => e.handle).concat(REPLY_ACCOUNTS));
   const score = (t) => (t.views || 0) + (t.likes || 0) * 20 + (t.replies || 0) * 30 + (t.reposts || 0) * 40 + (insiders.has(t.handle) ? 1e6 : 0); // orbio's own people first
-  const credible = (t) => insiders.has(t.handle) || (t.followers || 0) >= 1000 || (t.likes || 0) >= 10 || (t.reposts || 0) >= 3; // a stranger's post must have earned attention on its own
+  const credible = (t) => insiders.has(t.handle) || (env.CATURN_DISTRU_STRANGERS === "1" && ((t.followers || 0) >= 1000 || (t.likes || 0) >= 10 || (t.reposts || 0) >= 3)); // orbio's own people by default; strangers only when switched on // a stranger's post must have earned attention on its own
   const t = [...direct, ...(feed.buzzPool?.posts || [])].filter(t => t.handle !== OWN_HANDLE && t.handle !== "grok" && !quoted.has(String(t.id)) && now - Date.parse(t.at || 0) < 24 * 3600e3
-    && !/^RT @/i.test(t.text) && !scamLike(t) && credible(t) && t.text.replace(/@\w+|https?:\/\/\S+/g, "").trim().length >= 30).sort((a, b) => score(b) - score(a))[0];
+    && !/^RT @/i.test(t.text) && !scamLike(t) && !junkLike(t) && credible(t) && t.text.replace(/@\w+|https?:\/\/\S+/g, "").trim().length >= 30).sort((a, b) => score(b) - score(a))[0];
   if (!t) { log("dis tru: nothing fresh about orbio to quote"); return; }
   const n = feed.grok.quotes || 0, text = DISTRU_LINES[n % DISTRU_LINES.length];
   feed.grok.lastQuoteAt = iso(now); feed.grok.quoted = [...(feed.grok.quoted || []), String(t.id)].slice(-60);
