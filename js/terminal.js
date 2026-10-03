@@ -78,7 +78,7 @@
   var ghFiles = {}, pending = {}, SKIP = /(^|\/)(node_modules|\.git|dist|build|vendor|\.next|coverage)\//;
   function ghApi(path, opts) {
     opts = opts || {};
-    return fetch("https://api.github.com" + path, { method: opts.method || "GET", headers: Object.assign({ Authorization: "Bearer " + gh.token, Accept: "application/vnd.github+json" }, opts.headers || {}), body: opts.body ? JSON.stringify(opts.body) : undefined })
+    return fetch("https://api.github.com" + path, { method: opts.method || "GET", headers: Object.assign({ Authorization: "Bearer " + (opts.token || gh.token), Accept: "application/vnd.github+json" }, opts.headers || {}), body: opts.body ? JSON.stringify(opts.body) : undefined })
       .then(function (r) { if (!r.ok) return r.json().catch(function () { return {}; }).then(function (j) { throw new Error("github " + r.status + ": " + (j.message || "refused")); }); return opts.raw ? r.text() : r.json(); });
   }
   var enc = function (p) { return p.split("/").map(encodeURIComponent).join("/"); };
@@ -93,28 +93,59 @@
       .then(function (t) { ghFiles[path] = String(t).slice(0, 60000); return ghFiles[path]; });
   }
   function ghRender() {
-    var on = !!(gh && gh.repo);
-    $("[data-gh-form]").hidden = on; $("[data-gh-on]").hidden = !on;
+    var on = !!(gh && gh.repo), pick = $("[data-gh-pick]");
+    $("[data-gh-on]").hidden = !on; $("[data-gh-manual]").hidden = on;
+    $("[data-gh-login]").hidden = on || !ghCfg.enabled || !!ghLogin;
+    var showPick = !on && !!ghLogin; if (showPick && pick.hidden) { pick.hidden = false; loadRepos(); } else if (!showPick) pick.hidden = true;
     $("[data-gh-state]").textContent = on ? gh.repo + " · " + gh.branch : "not connected";
-    if (on) { $("[data-gh-info]").textContent = "connected to " + gh.repo + " on " + gh.branch + " · " + (gh.tree || []).length + " files"; $("[data-gh-auto]").checked = !!gh.auto; }
+    if (on) { $("[data-gh-info]").textContent = "connected to " + gh.repo + " on " + gh.branch + " · " + (gh.tree || []).length + ((gh.tree || []).length === 1 ? " file" : " files"); $("[data-gh-auto]").checked = !!gh.auto; }
     $("[data-term-text]").placeholder = on ? "ask anything, or tell it what to build in " + gh.repo : "ask anything";
     var n = Object.keys(pending).length, bar = $("[data-gh-changes]");
     bar.hidden = !(on && n);
     if (n) $("[data-gh-changes-label]").textContent = n + " file change" + (n > 1 ? "s" : "") + " → " + gh.repo + "@" + gh.branch;
   }
   function ghSave() { store.set("caturn:gh", gh ? JSON.stringify({ repo: gh.repo, branch: gh.branch, token: gh.token, auto: !!gh.auto, tree: gh.tree }) : null); }
+  function connect(repo, branch, tokenValue) {
+    var prev = gh; gh = { repo: repo, branch: branch || "", token: tokenValue, auto: !!(prev && prev.auto) };
+    showErr(""); $("[data-gh-state]").textContent = "connecting…";
+    return ghApi("/repos/" + repo).then(function (r) {
+      if (r.permissions && !r.permissions.push) throw new Error("that login can read " + repo + " but not write to it.");
+      gh.repo = r.full_name; gh.branch = gh.branch || r.default_branch || "main";
+      return ghTree();
+    }).then(function () { ghFiles = {}; pending = {}; ghSave(); ghRender(); return true; })
+      .catch(function (er) { gh = null; ghRender(); showErr(String(er.message || er).slice(0, 200)); return false; });
+  }
   $("[data-gh-form]").addEventListener("submit", function (e) {
     e.preventDefault(); var f = e.target, repo = f.repo.value.trim().replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, "").replace(/\/$/, "");
     if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return showErr("write the repo as owner/name.");
-    gh = { repo: repo, branch: f.branch.value.trim(), token: f.token.value.trim(), auto: false };
-    showErr(""); $("[data-gh-state]").textContent = "connecting…";
-    ghApi("/repos/" + repo).then(function (r) {
-      if (r.permissions && !r.permissions.push) throw new Error("that token can read " + repo + " but not write to it. give it Contents: read and write.");
-      gh.repo = r.full_name; gh.branch = gh.branch || r.default_branch || "main";
-      return ghTree();
-    }).then(function () { f.token.value = ""; ghFiles = {}; pending = {}; ghSave(); ghRender(); })
-      .catch(function (er) { gh = null; ghRender(); showErr(String(er.message || er).slice(0, 200)); });
+    connect(repo, f.branch.value.trim(), f.token.value.trim()).then(function (ok) { if (ok) f.token.value = ""; });
   });
+  // sign in with GitHub: /api/github sends the login back in the URL fragment; it is kept in this browser only
+  var ghLogin = store.get("caturn:ghlogin"), ghCfg = {};
+  var hm = location.hash.match(/[#&]gh=([^&]+)/), he = location.hash.match(/[#&]gh_error=([^&]+)/);
+  if (hm) { ghLogin = decodeURIComponent(hm[1]); store.set("caturn:ghlogin", ghLogin); }
+  if (hm || he) { try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {} }
+  if (he) showErr(decodeURIComponent(he[1]));
+  function loadRepos() {
+    var sel = $("[data-gh-repos]"), note = $("[data-gh-pick-note]");
+    note.textContent = "loading your repos…";
+    var t = { token: ghLogin };
+    ghApi("/user/installations?per_page=100", t).then(function (r) {
+      return Promise.all((r.installations || []).map(function (i) { return ghApi("/user/installations/" + i.id + "/repositories?per_page=100", t).then(function (x) { return x.repositories || []; }); }));
+    }).then(function (lists) {
+      var repos = [].concat.apply([], lists).filter(function (r) { return !r.permissions || r.permissions.push; });
+      sel.innerHTML = repos.map(function (r) { return '<option value="' + esc(r.full_name) + '">' + esc(r.full_name) + "</option>"; }).join("");
+      var more = ghCfg.installUrl ? ' <a href="' + esc(ghCfg.installUrl) + '" target="_blank" rel="noopener">' + (repos.length ? "add more repos" : "choose repos for the cat") + "</a>" : "";
+      note.innerHTML = (repos.length ? repos.length + " repo" + (repos.length > 1 ? "s" : "") + " you let the cat into." : "you have not let the cat into any repo yet.") + more + ' · <button type="button" class="term-new" data-gh-signout>sign out of github</button>';
+      $("[data-gh-use]").disabled = !repos.length;
+      $("[data-gh-signout]").addEventListener("click", function () { ghLogin = null; store.set("caturn:ghlogin", null); ghRender(); });
+    }).catch(function (er) {
+      if (/github 401/.test(er.message)) { ghLogin = null; store.set("caturn:ghlogin", null); ghRender(); return showErr("your github sign-in expired. sign in again."); }
+      note.textContent = String(er.message).slice(0, 160);
+    });
+  }
+  $("[data-gh-use]").addEventListener("click", function () { var r = $("[data-gh-repos]").value; if (r) connect(r, $("[data-gh-branch]").value.trim(), ghLogin); });
+  fetch("/api/github").then(function (r) { return r.json(); }).then(function (c) { ghCfg = c || {}; ghRender(); }).catch(function () {});
   $("[data-gh-off]").addEventListener("click", function () { gh = null; ghFiles = {}; pending = {}; ghSave(); ghRender(); });
   $("[data-gh-auto]").addEventListener("change", function (e) { if (gh) { gh.auto = e.target.checked; ghSave(); } });
   $("[data-gh-discard]").addEventListener("click", function () { pending = {}; ghRender(); });

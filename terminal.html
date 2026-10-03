@@ -83,19 +83,31 @@
       <div class="con-card">
         <div class="con-bar"><span>github (optional)</span><span data-gh-state>not connected</span></div>
         <div class="term-topup-body">
-          <p>Connect a repo and the terminal works like a coding agent: the model reads your files, writes new ones and you commit the changes with one tap. Your token stays in this browser and talks to GitHub directly; the cat's server never sees it.</p>
-          <form class="term-req" data-gh-form>
-            <input name="repo" placeholder="owner/repo" maxlength="140" autocomplete="off" required>
-            <input name="branch" placeholder="branch (default: main)" maxlength="100" autocomplete="off">
-            <input name="token" type="password" placeholder="GitHub token (fine-grained, one repo, Contents: read and write)" autocomplete="off" required>
-            <button type="submit" class="btn btn--small">Connect repo</button>
-          </form>
+          <p>Connect a repo and the terminal works like a coding agent: the model reads your files, writes new ones and you commit the changes with one tap. GitHub only lets it into the repos you pick, and the login lives in this browser.</p>
+          <div data-gh-login hidden>
+            <a class="btn btn--small" href="/api/github?action=start" data-gh-signin>Sign in with GitHub</a>
+          </div>
+          <div class="term-req" data-gh-pick hidden>
+            <select data-gh-repos aria-label="Repository"></select>
+            <input data-gh-branch placeholder="branch (default: the repo's)" maxlength="100" autocomplete="off">
+            <button type="button" class="btn btn--small" data-gh-use>Use this repo</button>
+            <p class="term-note" data-gh-pick-note></p>
+          </div>
+          <details class="term-note" data-gh-manual>
+            <summary>or paste a token</summary>
+            <form class="term-req" data-gh-form>
+              <input name="repo" placeholder="owner/repo" maxlength="140" autocomplete="off" required>
+              <input name="branch" placeholder="branch (default: main)" maxlength="100" autocomplete="off">
+              <input name="token" type="password" placeholder="GitHub token (fine-grained, one repo, Contents: read and write)" autocomplete="off" required>
+              <button type="submit" class="btn btn--small">Connect repo</button>
+            </form>
+            <p>Make one at github.com/settings/personal-access-tokens: pick only this repository, give it Contents read and write, nothing else.</p>
+          </details>
           <div data-gh-on hidden>
             <p class="term-note" data-gh-info></p>
             <label class="term-note term-auto"><input type="checkbox" data-gh-auto> commit changes automatically</label>
             <p class="term-note">Mention a file with @path to attach it, or let the model ask for what it needs. <button type="button" class="term-new" data-gh-off>disconnect</button></p>
           </div>
-          <p class="term-note">Make a token at github.com/settings/personal-access-tokens: pick only this repository, give it Contents read and write, nothing else.</p>
         </div>
       </div>
     </section>
