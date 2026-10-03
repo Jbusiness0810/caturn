@@ -323,6 +323,9 @@ async function refreshBuzz(feed) {
   return cost;
 }
 // Mentions straight from the X API (pay-per-read, so only what is new since the last look). Used when Orbio's reader fails.
+// Phishing and drainer bait, in any wording: never quote it, link it, or answer it. A cat that amplifies a wallet drainer is worse than a quiet cat.
+const SCAM_RE = /holder\s*(page|status|portal|check)|stored\s+receipts?|unlock(s|ed)?\s+(holder|rewards?|allocation|eligib)|claim\s+(now|your|here|portal|page|rewards?|allocation|tokens?)|airdrop|allocation|eligib(le|ility)|snapshot\s+(is|was|has)|connect\s+(your\s+)?wallet|verify\s+(your\s+)?(wallet|holdings?|address)|sync\s+(your\s+)?wallet|validate\s+(your\s+)?wallet|(re)?distribution\s+(is|has|will)|migrat(e|ion)\s+(now|your|to)|dm\s+(us|me)\s+for|limited\s+(time|slots?)|first\s+\d+\s+(wallets?|users)|free\s+(mint|tokens?|\$)|giveaway|whitelist|presale|seed\s+phrase|private\s+key|\brug\s*pull\s+alert|compensation|refund\s+program|wallet\s+(has\s+been\s+)?(selected|chosen)/i;
+const scamLike = (t) => SCAM_RE.test(String(t?.text || "")) || (/https?:\/\/(?!(?:www\.)?(x|twitter)\.com)\S+/i.test(String(t?.text || "")) && /\b(holder|claim|wallet|reward|eligib|portal|page)\b/i.test(String(t?.text || "")));
 async function xGet(path, query) {
   const url = `https://api.x.com/2/${path}`;
   const enc = (v) => encodeURIComponent(String(v)).replace(/[!'()*]/g, c => "%" + c.charCodeAt(0).toString(16).toUpperCase()); // the same strict encoding the signature uses, or X answers 401
@@ -480,7 +483,7 @@ async function findReplyTargetInner(feed, { mentionsOnly = false, outreach = fal
   const spammy = (t) => /follow\s*(me\s*)?back|follow\s+for|dm\s+(us|me)|let'?s\s+talk|collab|check\s+(out\s+)?my|aped my|callout|airdrop|giveaway|whitelist|promo|shill|send\s+me/i.test(t.text) || (/https?:\/\/t\.co/.test(t.text) && t.text.replace(/@\w+|https?:\/\/\S+/g, "").trim().length < 40);
   const ecoSet = new Set((feed.room?.ecosystem || []).map(e => e.handle).concat(REPLY_ACCOUNTS));
   const aboutUs = (t) => /\$ctrn\b|\$caturn\b|\bcaturn(?:_rh)?\b|@caturn_rh/i.test(t.text) || t.text.toLowerCase().includes(CA.toLowerCase()); // talking about the cat, in any language
-  const usable = (t) => t.handle !== OWN_HANDLE && !answered.has(t.id) && fresh(t) && !/^RT @/i.test(t.text) && (aboutUs(t) || t.text.replace(/@\w+/g, "").trim().length > 12)
+  const usable = (t) => t.handle !== OWN_HANDLE && !answered.has(t.id) && fresh(t) && !/^RT @/i.test(t.text) && !scamLike(t) && (aboutUs(t) || t.text.replace(/@\w+/g, "").trim().length > 12)
     && !spammy(t) && (ecoSet.has(t.handle) || aboutUs(t) || (t.followers >= 300 && t.text.replace(/@\w+/g, "").trim().length >= 40));
   const score = (t) => t.views + t.likes * 20 + t.replies * 30 + t.reposts * 40 + (now - Date.parse(t.at || 0) < 6 * 3600e3 ? 500 : 0); // engagement, with a bonus for being recent
   const lastTo = (h) => Math.max(0, ...feed.posts.filter(p => p.replyTo?.handle === h).map(p => Date.parse(p.at)));
@@ -532,7 +535,7 @@ async function findReplyTargetInner(feed, { mentionsOnly = false, outreach = fal
     async function buzzPick() { try {
       cost += await refreshBuzz(feed);
       const worth = (t) => ecoSet.has(t.handle) || t.followers >= 500 || t.likes >= 10;
-      const buzz = (feed.buzzPool?.posts || []).filter(t => t.handle !== OWN_HANDLE && (!NEVER_TAG.has(t.handle) || REPLY_ACCOUNTS.includes(t.handle)) && !answered.has(t.id) && !/^RT @/i.test(t.text) && !spammy(t) && worth(t)
+      const buzz = (feed.buzzPool?.posts || []).filter(t => t.handle !== OWN_HANDLE && (!NEVER_TAG.has(t.handle) || REPLY_ACCOUNTS.includes(t.handle)) && !answered.has(t.id) && !/^RT @/i.test(t.text) && !spammy(t) && !scamLike(t) && worth(t)
         && now - lastTo(t.handle) > REPLY_SAME_HANDLE_GAP_H * 3600e3 && t.text.replace(/@\w+|https?:\/\/\S+/g, "").trim().length >= 20);
       feed.replyDebug.buzz = buzz.length;
       const b = buzz.sort((a, c) => score(c) - score(a))[0];
@@ -644,6 +647,12 @@ async function postOnX(text, { replyTo = null, mediaIds = [], poll = null, quote
   }
 }
 const replyOnX = (text, inReplyToId) => postOnX(text, { replyTo: inReplyToId });
+async function xDelete(id) {
+  if (!X_KEYS_SET) throw new Error("no X keys");
+  const url = `https://api.x.com/2/tweets/${id}`;
+  const r = await getJSON(url, { method: "DELETE", headers: { Authorization: oauthHeader("DELETE", url) } });
+  return !!r?.data?.deleted;
+}
 // A picture for a post, made through the orbio gateway (OpenRouter-style image output). Returns the bytes and the cost.
 let imageErrors = [];
 async function makeImage(idea, { style = true } = {}) {
@@ -956,8 +965,9 @@ async function disTru(feed) {
   const quoted = new Set((feed.grok.quoted || []).map(String));
   const insiders = new Set((feed.room?.ecosystem || []).map(e => e.handle).concat(REPLY_ACCOUNTS));
   const score = (t) => (t.views || 0) + (t.likes || 0) * 20 + (t.replies || 0) * 30 + (t.reposts || 0) * 40 + (insiders.has(t.handle) ? 1e6 : 0); // orbio's own people first
+  const credible = (t) => insiders.has(t.handle) || (t.followers || 0) >= 1000 || (t.likes || 0) >= 10 || (t.reposts || 0) >= 3; // a stranger's post must have earned attention on its own
   const t = [...direct, ...(feed.buzzPool?.posts || [])].filter(t => t.handle !== OWN_HANDLE && t.handle !== "grok" && !quoted.has(String(t.id)) && now - Date.parse(t.at || 0) < 24 * 3600e3
-    && !/^RT @/i.test(t.text) && t.text.replace(/@\w+|https?:\/\/\S+/g, "").trim().length >= 30).sort((a, b) => score(b) - score(a))[0];
+    && !/^RT @/i.test(t.text) && !scamLike(t) && credible(t) && t.text.replace(/@\w+|https?:\/\/\S+/g, "").trim().length >= 30).sort((a, b) => score(b) - score(a))[0];
   if (!t) { log("dis tru: nothing fresh about orbio to quote"); return; }
   const n = feed.grok.quotes || 0, text = DISTRU_LINES[n % DISTRU_LINES.length];
   feed.grok.lastQuoteAt = iso(now); feed.grok.quoted = [...(feed.grok.quoted || []), String(t.id)].slice(-60);
@@ -983,6 +993,16 @@ async function saySomething(feed) {
   if (!API_KEY || DRY_RUN) return;
   let queue = []; try { queue = JSON.parse(await readFile(new URL("./say.json", import.meta.url), "utf8")); } catch { return; }
   feed.said = feed.said || [];
+  // take-downs first: {id, deleteTweet} removes one of the cat's own posts
+  for (const d of queue.filter(q => q.id && q.deleteTweet && !feed.said.includes(q.id))) {
+    feed.said.push(d.id);
+    try {
+      const ok = await xDelete(String(d.deleteTweet));
+      const rec = feed.posts.find(p => String(p.id) === String(d.deleteTweet)); if (rec) { rec.status = "deleted"; rec.deletedAt = iso(now); }
+      event(d.event || `took down a post${ok ? "" : " (x did not confirm)"}`); log("deleted tweet", d.deleteTweet, ok);
+    } catch (e) { log("delete failed:", String(e.message).slice(0, 160)); event(`could not take down a post (${String(e.body?.detail || e.message).slice(0, 80)})`); }
+    await persistNow(feed);
+  }
   const next = queue.find(q => q.id && q.text && !feed.said.includes(q.id));
   if (!next) return;
   let readCostSay = 0, preImage = null;
