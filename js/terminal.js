@@ -61,6 +61,14 @@
     }
     var as = $("[data-term-asset]"); if (!as.options.length && d.assets) as.innerHTML = d.assets.map(function (x) { return '<option value="' + esc(x.symbol) + '">' + esc(x.symbol) + "</option>"; }).join("");
     if (!d.open) showErr("the cat's compute is reserved for the cat right now. top ups still work; chat opens again soon.");
+    var promo = $("[data-term-promo]"), g = d.grant, h = d.holder, until = g ? new Date(g.until).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : "";
+    if (!g) promo.hidden = true;
+    else if (!a) promo.innerHTML = "<b>holder offer:</b> hold $" + g.minUsd + "+ of $CTRN and get <b>$" + g.usd + " of compute free</b>. sign in with the wallet that holds it. until " + esc(until) + (g.left < 10 ? " · " + g.left + " left" : "");
+    else if (h && h.granted) promo.innerHTML = "<b>holder grant applied:</b> $" + g.usd + " of compute" + (h.fresh ? " just landed in your balance." : " was credited to this wallet.");
+    else if (h && h.soldOut) promo.textContent = "the holder grants are all taken.";
+    else if (h && h.short && h.held != null) promo.innerHTML = "<b>holder offer:</b> this wallet holds $" + Number(h.held).toFixed(2) + " of $CTRN; $" + g.minUsd + " unlocks $" + g.usd + " of free compute (until " + esc(until) + ").";
+    else promo.innerHTML = "<b>holder offer:</b> $" + g.minUsd + "+ of $CTRN in this wallet unlocks $" + g.usd + " of free compute, until " + esc(until) + ".";
+    promo.hidden = !g;
     if (d.deposits) $("[data-term-deps]").innerHTML = d.deposits.map(function (r) {
       return '<li><span>' + esc(r.amount + " " + r.asset) + ' · <a href="https://robinhoodchain.blockscout.com/tx/' + esc(r.tx_hash) + '" target="_blank" rel="noopener">tx</a></span><span class="st st-credited">credited ' + money(r.credit) + "</span></li>";
     }).join("");

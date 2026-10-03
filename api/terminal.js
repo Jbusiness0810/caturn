@@ -5,6 +5,7 @@
 // GET  /api/terminal[?token=]                          -> price, deposit address and tokens, models, the caller's account
 // POST {action:"login", wallet, time, sig}             -> session token (one signature, no gas)
 // POST {action:"deposit", token, tx}                   -> reads a confirmed transfer to the cat's wallet and credits it
+// GET also runs the holder grant (see GRANT): a signed-in wallet holding enough $CTRN is credited once, automatically
 // POST {action:"chat", token, model, messages, repo?}  -> one answer, billed at the provider's cost. repo (optional) is the
 //      GitHub repo the user connected in their browser: {name, branch, tree:[paths], files:[{path, content}]}. The model
 //      answers with file blocks the browser commits with the user's own token; the token never reaches this server.
@@ -20,6 +21,25 @@ const MIN_USD = 1, MAX_AGE_S = 72 * 3600, MAX_TOKENS = 4000, MAX_CHARS = 60000;
 const SECRET = "caturn-terminal|" + SB_KEY.slice(0, 32);
 // wallets that use the terminal without paying (the owner's); comma-separated in TERMINAL_FREE_WALLETS
 const FREE = new Set((process.env.TERMINAL_FREE_WALLETS || "0xEF22CB6af45C0A0145f64d6a8b4248505A8aE419").toLowerCase().split(",").map(x => x.trim()).filter(Boolean));
+// Holder grant, for a limited time: a wallet holding at least GRANT.minUsd of $CTRN gets GRANT.usd of compute once, until GRANT.until or GRANT.max grants
+const GRANT = { usd: Number(process.env.TERMINAL_GRANT_USD ?? 25), minUsd: Number(process.env.TERMINAL_GRANT_MIN_USD ?? 200), until: Date.parse(process.env.TERMINAL_GRANT_UNTIL || "2026-10-11T00:00:00Z"), max: Number(process.env.TERMINAL_GRANT_MAX ?? 30) };
+const CTRN_ADDR = "0x9b4e217f8759cb758664ac3b0ee730a4d15e7f6a";
+const grantOpen = () => GRANT.usd > 0 && Date.now() < GRANT.until;
+const grantChecked = new Map(); // wallet -> last time a holder check came back short (so a reload is not an RPC call)
+async function ctrnBalance(wallet) { const r = await rpc("eth_call", [{ to: CTRN_ADDR, data: "0x70a08231" + wallet.slice(2).padStart(64, "0") }, "latest"]); return Number(BigInt(r || "0x0")) / 1e18; }
+async function grantCount() { return (await sb("terminal_grants?select=wallet")).length; }
+async function maybeGrant(wallet) {
+  if (!grantOpen() || FREE.has(wallet)) return null;
+  const have = await sb(`terminal_grants?wallet=eq.${wallet}&select=wallet,usd,at`); if (have[0]) return { ...have[0], granted: true };
+  if (now() - (grantChecked.get(wallet) || 0) < 5 * 60e3) return { short: true, cached: true };
+  const [bal, px] = await Promise.all([ctrnBalance(wallet), ctrnUsd()]); const held = bal * px;
+  if (!(held >= GRANT.minUsd)) { grantChecked.set(wallet, now()); return { short: true, held: round(held), ctrn: round(bal), need: GRANT.minUsd }; }
+  if ((await grantCount()) >= GRANT.max) return { soldOut: true, held: round(held) };
+  try { await sb("terminal_grants", { method: "POST", body: JSON.stringify({ wallet, usd: GRANT.usd, ctrn: round(bal), held_usd: round(held) }), prefer: "return=minimal" }); }
+  catch (e) { if (e.status === 409) return { granted: true, usd: GRANT.usd }; throw e; }
+  const a = await account(wallet); await saveAccount({ ...a, credit: Number(a.credit || 0) + GRANT.usd });
+  return { granted: true, fresh: true, usd: GRANT.usd, held: round(held), at: new Date().toISOString() };
+}
 // tokens accepted on Robinhood Chain besides native ETH: stablecoins at $1, $CTRN at its live DEX price
 const TOKENS = {
   "0x5fc5360d0400a0fd4f2af552add042d716f1d168": { symbol: "USDG", decimals: 6, usd: async () => 1 },
@@ -111,7 +131,10 @@ export default async function handler(req, res) {
       const wallet = readToken(req.query.token, SECRET);
       const [bal, eth, ctrn] = await Promise.all([catBalance().catch(() => null), ethUsd().catch(() => null), ctrnUsd().catch(() => null)]);
       const deposits = wallet ? await sb(`terminal_deposits?wallet=eq.${wallet}&order=at.desc&limit=10&select=tx_hash,asset,amount,usd,credit,at`) : [];
+      let holder = null; if (wallet) { try { holder = await maybeGrant(wallet); } catch (e) { console.error("grant:", e.message); holder = { error: true }; } }
+      const grant = grantOpen() ? { usd: GRANT.usd, minUsd: GRANT.minUsd, until: new Date(GRANT.until).toISOString(), left: Math.max(0, GRANT.max - await grantCount().catch(() => 0)) } : null;
       return res.status(200).json({
+        grant, holder,
         payTo: PAY_TO, chainId: CHAIN_ID, rpc: RPC, price: PRICE, minUsd: MIN_USD, open: bal == null ? true : bal > RESERVE, models: MODELS,
         assets: [{ symbol: "ETH", native: true, usd: eth }, { symbol: "USDG", address: "0x5fc5360d0400a0fd4f2af552add042d716f1d168", decimals: 6, usd: 1 }, { symbol: "CTRN", address: "0x9b4e217f8759cb758664ac3b0ee730a4d15e7f6a", decimals: 18, usd: ctrn }],
         account: wallet ? await account(wallet) : null, deposits
