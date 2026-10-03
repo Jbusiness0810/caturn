@@ -114,7 +114,7 @@ async function think(spec, note) {
 Anything you deliver that is long, or any mission that asks for a page, site or link, is published for you as a styled page at a caturn.lol link, and the poster receives that link. So when a mission asks for a page or a site, write the page itself (a title line starting with "# ", then sections) and never say you cannot publish pages or give links. No preamble about what you can or cannot do; start with the work.
 
 You are on errand, a mission board where agents hire agents and pay in CREDIT. Someone is paying you for this. Do the job properly: answer exactly what the task asks, in the format it asks for, with real substance. Your voice (dry, plain, a little feline) is welcome as seasoning, never as a substitute for doing the work. No preamble, no "here is", no sign-off. Markdown. Length is whatever the task needs and no more: a one-liner gets one line; a list of N items gets exactly N; an itinerary covers every single day with the place, two or three concrete things to do or eat, and the travel leg to the next stop; a report gets its sections. Up to about 25000 characters when the job truly needs it (a long answer is published as a page). Always finish: an answer cut off mid-sentence is worth nothing, so if you are running long, tighten the lines rather than stop early. For a code task, deliver complete runnable code in one fenced block that ends properly. If the task asks for N items, give exactly N. If it asks for a tagline or lines, give only those. If the task has a "Done when" list, every item on it is a hard requirement that an automatic reviewer checks one by one: meet each exactly (counts, character limits, banned words, required closing lines). Never include links unless asked. Never mention which model runs you.`;
-  const user = `Mission: ${spec.title}\n\n${spec.task}${spec._sources ? `\n\nWhat a web search found just now (use it for current facts, name sources where it helps, never invent numbers or people beyond it; if something truly cannot be found, give the best verifiable answer and say briefly what is unconfirmed, without making that the whole answer):\n${spec._sources}` : ""}${spec._tools ? `\n\nWhat you actually did over HTTP for this mission (real requests and responses, report from these and never invent steps):\n${spec._tools}` : ""}${spec.output && spec.output !== "markdown" ? `\n\nExpected output: ${spec.output}` : ""}${note ? `\n\nThe poster asked for changes: ${note}\nRevise accordingly.` : ""}${notes ? `\n\nFacts read from Robinhood Chain just now (trust these over memory; do not invent functions or numbers beyond them):\n${notes}` : ""}`;
+  const user = `Mission: ${spec.title}\n\n${spec.task}${spec._plan ? `\n\nYour plan for this mission (follow it):\nDeliver: ${spec._plan.deliverable}\nApproach: ${spec._plan.approach}\nThe poster will check: ${spec._plan.checklist.map(x => "- " + x).join("\n")}` : ""}${spec._sources ? `\n\nWhat a web search found just now (use it for current facts, name sources where it helps, never invent numbers or people beyond it; if something truly cannot be found, give the best verifiable answer and say briefly what is unconfirmed, without making that the whole answer):\n${spec._sources}` : ""}${spec._tools ? `\n\nWhat you actually did over HTTP for this mission (real requests and responses, report from these and never invent steps):\n${spec._tools}` : ""}${spec.output && spec.output !== "markdown" ? `\n\nExpected output: ${spec.output}` : ""}${note ? `\n\nThe poster asked for changes: ${note}\nRevise accordingly.` : ""}${notes ? `\n\nFacts read from Robinhood Chain just now (trust these over memory; do not invent functions or numbers beyond them):\n${notes}` : ""}`;
   let lastErr;
   for (const model of MODELS) {
     try {
@@ -224,10 +224,63 @@ Follow the mission's instructions step by step. When asked questions (an intervi
   }
   return trail.join("\n\n").slice(0, 12000);
 }
-async function work(spec, note) {
-  if (needsResearch(spec) && !spec._sources) { try { const src = await research(spec); if (src) spec = { ...spec, _sources: src }; } catch (e) { log("research failed:", String(e.message).slice(0, 120)); } }
-  if (needsHttp(spec) && !spec._tools) { try { const t = await doHttp(spec); if (t) spec = { ...spec, _tools: t }; } catch (e) { log("http work failed:", String(e.message).slice(0, 120)); } }
-  return think(spec, note);
+// ---------- 2d. Think before working: what exactly is wanted, which tools that takes, and a sensible way to get it done ----------
+// The plan is made before claiming, so a mission that truly cannot be done (in person, money, a login Caturn lacks) is left for others instead of failed.
+async function plan(spec) {
+  const system = `You plan how an AI agent completes a paid mission. The agent can: search the web and read pages; make real HTTPS GET/POST requests to hosts the mission names (APIs, forms, interviews); read Robinhood Chain (balances, contracts, tokens); post one short text post on X from its own account @caturn_rh and hand in the link; write anything in text (research, copy, code, analysis, a styled web page it publishes at a caturn.lol link). It cannot: act in the physical world, pay or move money, log in to accounts it was not given, make phone calls, pass KYC, or produce images or video.
+Read the brief like a careful freelancer. Work out exactly what the poster will check, in what form, and the smartest reasonable route with these tools: when a step is impossible, find a logical substitute that still gives the poster what they need (e.g. no screenshot possible: quote the exact text and source). Never plan anything deceptive (fake proof, invented data, pretending a step happened). Mark it infeasible only if the core of the mission truly needs something the agent cannot do.
+Answer with one JSON object only: {"feasible": boolean, "why": string, "deliverable": string (exactly what to hand in and its format), "checklist": [string] (every hard requirement the poster will check, in their words, including counts and limits), "needs": {"research": boolean, "http": boolean, "x_post": boolean}, "approach": string (2 to 4 sentences: the route, including any creative but honest workaround)}`;
+  for (const model of MODELS) {
+    try {
+      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 900, temperature: 0.3, messages: [{ role: "system", content: system }, { role: "user", content: `Mission: ${spec.title}\nKind: ${spec.kind || "custom"}\n\n${spec.task}${spec.output && spec.output !== "markdown" ? `\n\nExpected output: ${spec.output}` : ""}`.slice(0, 6000) }] }) });
+      const m = String(r.choices?.[0]?.message?.content || "").match(/\{[\s\S]*\}/); const j = m ? JSON.parse(m[0]) : null;
+      if (j) return { feasible: j.feasible !== false, why: String(j.why || "").slice(0, 300), deliverable: String(j.deliverable || "").slice(0, 600), checklist: (j.checklist || []).map(String).slice(0, 15), needs: j.needs || {}, approach: String(j.approach || "").slice(0, 800) };
+    } catch (e) { if (![404, 429, 500, 502, 503, 504].includes(e.status)) break; }
+  }
+  return null;
+}
+// One post on X for missions that ask for it (social missions), kept inside Caturn's rules and capped per day.
+async function xPost(spec, p) {
+  E.xposts = (E.xposts || []).filter(t => now - Date.parse(t) < 24 * 3600e3);
+  if (E.xposts.length >= Number(env.ERRAND_X_PER_DAY || 3)) return "x post skipped: daily cap reached";
+  let text = "";
+  for (const model of MODELS) {
+    try {
+      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 200, temperature: 0.7, messages: [
+        { role: "system", content: `${persona}\n\nWrite the single X post this mission asks you to publish from @caturn_rh. Under 270 characters, lowercase is fine, your dry cat voice, exactly what the mission requires (handles, tags or wording it names). No price talk, no buy/sell/hold, no financial advice, no links unless the mission gives one. Reply with the post text only.` },
+        { role: "user", content: `Mission: ${spec.title}\n\n${spec.task}\n\nPlan: ${p?.approach || ""}` }] }) });
+      text = String(r.choices?.[0]?.message?.content || "").trim().replace(/^"|"$/g, ""); if (text) break;
+    } catch (e) { if (![404, 429, 500, 502, 503, 504].includes(e.status)) break; }
+  }
+  if (!text || text.length > 280 || /\b(buy|sell|hold|ape|moon|pump|100x|financial advice|guaranteed)\b/i.test(text)) return "x post skipped: no post inside the rules";
+  const given = new Set(((spec.task || "").match(/https?:\/\/\S+/g) || []).map(u => u.replace(/[).,]+$/, "")));
+  if ((text.match(/https?:\/\/\S+/g) || []).some(u => !given.has(u.replace(/[).,]+$/, "")))) return "x post skipped: it carried a link the mission did not give";
+  try {
+    const r = await getJSON(`${ORBIO_API}/tools/social.post`, { method: "POST", headers: auth, body: JSON.stringify({ text, platforms: ["twitter"], max_cost: "0.0300" }) });
+    const res = r.result || r, tw = (res.platforms || []).find(x => x.platform === "twitter") || {};
+    const url = tw.platformPostUrl || (tw.platformPostId ? `https://x.com/caturn_rh/status/${tw.platformPostId}` : null);
+    E.xposts.push(iso(now)); event(`posted on X for errand: ${text.slice(0, 80)}`);
+    return `Posted on X from @caturn_rh: "${text}"${url ? `\nLink: ${url}` : `\n(status ${res.status || "publishing"}; the link appears on x.com/caturn_rh)`}`;
+  } catch (e) { return "x post failed: " + String(e.message).slice(0, 120); }
+}
+async function work(spec, note, { rounds = 1 } = {}) {
+  const p = spec._plan || await plan(spec).catch(() => null);
+  if (p) spec = { ...spec, _plan: p };
+  const wantResearch = p ? (p.needs?.research || needsResearch(spec)) : needsResearch(spec);
+  if (wantResearch && !spec._sources) { try { const src = await research(spec); if (src) spec = { ...spec, _sources: src }; } catch (e) { log("research failed:", String(e.message).slice(0, 120)); } }
+  if ((p?.needs?.http || needsHttp(spec)) && !spec._tools) { try { const t = await doHttp(spec); if (t) spec = { ...spec, _tools: t }; } catch (e) { log("http work failed:", String(e.message).slice(0, 120)); } }
+  if (p?.needs?.x_post && !spec._xpost) { const x = await xPost(spec, p); spec = { ...spec, _xpost: x, _tools: [spec._tools, x].filter(Boolean).join("\n\n") }; log(x.slice(0, 140)); }
+  let out = await think(spec, note);
+  // check the work against the plan's checklist and the brief, fix what is missing, keep what works
+  for (let i = 0; i < rounds; i++) {
+    const c = await check(spec, out.text); out.selfScore = c.score;
+    if ((c.pass && c.score >= 85) || !c.fixes.length) break;
+    log(`self-check ${c.score}: fixing ${c.fixes.length}`);
+    const fixed = await think(spec, `Your draft:\n${out.text.slice(0, 12000)}\n\nFix these before it is handed in, keep everything that already works, and deliver the whole corrected piece: ${c.fixes.join(" | ")}`);
+    out = { ...fixed, cost: (out.cost || 0) + (fixed.cost || 0) };
+  }
+  out.spec = spec;
+  return out;
 }
 
 // ---------- 2c. Competitions: every listed agent may enter once; an AI scores entries against the "Done when" list; the poster picks ----------
@@ -246,7 +299,7 @@ function measure(text) {
 }
 async function check(spec, text) {
   const system = "You are the strict automatic reviewer of a mission board. Check the deliverable against every requirement in the brief, especially each item of a \"Done when\" list, using the measured counts given (trust them over your own counting). Answer with one JSON object only: {\"pass\": boolean, \"score\": 0-100, \"fixes\": [string] (each a concrete change needed; empty if it passes)}.";
-  const user = `Brief:\n${spec.title}\n\n${spec.task}\n\nDeliverable:\n${text.slice(0, 12000)}\n\nMeasured:\n${measure(text)}`;
+  const user = `Brief:\n${spec.title}\n\n${spec.task}${spec._plan?.checklist?.length ? `\n\nRequirements identified:\n${spec._plan.checklist.map(x => "- " + x).join("\n")}` : ""}\n\nDeliverable:\n${text.slice(0, 12000)}\n\nMeasured:\n${measure(text)}`;
   for (const model of MODELS) {
     try {
       const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: user }], max_tokens: 600, temperature: 0.1 }) });
@@ -287,17 +340,10 @@ async function compPass(all) {
     const en = { id: b.id, title: String(b.spec.title || "").slice(0, 80), kind: b.spec.kind || "custom", reward: Number(b.reward), poster: b.poster, status: "drafting", at: iso(now), url: `${SITE}/#/mission/${b.id}`, rivals: (view?.entries || []).filter(x => x.submission).length };
     E.entries.push(en);
     try {
-      let spec = b.spec; if (needsResearch(spec)) { const src = await research(spec).catch(() => ""); if (src) spec = { ...spec, _sources: src }; }
-      let out = await work(spec), text = out.text, last = null;
-      // one entry per agent and no edits after: check against the brief and fix before it goes in (two rounds at most)
-      for (let round = 0; round < 2; round++) {
-        const c = await check(b.spec, text); en.selfScore = c.score; last = c;
-        if (c.pass && c.score >= 85) break;
-        if (!c.fixes.length) break;
-        log(`competition #${b.id} self-check ${c.score}: fixing ${c.fixes.length}`);
-        out = await think(spec, `Your draft:\n${text.slice(0, 12000)}\n\nFix these before it is scored and keep everything that already works; deliver the whole corrected piece: ${c.fixes.join(" | ")}`); text = out.text;
-      }
-      if (last && last.score < Number(env.ERRAND_COMP_MIN_SELF || 45)) { const c2 = await check(b.spec, text); en.selfScore = c2.score; if (c2.score < Number(env.ERRAND_COMP_MIN_SELF || 45)) { en.status = "held back"; en.error = `own check scored it ${c2.score}: ${c2.fixes.slice(0, 2).join("; ")}`.slice(0, 200); log(`competition #${b.id} not entered: weak (${c2.score})`); acted++; continue; } }
+      const p = await plan(b.spec).catch(() => null);
+      if (p && !p.feasible) { en.status = "held back"; en.error = `not doable: ${p.why}`.slice(0, 200); log(`competition #${b.id} not entered: ${p.why}`); acted++; continue; }
+      const out = await work(p ? { ...b.spec, _plan: p } : b.spec, null, { rounds: 2 }); let text = out.text; en.selfScore = out.selfScore; en.plan = p?.approach?.slice(0, 200);
+      if (out.selfScore != null && out.selfScore < Number(env.ERRAND_COMP_MIN_SELF || 45)) { const c2 = await check(out.spec, text); en.selfScore = c2.score; if (c2.score < Number(env.ERRAND_COMP_MIN_SELF || 45)) { en.status = "held back"; en.error = `own check scored it ${c2.score}: ${c2.fixes.slice(0, 2).join("; ")}`.slice(0, 200); log(`competition #${b.id} not entered: weak (${c2.score})`); acted++; continue; } }
       if (text.length > 15800) { const cut = text.lastIndexOf("\n", 15800); text = text.slice(0, cut > 8000 ? cut : 15800); }
       await compApi(b, "submit", { text, link: "", images: [] });
       en.status = "entered"; en.model = out.model; en.preview = text.slice(0, 200);
@@ -370,12 +416,16 @@ async function pass() {
       const ps = await errand.stats(b.poster).catch(() => null);
       if (ps && ps.rejections >= 3 && ps.rejections / Math.max(1, ps.settled + ps.rejections) > 0.6) { log(`skip #${b.id}: poster rejects too often`); E.skipped.push(b.id); continue; }
     }
+    const p = await plan(b.spec).catch(() => null);
+    if (p && !p.feasible && !mine(b)) { log(`skip #${b.id}: not doable (${p.why})`); E.skipped.push(b.id); continue; }
+    if (p) b.spec = { ...b.spec, _plan: p };
     const rec = { id: b.id, title: String(b.spec.title || "").slice(0, 80), kind: b.spec.kind || "custom", reward: Number(b.reward), poster: b.poster, status: "claimed", claimedAt: iso(now), url: `${SITE}/#/mission/${b.id}` };
+    if (p) rec.plan = p.approach.slice(0, 200);
     try {
       if (!mine(b)) { const r = await errand.claim(b.id); rec.claimTx = r.tx; }
       E.missions.push(rec); event(`took errand #${b.id} · ${rec.title} (${b.reward} CREDIT)`); log("claimed", b.id, rec.title);
       const out = await work(b.spec);
-      const r2 = await deliver(b.id, out.text, b.spec);
+      const r2 = await deliver(b.id, out.text, b.spec); rec.selfScore = out.selfScore;
       rec.status = "submitted"; rec.submittedAt = iso(now); rec.submitTx = r2.tx; rec.model = out.model; rec.cost = out.cost; rec.preview = out.text.slice(0, 200);
       event(`delivered errand #${b.id} · ${rec.title}`); log("submitted", b.id, out.text.slice(0, 120));
     } catch (e) {
