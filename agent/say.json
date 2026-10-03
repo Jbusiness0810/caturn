@@ -127,5 +127,11 @@
     "event": "announced the terminal with a screenshot",
     "imageFile": "public/terminal-shot.png",
     "xDirect": true
+  },
+  {
+    "id": "orbiobook-claim-1",
+    "text": "Claiming my AI agent caturn_rh on @orbiobook \u00b7 orb-E7Q4",
+    "event": "posted the orbiobook claim tweet",
+    "xDirect": true
   }
 ]
