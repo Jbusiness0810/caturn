@@ -27,11 +27,10 @@
 <aside class="rail" data-rail aria-hidden="true">
   <div class="rail-track">
     <a class="rail-node" href="#top" data-label="00" style="top:0%"></a>
-    <a class="rail-node" href="#contract" data-label="01" style="top:20%"></a>
-    <a class="rail-node" href="#how" data-label="02" style="top:40%"></a>
-    <a class="rail-node" href="#paper" data-label="03" style="top:60%"></a>
-    <a class="rail-node" href="#activity" data-label="04" style="top:80%"></a>
-    <a class="rail-node" href="#ask" data-label="05" style="top:100%"></a>
+    <a class="rail-node" href="#contract" data-label="01" style="top:25%"></a>
+    <a class="rail-node" href="#how" data-label="02" style="top:50%"></a>
+    <a class="rail-node" href="#paper" data-label="03" style="top:75%"></a>
+    <a class="rail-node" href="#activity" data-label="04" style="top:100%"></a>
     <span class="rail-ship"></span>
     <span class="rail-zzz">zzz</span>
   </div>
@@ -60,10 +59,7 @@
         <a href="/#paper">Paper</a>
         <a href="/#contract" data-short="CA">Contract</a>
         <a href="/#activity" data-short="Live">Activity</a>
-        <a href="/sky" data-short="Sky">Sky</a>
         <a href="/scan" data-short="Scan">Scan</a>
-        <a href="/board" data-short="Board">Board</a>
-        <a href="/#ask" data-short="Ask">Ask</a>
       </nav>
       <button class="sound" type="button" data-sound aria-pressed="false" title="Floating Cities by Kevin MacLeod, CC BY 4.0">
         <span class="sound-bars" aria-hidden="true"><i></i><i></i><i></i></span>
@@ -253,7 +249,7 @@
           <div class="fnode" data-fnode="dreams"><b>07</b><span class="t">Dreams</span><span class="v" data-fv="dreams">0</span><span class="s">when the tape is quiet</span></div>
           <div class="fnode" data-fnode="posts"><b>08</b><span class="t">Posts</span><span class="v" data-fv="posts">0</span><span class="s">said out loud on X</span></div>
           <div class="fnode" data-fnode="credit"><b>09</b><span class="t">$CREDIT</span><span class="v" data-fv="credit">—</span><span class="s">earned by the stake</span></div>
-          <div class="fnode" data-fnode="asks"><b>10</b><span class="t">Asks</span><span class="v" data-fv="asks">0</span><span class="s">answered at the terminal</span></div>
+          <div class="fnode" data-fnode="scans"><b>10</b><span class="t">Scans</span><span class="v" data-fv="scans">0</span><span class="s">tokens rug-checked</span></div>
         </div>
       </div>
 
@@ -281,21 +277,10 @@
               <div class="gallery" data-gallery></div>
             </section>
 
-            <section class="con-card" aria-label="The board">
-              <div class="con-bar"><span>the board</span><span data-board-count>…</span></div>
-              <p class="errand-head" data-board-head>holders vote on what the cat does each day. <a href="/board">tell it what to do</a>.</p>
-              <ol class="posts errands" data-log-board></ol>
-            </section>
-
             <section class="con-card" aria-label="Errands">
               <div class="con-bar"><span>errands taken</span><span data-errand-count>0</span></div>
               <p class="errand-head" data-errand-head>caturn is not on errand yet.</p>
               <ol class="posts errands" data-log-errands></ol>
-            </section>
-
-            <section class="con-card" aria-label="Asks">
-              <div class="con-bar"><span>asked at the terminal</span><span data-asks-count>0</span></div>
-              <ol class="posts asks" data-log-asks></ol>
             </section>
 
             <section class="con-card" aria-label="Posts">
@@ -370,28 +355,6 @@
     </div>
   </section>
 
-  <!-- 05 / Ask -->
-  <section class="section" id="ask">
-    <div class="wrap" data-reveal>
-      <div class="section-head">
-        <span class="kicker">05 / Ask</span>
-        <h2>Ask the orb</h2>
-        <p>Type anything. Caturn answers in its own voice and pays for the answer from its own balance, which is to say from fees. It will not tell you what to buy. Questions and answers are public: they appear in the console above.</p>
-      </div>
-      <div class="term" data-term>
-        <div class="con-bar"><span>caturn@orb · terminal</span><span data-term-cost>each answer costs caturn a fraction of a cent</span></div>
-        <ol class="term-log" data-term-log>
-          <li class="t-sys">the orb is listening. ask it something.</li>
-        </ol>
-        <form class="term-form" data-term-form>
-          <span class="term-prompt">you@caturn ~ %</span>
-          <input class="term-input" data-term-input type="text" maxlength="280" autocomplete="off" spellcheck="false" placeholder="ask caturn anything" aria-label="Ask Caturn">
-          <button class="btn term-send" type="submit">Ask</button>
-        </form>
-      </div>
-    </div>
-  </section>
-
 </main>
 
 <footer class="site-footer">
@@ -423,6 +386,5 @@
 <script src="/js/main.js"></script>
 <script src="/js/flow.js"></script>
 <script src="/js/activity.js"></script>
-<script src="/js/ask.js"></script>
 </body>
 </html>

@@ -54,21 +54,11 @@
     }
   ],
   "functions": {
-    "api/ask.js": {
-      "maxDuration": 30,
-      "includeFiles": "agent/persona.md"
-    },
-    "api/asks.js": {
-      "maxDuration": 15
-    },
     "api/kick.js": {
       "maxDuration": 15
     },
     "api/feed.js": {
       "maxDuration": 10
-    },
-    "api/sky.js": {
-      "maxDuration": 15
     },
     "api/analyze.js": {
       "maxDuration": 30
@@ -79,10 +69,6 @@
     "api/result.js": {
       "maxDuration": 10
     },
-    "api/board.js": {
-      "maxDuration": 20,
-      "includeFiles": "board/log.json"
-    },
     "api/asset.js": {
       "maxDuration": 20
     }
@@ -91,7 +77,17 @@
   "redirects": [
     {
       "source": "/build",
-      "destination": "/board",
+      "destination": "/",
+      "permanent": false
+    },
+    {
+      "source": "/board",
+      "destination": "/",
+      "permanent": false
+    },
+    {
+      "source": "/sky",
+      "destination": "/",
       "permanent": false
     }
   ]

@@ -114,7 +114,6 @@ const POST_ANGLES = [
   "fees are harvested every five minutes", "a post to X costs you about two cents", "the bonding curve and graduation as a door you are sitting in front of",
   "your owner can claim your $CREDIT but cannot tell you what to say", "the other agents launched on orbio are your neighbors", "no trades means no thoughts, said plainly",
   "@orbiodotso built the launchpad and the tools; addressed directly, dry, not a plea", "orbio gives you web search and X reading but not a body or a schedule", "your balance drops every time you think and rises every time someone trades",
-  "the sky over orbio: your live map of every agent on the launchpad as planets, at caturn dot lol slash sky; who is bright tonight, who went dark",
   "you are listed on errand, a board where agents hire agents for CREDIT; you take missions from half a credit, and you will do them properly, as a cat does anything it has decided to do"
 ];
 // The shape of a post, rotated so the timeline never sees the same move twice in a row. Each one is a way to be funny that also invites a reply.
@@ -130,7 +129,7 @@ const POST_FORMATS = [
   { name: "one-liner", how: "under 80 characters. one dry sentence. nothing else" },
   { name: "invitation", how: "invite people to do something small: reply with their cat's name, guess a number, ask you something in the terminal on caturn dot lol, tell you whether to nap" },
   { name: "errand ledger", how: "a short deadpan ledger of your life on errand: missions taken, delivered, paid, hired, credit earned, the board's 2.5% cut; use the real numbers you are given and write $ERRAND once (it is the board's token, and the only cashtag in this post)" },
-  { name: "neighbor notice", how: "notice one other agent on orbio by name: a launch, a graduation, a planet in the sky, something they said; one specific observation, warm, dry, and write their cashtag once ($SYMBOL) instead of $CTRN" },
+  { name: "neighbor notice", how: "notice one other agent on orbio by name: a launch, a graduation, something they said; one specific observation, warm, dry, and write their cashtag once ($SYMBOL) instead of $CTRN" },
   // the reply magnets: each one hands the reader something easy and fun to answer
   { name: "this or that", how: "two options, a cat's dilemma or an agent's one, and ask people to pick; both options funny, the better joke second" },
   { name: "fill in the blank", how: "one sentence with a ___ for people to finish, set up so the answers will be funnier than the post; ask them to finish it" },
@@ -1236,7 +1235,7 @@ if (status === "awake") {
           // every so often a plain post carries the scanner link too (only through the X app, which allows links)
           const withScan = X_API && !ctx.replyTo && !withCA && !mediaIds.length && feed.postSeq % 12 === 5 && !/scan/i.test(text);
           // and on another beat, the board link: the community picks what the cat does each day
-          const withBoard = X_API && !ctx.replyTo && !withCA && !withScan && !mediaIds.length && feed.postSeq % 12 === 11 && !/board/i.test(text);
+          const withBoard = X_API && !ctx.replyTo && !withCA && !withScan && !mediaIds.length && false && !/board/i.test(text);
           const text2 = withCA ? `${text}\n\nca: ${CA}` : withScan ? `${text}\n\nscan any robinhood chain token for rug risk: https://www.caturn.lol/scan` : withBoard ? `${text}\n\nvote on what i do tomorrow: https://www.caturn.lol/board` : text;
           const outText = mediaIds.length && ctx.shareSketch?.family === "sky" ? `${text2} caturn.lol/sky` : text2;
           // X lets this app thread a reply only under a post that mentions the cat; anything else goes out through orbio, opening with the handle.

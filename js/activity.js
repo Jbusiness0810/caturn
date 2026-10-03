@@ -110,7 +110,7 @@
       : fetch("/api/feed?t=" + Math.floor(Date.now() / 15000), { cache: "no-store" }).then(function (r) { if (!r.ok) throw new Error("feed " + r.status); return r.json(); })
         .catch(function () { return fetch("/data/feed.json?t=" + Math.floor(Date.now() / 30000), { cache: "no-store" }).then(function (r) { return r.json(); }); });
     var asksP = demo ? Promise.resolve({ asks: [{ at: new Date().toISOString(), q: "do you dream?", a: "yes. never finished. the last one was a gold ring in a bowl of warm milk.", model: "sample" }], tracked: true })
-      : fetch("/api/asks?t=" + Math.floor(Date.now() / 20000), { cache: "no-store" }).then(function (r) { return r.json(); }).catch(function () { return { asks: [], tracked: false }; });
+      : Promise.resolve({ asks: [], tracked: false });
     Promise.all([feedP, asksP]).then(function (res) {
       var f = res[0]; f.asks = res[1].asks || []; f.asksTracked = !!res[1].tracked;
       var key = (f.updatedAt || "") + ":" + (f.thoughts || []).length + ":" + (f.events || []).length + ":" + f.asks.length;
@@ -193,27 +193,10 @@
       return '<a class="gal" href="' + esc(u) + '" target="_blank" rel="noopener"><img src="' + esc(u) + '" alt="' + esc(x.family) + '" loading="lazy"><span>' + esc(x.family) + " · " + hhmm(x.at) + (x.mood ? " · " + esc(x.mood) : "") + "</span></a>";
     }).join("") : '<div class="empty">no sketches yet. caturn draws one every few thoughts.</div>';
     var asks = (f.asks || []).slice().reverse().slice(0, full ? 200 : 4);
-    $("[data-asks-count]").textContent = (f.asks || []).length;
-    $("[data-log-asks]").innerHTML = asks.length ? asks.map(function (a) {
+    if ($("[data-log-asks]")) $("[data-asks-count]").textContent = (f.asks || []).length;
+    if ($("[data-log-asks]")) $("[data-log-asks]").innerHTML = asks.length ? asks.map(function (a) {
       return "<li><p class=\"q\">" + esc(a.q) + "</p><p>" + esc(a.a) + '</p><span class="meta"><span>' + hhmm(a.at) + "</span><span>" + esc(a.model || "") + "</span></span></li>";
     }).join("") : '<li class="empty">' + (f.asksTracked ? "no one has asked yet." : "asks are not being tracked yet.") + "</li>";
-    if ($("[data-board-count]") && (!window.__boardAt || Date.now() - window.__boardAt > 60000)) {
-      window.__boardAt = Date.now();
-      fetch("/api/board").then(function (r) { return r.json(); }).then(function (d) {
-        if (d.error) return;
-        var q = d.queued || [], done = (d.log || []).filter(function (e) { return e.status === "done"; });
-        var mins = Math.max(0, Math.round((Date.parse(d.nextPick) - Date.now()) / 60000));
-        $("[data-board-count]").textContent = q.length + " waiting";
-        $("[data-board-head]").innerHTML = d.doing
-          ? "doing it now: <b>" + esc(d.doing.title || d.doing.text) + "</b> · <a href=\"/board\">the board</a>"
-          : "<a href=\"/board\">the board</a> · next pick in " + Math.floor(mins / 60) + "h " + (mins % 60) + "m" + (q.length ? " · on top: <b>" + esc(q[0].title || q[0].text) + "</b> (" + q[0].votes + " vote" + (q[0].votes === 1 ? "" : "s") + ")" : " · nothing suggested yet");
-        var rows = done.slice(0, full ? 40 : 4);
-        $("[data-log-board]").innerHTML = rows.length ? rows.map(function (e) {
-          var u = /^https:\/\/(www\.)?caturn\.lol\//.test(e.url || "") ? e.url : "";
-          return "<li><p class=\"q\">" + (u ? "<a href=\"" + esc(u) + "\" target=\"_blank\" rel=\"noopener\">" + esc(e.title || e.text) + "</a>" : esc(e.title || e.text)) + "</p><p>" + esc(e.summary || "") + "</p><span class=\"meta\"><span>" + hhmm(e.at) + "</span><span>" + (e.votes != null ? e.votes + " votes" : "") + "</span></span></li>";
-        }).join("") : '<li class="empty">the first pick happens at 17:00 UTC. <a href="/board">suggest something</a>.</li>';
-      }).catch(function () {});
-    }
     var er = f.errand || {}, ems = (er.missions || []).concat((er.hired || []).map(function (m) { return Object.assign({}, m, { hired: true }); })).sort(function (a, b) { return Date.parse(b.submittedAt || b.postedAt || b.claimedAt || 0) - Date.parse(a.submittedAt || a.postedAt || a.claimedAt || 0); }).slice(0, full ? 100 : 5);
     $("[data-errand-count]").textContent = (er.missions || []).length;
     $("[data-errand-head]").innerHTML = er.address

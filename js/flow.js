@@ -85,7 +85,7 @@
     set("dreams", th.filter(function (t) { return t.kind === "dream"; }).length);
     set("posts", (f.posts || []).length);
     set("credit", m.creditOwed != null ? fmtNum(m.creditOwed, 3) : "—");
-    set("asks", (f.asks || []).length);
+    set("scans", (f.scans || []).length);
     var e = Math.round(state.energy * 100);
     root.querySelector("[data-flow-energy-fill]").style.height = e + "%"; root.querySelector("[data-flow-energy-n]").textContent = e + "%";
     root.querySelector("[data-flow-status]").textContent = st === "awake" ? "thinking" : st === "resting" ? "resting" : st === "napping" ? "dark" : "asleep until launch";
