@@ -70,7 +70,34 @@
         <textarea rows="1" data-term-text placeholder="ask anything" aria-label="Message"></textarea>
         <button type="submit" class="btn btn--small" data-term-send>Send</button>
       </form>
+      <div class="term-changes" data-gh-changes hidden>
+        <span data-gh-changes-label></span>
+        <input data-gh-msg placeholder="commit message" maxlength="200">
+        <button type="button" class="btn btn--small" data-gh-commit>Commit</button>
+        <button type="button" class="term-new" data-gh-discard>discard</button>
+      </div>
       <div class="term-foot"><span data-term-cost></span><button type="button" class="term-new" data-term-new>new chat</button></div>
+    </section>
+
+    <section class="term-topup term-gh">
+      <div class="con-card">
+        <div class="con-bar"><span>github (optional)</span><span data-gh-state>not connected</span></div>
+        <div class="term-topup-body">
+          <p>Connect a repo and the terminal works like a coding agent: the model reads your files, writes new ones and you commit the changes with one tap. Your token stays in this browser and talks to GitHub directly; the cat's server never sees it.</p>
+          <form class="term-req" data-gh-form>
+            <input name="repo" placeholder="owner/repo" maxlength="140" autocomplete="off" required>
+            <input name="branch" placeholder="branch (default: main)" maxlength="100" autocomplete="off">
+            <input name="token" type="password" placeholder="GitHub token (fine-grained, one repo, Contents: read and write)" autocomplete="off" required>
+            <button type="submit" class="btn btn--small">Connect repo</button>
+          </form>
+          <div data-gh-on hidden>
+            <p class="term-note" data-gh-info></p>
+            <label class="term-note term-auto"><input type="checkbox" data-gh-auto> commit changes automatically</label>
+            <p class="term-note">Mention a file with @path to attach it, or let the model ask for what it needs. <button type="button" class="term-new" data-gh-off>disconnect</button></p>
+          </div>
+          <p class="term-note">Make a token at github.com/settings/personal-access-tokens: pick only this repository, give it Contents read and write, nothing else.</p>
+        </div>
+      </div>
     </section>
 
     <section class="term-topup">

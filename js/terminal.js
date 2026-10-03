@@ -1,4 +1,4 @@
-// Rent the cat's brain: sign in with a wallet, deposit ETH, USDG or $CTRN on Robinhood Chain (credited automatically from the chain), chat with frontier models.
+// Rent the cat's brain: sign in with a wallet, deposit ETH, USDG or $CTRN on Robinhood Chain (credited automatically from the chain), chat with frontier models, and optionally connect a GitHub repo so the model can read and write files that you commit with your own token.
 (function () {
   var $ = function (s, r) { return (r || document).querySelector(s); };
   if (!$("[data-term]")) return;
@@ -73,38 +73,152 @@
     }).catch(function () { showErr("the terminal is not answering."); });
   }
 
-  // the transcript
-  function fmt(text) {
+  // github (optional): the token lives in this browser and talks to api.github.com directly; the cat's server never sees it
+  var gh = null; try { gh = JSON.parse(store.get("caturn:gh") || "null"); } catch (e) { gh = null; }
+  var ghFiles = {}, pending = {}, SKIP = /(^|\/)(node_modules|\.git|dist|build|vendor|\.next|coverage)\//;
+  function ghApi(path, opts) {
+    opts = opts || {};
+    return fetch("https://api.github.com" + path, { method: opts.method || "GET", headers: Object.assign({ Authorization: "Bearer " + gh.token, Accept: "application/vnd.github+json" }, opts.headers || {}), body: opts.body ? JSON.stringify(opts.body) : undefined })
+      .then(function (r) { if (!r.ok) return r.json().catch(function () { return {}; }).then(function (j) { throw new Error("github " + r.status + ": " + (j.message || "refused")); }); return opts.raw ? r.text() : r.json(); });
+  }
+  var enc = function (p) { return p.split("/").map(encodeURIComponent).join("/"); };
+  function ghTree() {
+    return ghApi("/repos/" + gh.repo + "/git/trees/" + encodeURIComponent(gh.branch) + "?recursive=1").then(function (t) {
+      gh.tree = (t.tree || []).filter(function (x) { return x.type === "blob" && !SKIP.test(x.path); }).map(function (x) { return x.path; }).slice(0, 1500);
+    });
+  }
+  function ghRead(path) {
+    if (ghFiles[path] != null) return Promise.resolve(ghFiles[path]);
+    return ghApi("/repos/" + gh.repo + "/contents/" + enc(path) + "?ref=" + encodeURIComponent(gh.branch), { raw: true, headers: { Accept: "application/vnd.github.raw+json" } })
+      .then(function (t) { ghFiles[path] = String(t).slice(0, 60000); return ghFiles[path]; });
+  }
+  function ghRender() {
+    var on = !!(gh && gh.repo);
+    $("[data-gh-form]").hidden = on; $("[data-gh-on]").hidden = !on;
+    $("[data-gh-state]").textContent = on ? gh.repo + " · " + gh.branch : "not connected";
+    if (on) { $("[data-gh-info]").textContent = "connected to " + gh.repo + " on " + gh.branch + " · " + (gh.tree || []).length + " files"; $("[data-gh-auto]").checked = !!gh.auto; }
+    $("[data-term-text]").placeholder = on ? "ask anything, or tell it what to build in " + gh.repo : "ask anything";
+    var n = Object.keys(pending).length, bar = $("[data-gh-changes]");
+    bar.hidden = !(on && n);
+    if (n) $("[data-gh-changes-label]").textContent = n + " file change" + (n > 1 ? "s" : "") + " → " + gh.repo + "@" + gh.branch;
+  }
+  function ghSave() { store.set("caturn:gh", gh ? JSON.stringify({ repo: gh.repo, branch: gh.branch, token: gh.token, auto: !!gh.auto, tree: gh.tree }) : null); }
+  $("[data-gh-form]").addEventListener("submit", function (e) {
+    e.preventDefault(); var f = e.target, repo = f.repo.value.trim().replace(/^https?:\/\/github\.com\//, "").replace(/\.git$/, "").replace(/\/$/, "");
+    if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return showErr("write the repo as owner/name.");
+    gh = { repo: repo, branch: f.branch.value.trim(), token: f.token.value.trim(), auto: false };
+    showErr(""); $("[data-gh-state]").textContent = "connecting…";
+    ghApi("/repos/" + repo).then(function (r) {
+      if (r.permissions && !r.permissions.push) throw new Error("that token can read " + repo + " but not write to it. give it Contents: read and write.");
+      gh.repo = r.full_name; gh.branch = gh.branch || r.default_branch || "main";
+      return ghTree();
+    }).then(function () { f.token.value = ""; ghFiles = {}; pending = {}; ghSave(); ghRender(); })
+      .catch(function (er) { gh = null; ghRender(); showErr(String(er.message || er).slice(0, 200)); });
+  });
+  $("[data-gh-off]").addEventListener("click", function () { gh = null; ghFiles = {}; pending = {}; ghSave(); ghRender(); });
+  $("[data-gh-auto]").addEventListener("change", function (e) { if (gh) { gh.auto = e.target.checked; ghSave(); } });
+  $("[data-gh-discard]").addEventListener("click", function () { pending = {}; ghRender(); });
+  function ghCommit() {
+    var paths = Object.keys(pending); if (!gh || !paths.length) return Promise.resolve();
+    var msg = $("[data-gh-msg]").value.trim() || "Update " + (paths.length === 1 ? paths[0] : paths.length + " files") + " from the caturn terminal";
+    var ref = "/repos/" + gh.repo + "/git/refs/heads/" + enc(gh.branch), head;
+    $("[data-gh-commit]").disabled = true;
+    return ghApi(ref).then(function (r) { head = r.object.sha; return ghApi("/repos/" + gh.repo + "/git/commits/" + head); })
+      .then(function (c) {
+        return ghApi("/repos/" + gh.repo + "/git/trees", { method: "POST", body: { base_tree: c.tree.sha, tree: paths.map(function (p) { return pending[p] == null ? { path: p, mode: "100644", type: "blob", sha: null } : { path: p, mode: "100644", type: "blob", content: pending[p] }; }) } });
+      })
+      .then(function (t) { return ghApi("/repos/" + gh.repo + "/git/commits", { method: "POST", body: { message: msg, tree: t.sha, parents: [head] } }); })
+      .then(function (c) { return ghApi(ref, { method: "PATCH", body: { sha: c.sha } }).then(function () { return c; }); })
+      .then(function (c) {
+        paths.forEach(function (p) { if (pending[p] == null) { delete ghFiles[p]; gh.tree = (gh.tree || []).filter(function (x) { return x !== p; }); } else { ghFiles[p] = pending[p]; if ((gh.tree || []).indexOf(p) < 0) (gh.tree = gh.tree || []).push(p); } });
+        pending = {}; $("[data-gh-msg]").value = ""; ghSave();
+        chat.push({ role: "assistant", sys: true, content: "committed " + paths.length + " file" + (paths.length > 1 ? "s" : "") + " to " + gh.repo + "@" + gh.branch + ": https://github.com/" + gh.repo + "/commit/" + c.sha });
+        store.set("caturn:termchat", JSON.stringify(chat.slice(-30))); draw(); ghRender();
+      })
+      .catch(function (er) { showErr("commit failed: " + String(er.message || er).slice(0, 180)); })
+      .then(function () { $("[data-gh-commit]").disabled = false; });
+  }
+  $("[data-gh-commit]").addEventListener("click", ghCommit);
+
+  // the transcript: plain text, fenced code, and the file blocks the model writes when a repo is connected
+  var BLOCK = /^=== (FILE|DELETE|READ): (.+?) ===[ \t]*$/;
+  function parse(text) {
+    var out = [], lines = String(text).split("\n"), buf = [];
+    var flush = function () { if (buf.length) { out.push({ t: "text", v: buf.join("\n") }); buf = []; } };
+    for (var i = 0; i < lines.length; i++) {
+      var m = lines[i].match(BLOCK);
+      if (!m) { buf.push(lines[i]); continue; }
+      flush(); var path = m[2].trim().replace(/^\/+/, "");
+      if (m[1] === "FILE") { var body = []; i++; while (i < lines.length && !/^=== END FILE ===\s*$/.test(lines[i])) body.push(lines[i++]); out.push({ t: "file", path: path, v: body.join("\n") + "\n" }); }
+      else out.push({ t: m[1] === "DELETE" ? "del" : "read", path: path });
+    }
+    flush(); return out;
+  }
+  function fmtText(text) {
     var parts = String(text).split(/```/), out = "";
-    parts.forEach(function (p, i) { if (i % 2) { var body = p.replace(/^[a-z0-9+#-]*\n/i, ""); out += "<pre><code>" + esc(body) + "</code></pre>"; } else out += "<p>" + esc(p).replace(/\n{2,}/g, "</p><p>").replace(/\n/g, "<br>") + "</p>"; });
+    parts.forEach(function (p, i) { if (i % 2) { var body = p.replace(/^[a-z0-9+#-]*\n/i, ""); out += "<pre><code>" + esc(body) + "</code></pre>"; } else if (p.trim()) out += "<p>" + esc(p.trim()).replace(/\n{2,}/g, "</p><p>").replace(/\n/g, "<br>") + "</p>"; });
     return out;
+  }
+  function fmt(text) {
+    return parse(text).map(function (s) {
+      if (s.t === "text") return fmtText(s.v);
+      if (s.t === "file") return '<details class="term-file"><summary>✎ ' + esc(s.path) + " · " + (function (n) { return n + (n === 1 ? " line" : " lines"); })(s.v.split("\n").length - 1) + "</summary><pre><code>" + esc(s.v) + "</code></pre></details>";
+      if (s.t === "del") return '<details class="term-file del"><summary>✕ delete ' + esc(s.path) + "</summary></details>";
+      return '<p class="term-read">reading ' + esc(s.path) + "…</p>";
+    }).join("");
   }
   function draw() {
     var log = $("[data-term-log]");
-    log.innerHTML = chat.length ? chat.map(function (m) { return '<div class="term-msg term-' + m.role + '"><span class="who">' + (m.role === "user" ? "you" : esc(m.model || "cat")) + "</span>" + fmt(m.content) + "</div>"; }).join("") : '<p class="term-sys">caturn terminal. connect a wallet, top up, then ask anything.</p>';
+    log.innerHTML = chat.length ? chat.map(function (m) {
+      if (m.sys || m.auto) return '<p class="term-sys">' + esc(m.sys ? m.content : m.label || "attached files").replace(/(https:\/\/github\.com\/[\w.\/-]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>') + "</p>";
+      return '<div class="term-msg term-' + m.role + '"><span class="who">' + (m.role === "user" ? "you" : esc(m.model || "cat")) + "</span>" + (m.role === "user" ? fmtText(m.content) : fmt(m.content)) + "</div>";
+    }).join("") : '<p class="term-sys">caturn terminal. connect a wallet, top up, then ask anything.</p>';
     log.scrollTop = log.scrollHeight;
   }
   $("[data-term-model]").addEventListener("change", function (e) { store.set("caturn:termmodel", e.target.value); });
-  $("[data-term-new]").addEventListener("click", function () { chat = []; store.set("caturn:termchat", "[]"); draw(); $("[data-term-cost]").textContent = ""; });
+  $("[data-term-new]").addEventListener("click", function () { chat = []; ghFiles = {}; pending = {}; store.set("caturn:termchat", "[]"); draw(); ghRender(); $("[data-term-cost]").textContent = ""; });
   var ta = $("[data-term-text]");
   ta.addEventListener("input", function () { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 200) + "px"; });
   ta.addEventListener("keydown", function (e) { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("[data-term-form]").requestSubmit(); } });
+  function repoPayload() {
+    if (!gh || !gh.repo) return null;
+    return { name: gh.repo, branch: gh.branch, tree: gh.tree || [], files: Object.keys(ghFiles).map(function (p) { return { path: p, content: ghFiles[p] }; }) };
+  }
+  function attach(paths) { return Promise.all(paths.slice(0, 8).map(function (p) { return ghRead(p).then(function () { return p; }, function () { return null; }); })).then(function (ok) { return ok.filter(Boolean); }); }
+  function ask(rounds) {
+    var model = $("[data-term-model]").value, name = ($("[data-term-model]").selectedOptions[0] || {}).textContent;
+    $("[data-term-log]").insertAdjacentHTML("beforeend", '<p class="term-sys term-wait">' + esc(name) + " is thinking…</p>");
+    return api({ action: "chat", token: token, model: model, repo: repoPayload(), messages: chat.filter(function (m) { return !m.sys; }).map(function (m) { return { role: m.role, content: m.content }; }) }).then(function (x) {
+      if (!x.ok) { var e = new Error(x.j.error || "that did not go through."); e.status = x.status; throw e; }
+      chat.push({ role: "assistant", content: x.j.reply || "(no answer)", model: name });
+      store.set("caturn:termchat", JSON.stringify(chat.slice(-30))); draw();
+      $("[data-term-cost]").textContent = "last answer cost " + money(x.j.cost) + (x.j.finish === "length" ? " · cut off at your balance or the length cap" : "");
+      if (info && x.j.account) render(Object.assign({}, info, { account: x.j.account }));
+      if (!gh || !gh.repo) return;
+      var segs = parse(x.j.reply || ""), reads = [];
+      segs.forEach(function (s) { if (s.t === "file") pending[s.path] = s.v; else if (s.t === "del") pending[s.path] = null; else if (s.t === "read") reads.push(s.path); });
+      ghRender();
+      if (reads.length && rounds < 3) return attach(reads).then(function (got) {
+        chat.push({ role: "user", auto: true, label: got.length ? "attached " + got.join(", ") : "could not read " + reads.join(", "), content: got.length ? "(attached: " + got.join(", ") + ". continue.)" : "(those files do not exist: " + reads.join(", ") + ". continue without them.)" });
+        draw(); return ask(rounds + 1);
+      });
+      if (gh.auto && Object.keys(pending).length) return ghCommit();
+    });
+  }
   $("[data-term-form]").addEventListener("submit", function (e) {
     e.preventDefault(); if (busy) return;
     var text = ta.value.trim(); if (!text) return;
     if (!token) { showErr("connect a wallet first."); return; }
     showErr(""); busy = true; $("[data-term-send]").disabled = true;
-    var model = $("[data-term-model]").value, name = ($("[data-term-model]").selectedOptions[0] || {}).textContent;
+    var before = chat.length;
     chat.push({ role: "user", content: text }); ta.value = ""; ta.style.height = "auto"; draw();
-    $("[data-term-log]").insertAdjacentHTML("beforeend", '<p class="term-sys term-wait">' + esc(name) + " is thinking…</p>");
-    api({ action: "chat", token: token, model: model, messages: chat.map(function (m) { return { role: m.role, content: m.content }; }) }).then(function (x) {
-      if (!x.ok) { chat.pop(); ta.value = text; draw(); if (x.status === 401) { token = null; store.set("caturn:termtoken", null); load(); } showErr(x.j.error || "that did not go through."); return; }
-      chat.push({ role: "assistant", content: x.j.reply || "(no answer)", model: name });
-      store.set("caturn:termchat", JSON.stringify(chat.slice(-30))); draw();
-      $("[data-term-cost]").textContent = "last answer cost " + money(x.j.cost) + (x.j.finish === "length" ? " · cut off at your balance or the length cap" : "");
-      if (info && x.j.account) render(Object.assign({}, info, { account: x.j.account }));
-    }).catch(function () { chat.pop(); ta.value = text; draw(); showErr("the terminal did not answer. nothing was charged."); })
-      .then(function () { busy = false; $("[data-term-send]").disabled = false; });
+    var mentions = gh && gh.tree ? (text.match(/@[\w.\/-]+/g) || []).map(function (m) { return m.slice(1).replace(/[.,]$/, ""); }).filter(function (p) { return gh.tree.indexOf(p) >= 0; }) : [];
+    (mentions.length ? attach(mentions) : Promise.resolve()).then(function () { return ask(0); }).catch(function (er) {
+      if (chat.length === before + 1) { chat.pop(); ta.value = text; }
+      draw();
+      if (er.status === 401) { token = null; store.set("caturn:termtoken", null); load(); }
+      showErr(er.status ? er.message : "the terminal did not answer. nothing was charged.");
+    }).then(function () { busy = false; $("[data-term-send]").disabled = false; });
   });
 
   // deposits: the user signs a transfer to the cat's wallet; the server reads it back from the chain
@@ -159,5 +273,5 @@
       .then(function () { depBusy = false; $("[data-term-dep-btn]").disabled = false; });
   });
 
-  draw(); load();
+  draw(); ghRender(); load();
 })();

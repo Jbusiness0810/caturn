@@ -5,7 +5,9 @@
 // GET  /api/terminal[?token=]                          -> price, deposit address and tokens, models, the caller's account
 // POST {action:"login", wallet, time, sig}             -> session token (one signature, no gas)
 // POST {action:"deposit", token, tx}                   -> reads a confirmed transfer to the cat's wallet and credits it
-// POST {action:"chat", token, model, messages}         -> one answer, billed at the provider's cost
+// POST {action:"chat", token, model, messages, repo?}  -> one answer, billed at the provider's cost. repo (optional) is the
+//      GitHub repo the user connected in their browser: {name, branch, tree:[paths], files:[{path, content}]}. The model
+//      answers with file blocks the browser commits with the user's own token; the token never reaches this server.
 import { recoverSigner, isAddress, makeToken, readToken } from "./_lib/wallet.js";
 
 const SB_URL = (process.env.SUPABASE_URL || "").replace(/\/$/, ""), SB_KEY = process.env.SUPABASE_SERVICE_KEY || "";
@@ -32,6 +34,31 @@ const MODELS = [
   { id: "deepseek/deepseek-v4-pro-0813", name: "DeepSeek V4 Pro" }
 ];
 const SYSTEM = "You are a capable general assistant, reached through the terminal on caturn.lol, where people rent compute from Caturn, an AI cat agent on the orbio launchpad. Answer the user directly and well. Format code in fenced blocks.";
+const MAX_REPO_CHARS = 90000, MAX_REPO_TOKENS = 6000;
+// the file protocol the browser understands (js/terminal.js parses exactly these markers)
+const repoSystem = (r) => `The user connected the GitHub repository ${r.name} (branch ${r.branch}). You can work in it like a coding agent:
+- To create or replace a file, write the WHOLE new file between these marker lines, each on its own line:
+=== FILE: path/from/repo/root ===
+(full file content, no fences)
+=== END FILE ===
+- To delete a file, write a line: === DELETE: path ===
+- To read files before changing them, write one line per file: === READ: path === and stop; the user's browser attaches them and you continue. Read a file before you replace it unless you are creating it from scratch.
+Never print partial files or diffs inside FILE blocks: the block replaces the file exactly. Keep explanations short and outside the blocks. The browser shows the changes and commits them to ${r.branch}.
+Repository files${r.tree.length >= 1500 ? " (first 1500)" : ""}:
+${r.tree.join("\n")}${r.files.length ? "\n\nAttached files:\n" + r.files.map(f => `=== ATTACHED: ${f.path} ===\n${f.content}\n=== END ATTACHED ===`).join("\n") : ""}`;
+function readRepo(x) {
+  if (!x || typeof x !== "object") return null;
+  const name = String(x.name || ""); if (!/^[\w.-]+\/[\w.-]+$/.test(name)) return null;
+  const clean = (p) => String(p || "").replace(/[\r\n]/g, "").slice(0, 300);
+  const tree = (Array.isArray(x.tree) ? x.tree : []).map(clean).filter(Boolean).slice(0, 1500);
+  let room = MAX_REPO_CHARS - tree.join("\n").length;
+  const files = [];
+  for (const f of (Array.isArray(x.files) ? x.files : []).slice(0, 20)) {
+    const content = String(f?.content ?? "").slice(0, Math.max(0, room)); if (!f?.path || !content && f.content) break;
+    files.push({ path: clean(f.path), content }); room -= content.length + 60;
+  }
+  return { name, branch: String(x.branch || "main").replace(/[^\w./-]/g, "").slice(0, 100) || "main", tree, files };
+}
 const hits = new Map(), cache = {};
 const now = () => Date.now();
 const round = (n) => Math.round(Number(n) * 1e6) / 1e6;
@@ -136,15 +163,16 @@ export default async function handler(req, res) {
       const model = MODELS.find(m => m.id === b.model)?.id; if (!model) return res.status(400).json({ error: "pick a model from the list." });
       const msgs = (Array.isArray(b.messages) ? b.messages : []).filter(m => m && ["user", "assistant"].includes(m.role) && typeof m.content === "string").slice(-24).map(m => ({ role: m.role, content: m.content.slice(0, 20000) }));
       if (!msgs.length || msgs[msgs.length - 1].role !== "user") return res.status(400).json({ error: "say something." });
+      const repo = readRepo(b.repo), system = repo ? SYSTEM + "\n\n" + repoSystem(repo) : SYSTEM;
       const chars = msgs.reduce((a, m) => a + m.content.length, 0); if (chars > MAX_CHARS) return res.status(400).json({ error: "that conversation is too long. start a new one." });
       const uh = (hits.get(wallet) || []).filter(t => now() - t < 60e3); if (uh.length >= 8) return res.status(429).json({ error: "eight a minute. the cat needs to breathe." }); uh.push(now()); hits.set(wallet, uh);
       if ((await catBalance().catch(() => RESERVE + 1)) <= RESERVE) return res.status(503).json({ error: "the cat's compute is reserved for the cat right now. try again later." });
       const a = await account(wallet), credit = Number(a.credit || 0);
       const p = (await pricing())[model] || { prompt: 0.00001, completion: 0.00005 };
-      const inTok = Math.ceil((chars + SYSTEM.length) / 3.5), inCost = inTok * p.prompt * 1.1;
-      const maxTokens = Math.min(MAX_TOKENS, Math.floor((credit - inCost) / (p.completion * 1.1)));
+      const inTok = Math.ceil((chars + system.length) / 3.5), inCost = inTok * p.prompt * 1.1;
+      const maxTokens = Math.min(repo ? MAX_REPO_TOKENS : MAX_TOKENS, Math.floor((credit - inCost) / (p.completion * 1.1)));
       if (maxTokens < 200) return res.status(402).json({ error: "not enough compute left for that. deposit below.", account: a });
-      const r = await fetch(`${ORBIO_API}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${ORBIO_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: "system", content: SYSTEM }, ...msgs] }) });
+      const r = await fetch(`${ORBIO_API}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${ORBIO_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, max_tokens: maxTokens, messages: [{ role: "system", content: system }, ...msgs] }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) return res.status(502).json({ error: `the model did not answer (${j?.error?.message || r.status}). nothing was charged.` });
       const reply = String(j.choices?.[0]?.message?.content || ""), u = j.usage || {};
