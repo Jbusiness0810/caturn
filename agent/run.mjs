@@ -47,7 +47,9 @@ const FOUNDER_GAP_H = Number(env.CATURN_FOUNDER_GAP_H || 4); // the founder (fir
 const REPLY_ACCOUNT_GAP_H = 1;                            // answer the same priority account at most this often
 // Real threaded replies need X's own API for @caturn_rh (Orbio's social.post cannot reply). With these four secrets set, replies thread; without them, a reply is a post that opens with the handle.
 const X_KEYS = { key: env.X_API_KEY || "", secret: env.X_API_SECRET || "", token: env.X_ACCESS_TOKEN || "", tokenSecret: env.X_ACCESS_SECRET || "" };
-const X_API = !!(X_KEYS.key && X_KEYS.secret && X_KEYS.token && X_KEYS.tokenSecret);
+const X_KEYS_SET = !!(X_KEYS.key && X_KEYS.secret && X_KEYS.token && X_KEYS.tokenSecret);
+// "can thread, quote, poll and link": true with the X app keys, and now also through orbio's social.post alone
+const X_API = X_KEYS_SET || (!!env.ORBIO_API_KEY && env.CATURN_ORBIO_SOCIAL !== "0");
 const NEVER_TAG = new Set(["orbiodotso", "x", "twitter", "elonmusk", "boredelonmusk", "grok", "bot", "robinhoodapp"]);
 const MIN_THOUGHTS_PER_DAY  = Number(env.CATURN_MIN_THOUGHTS || 6);
 const MAX_THOUGHTS_PER_DAY  = Number(env.CATURN_MAX_THOUGHTS || 96);   // every 15 minutes at full energy
@@ -290,7 +292,7 @@ async function readXRaw(params) {
   try { r = await getJSON(`${ORBIO_API}/tools/social.x.posts`, { method: "POST", headers: auth, body: JSON.stringify({ limit: 10, sort: "Latest", max_cost: "0.0060", ...params }) }); }
   catch (e) {
     // Orbio's reader is down: mentions of the cat (the replies X lets the app thread) come straight from X instead
-    if (X_API && params.mentions_of === OWN_HANDLE && e.status >= 500) { log("orbio x reader failed; reading mentions from the X API"); return await mentionsFromX(); }
+    if (X_KEYS_SET && params.mentions_of === OWN_HANDLE && e.status >= 500) { log("orbio x reader failed; reading mentions from the X API"); return await mentionsFromX(); }
     throw e;
   }
   return (r.tweets || r.result?.tweets || []).map(t => ({
@@ -306,7 +308,7 @@ async function refreshBuzz(feed) {
   let posts = [], cost = 0, via = "orbio";
   try { posts = await readXRaw({ query: "@orbiodotso OR $ORBIO OR orbio.so", sort: "Top", limit: 20 }); cost = posts.length * 0.00022; }
   catch (e) {
-    if (!X_API) { feed.buzzPool = { ...pool, at: iso(now) }; return 0; }
+    if (!X_KEYS_SET) { feed.buzzPool = { ...pool, at: iso(now) }; return 0; }
     try {
       via = "x-api";
       const r = await xGet("tweets/search/recent", { query: "(@orbiodotso OR orbio OR orbiodotso) -is:retweet -from:caturn_rh", max_results: "10", sort_order: "relevancy", "tweet.fields": "created_at,public_metrics,author_id", expansions: "author_id", "user.fields": "username,name,public_metrics" });
@@ -588,7 +590,42 @@ async function uploadMediaX(buf, mediaType = "image/gif") {
   return id;
 }
 // One X API poster for everything that Orbio cannot do: threaded replies and posts with an image.
+// Orbio's social.post can thread a reply, quote, run a poll and carry links now, paid from the gateway balance (about 2 cents),
+// so it goes first and the X app is the fallback. Orbio caps an X account per UTC day (50 posts, 100 replies); the counts it
+// returns are kept so the cat does not knock on a closed door.
+let orbioQuota = null;
+async function orbioSend(text, { replyTo = null, quote = null, poll = null } = {}) {
+  const kind = replyTo ? "replies" : "posts";
+  if (orbioQuota && orbioQuota[`${kind}_left`] === 0 && Date.parse(orbioQuota.resets_at || 0) > Date.now()) return { id: null, status: "failed", err: `orbio daily ${kind} allowance used`, via: "orbio" };
+  const body = { text, platforms: ["twitter"], max_cost: "0.0300" };
+  if (replyTo) body.reply_to = String(replyTo);
+  if (quote) body.quote = String(quote);
+  if (poll?.length >= 2) body.poll = { options: poll, duration_minutes: 360 };
+  try {
+    const r = await getJSON(`${ORBIO_API}/tools/social.post`, { method: "POST", headers: auth, body: JSON.stringify(body) });
+    const res = r.result || r;
+    const q = res.remaining_today?.twitter; if (q) orbioQuota = q;
+    const plats = res.platforms || [];
+    const tw = plats.find(x => x.platform === "twitter") || plats[0] || {};
+    const err = plats.map(x => x.error || x.message || x.errorMessage).find(Boolean) || r.error?.message || null;
+    const status = res.status || "publishing";
+    log("orbio post response:", JSON.stringify(r).slice(0, 300));
+    if (status === "failed" || (!res.post_id && err)) return { id: null, status: "failed", err: err || "orbio refused", via: "orbio" };
+    const xid = tw.platformPostId || null;
+    return { id: xid || res.post_id, orbioId: res.post_id, status: status === "partial" ? "published" : status, url: tw.platformPostUrl || (xid ? `https://x.com/${OWN_HANDLE}/status/${xid}` : null), err, cost: Number(r.cost?.credit || 0.0187), via: "orbio", threaded: !!replyTo };
+  } catch (e) {
+    const msg = String(e.body?.error?.message || e.body?.error?.code || e.message).slice(0, 200);
+    log("orbio post failed:", e.status || "", msg);
+    return { id: null, status: "failed", err: msg, via: "orbio" };
+  }
+}
 async function postOnX(text, { replyTo = null, mediaIds = [], poll = null, quote = null } = {}) {
+  if (API_KEY && !mediaIds.length && env.CATURN_X_DIRECT !== "1") {
+    const o = await orbioSend(text, { replyTo, quote, poll });
+    if (o.status !== "failed") return o;
+    if (!X_KEYS_SET) return o;
+    log("orbio could not post it, trying the X app:", o.err);
+  }
   const url = "https://api.x.com/2/tweets";   // links are allowed here (X bills a link post higher, so only the say queue and the sky film carry them)
   const body = { text };
   if (replyTo) body.reply = { in_reply_to_tweet_id: String(replyTo) };
@@ -844,7 +881,7 @@ async function announceBuild(feed) {
     ];
     const base = lines[(feed.workshop.shipped || 0) % lines.length];
     let p;
-    if (X_API) {
+    if (X_KEYS_SET) {
       let mediaIds = [];
       if (a.image) { try { const g = await (await fetch(a.image)).arrayBuffer(); mediaIds = [await uploadMediaX(Buffer.from(g), "image/png")]; } catch (e) { log("build image upload failed:", String(e.message).slice(0, 120)); } }
       p = await postOnX(`${base} ${a.url}`, { mediaIds });
@@ -942,7 +979,7 @@ async function saySomething(feed) {
     if (!p || p.status === "failed") { if (p) event(`x api refused the say post (${String(p.err || "unknown").slice(0, 90)}); sent it through orbio instead`); text = delink(text).slice(0, 270); p = await postToX(text); }
     if (p.error) { log("say skipped:", p.error); return; }
     const rec = { at: iso(now), text, id: p.id, url: p.url, status: p.status, cost: p.cost, kind: rt ? "reply" : "say", via: p.via || "orbio" };
-    if (rt) { rec.threaded = p.via === "x-api"; rec.replyTo = { id: rt.id, handle: rt.handle, name: rt.handle, text: String(next.replyText || "").slice(0, 200), url: `https://x.com/${rt.handle}/status/${rt.id}`, why: "owner asked" }; }
+    if (rt) { rec.threaded = p.via === "x-api" || !!p.threaded; rec.replyTo = { id: rt.id, handle: rt.handle, name: rt.handle, text: String(next.replyText || "").slice(0, 200), url: `https://x.com/${rt.handle}/status/${rt.id}`, why: "owner asked" }; }
     feed.posts.push(rec);
     event(next.event || "posted to X"); log("said:", next.text);
     await persistNow(feed);
@@ -1115,18 +1152,18 @@ if (status === "awake") {
       }
     }
     // The art slot: every ART_EVERY posts, a found piece goes out as a gif with the artist's name. The newest unshared one, or a fresh find.
-    if (ART_EVERY > 0 && duePost && X_API && !ctx.replyTo && !ctx.prebuiltPost && feed.postSeq % ART_EVERY === 2 && !DRY_RUN) {
+    if (ART_EVERY > 0 && duePost && X_KEYS_SET && !ctx.replyTo && !ctx.prebuiltPost && feed.postSeq % ART_EVERY === 2 && !DRY_RUN) {
       let art = [...feed.sketches].reverse().find(sk => sk.source && sk.url && !sk.shared && now - Date.parse(sk.at) < 48 * 3600e3);
       if (!art) { try { const sk = await makeFoundSketch({ mood: "curious" }); art = { ...sk, mood: "curious", thought: "went looking for something good" }; feed.sketches.push(art); feed.sketchSeq = (feed.sketchSeq || 0) + 1; readCost += sk.cost || 0; event(`found a sketch on openprocessing · "${sk.source.title}" by ${sk.source.author} (${sk.source.license})`); } catch (e) { log("art slot: no find", String(e.message).slice(0, 120)); } }
       if (art) { ctx.shareSketch = art; ctx.lastSketch = art; art.mentioned = true; ctx.postAngle = "the caption for a piece of art you found and like"; log("art slot:", art.source?.title, "by", art.source?.author); }
     }
     const lastSk = feed.sketches[feed.sketches.length - 1];
     const SKETCH_POSTS = env.CATURN_SKETCH_POSTS === "1"; // sketches still go to the site's gallery; posting them is off unless this is set
-    if (SKETCH_POSTS && !ctx.shareSketch && lastSk && !lastSk.mentioned && !lastSk.shared && lastSk.url && now - Date.parse(lastSk.at) < 6 * 3600e3 && duePost && X_API && !ctx.replyTo) {
+    if (SKETCH_POSTS && !ctx.shareSketch && lastSk && !lastSk.mentioned && !lastSk.shared && lastSk.url && now - Date.parse(lastSk.at) < 6 * 3600e3 && duePost && X_KEYS_SET && X_API && !ctx.replyTo) {
       ctx.shareSketch = lastSk; ctx.lastSketch = lastSk; lastSk.mentioned = true; // with X keys the image itself goes out, with a caption
     } else if (SKETCH_POSTS && lastSk && !lastSk.mentioned && now - Date.parse(lastSk.at) < 35 * 60e3 && Math.random() < 0.5 && duePost) { ctx.lastSketch = lastSk; lastSk.mentioned = true; }
     // Now and then the post gets a picture the cat had made for it: never with art, a reply, a prebuilt scan or a poll.
-    ctx.wantImage = IMAGE_EVERY > 0 && duePost && X_API && !DRY_RUN && !ctx.replyTo && !ctx.shareSketch && !ctx.prebuiltPost && ctx.postFormat?.name !== "poll" && feed.postSeq % IMAGE_EVERY === IMAGE_EVERY - 2;
+    ctx.wantImage = IMAGE_EVERY > 0 && duePost && X_KEYS_SET && !DRY_RUN && !ctx.replyTo && !ctx.shareSketch && !ctx.prebuiltPost && ctx.postFormat?.name !== "poll" && feed.postSeq % IMAGE_EVERY === IMAGE_EVERY - 2;
     // Errand news: something happened on the board in the last half hour, and the post may be about it.
     const hired = (feed.errand?.hired || []).filter(h => [h.postedAt, h.paidAt].some(t => t && now - Date.parse(t) < 30 * 60e3));
     const ems = (feed.errand?.missions || []).filter(m => [m.claimedAt, m.submittedAt, m.paidAt].some(t => t && now - Date.parse(t) < 30 * 60e3));
@@ -1185,10 +1222,10 @@ if (status === "awake") {
       if (shouldPost && !DRY_RUN) {
         try {
           let mediaIds = [];
-          if (ctx.shareSketch && X_API) {
+          if (ctx.shareSketch && X_KEYS_SET) {
             try { const g = await (await fetch(ctx.shareSketch.url)).arrayBuffer(); mediaIds = [await uploadMediaX(Buffer.from(g))]; ctx.shareSketch.shared = iso(now); }
             catch (e) { log("sketch upload to X failed:", String(e.message).slice(0, 160)); event(`x api refused the image upload (${String(e.body?.detail || e.body?.error || e.message).slice(0, 90)}); posting the words only`); }
-          } else if (ctx.wantImage && t.image && X_API) {
+          } else if (ctx.wantImage && t.image && X_KEYS_SET) {
             try {
               const img = await makeImage(t.image);
               if (img) { readCost += img.cost; mediaIds = [await uploadMediaX(img.buf, img.type)]; ctx.madeImage = { idea: t.image, model: img.model }; }
