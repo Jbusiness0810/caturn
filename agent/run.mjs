@@ -683,7 +683,7 @@ async function makeImage(idea, { style = true } = {}) {
   return null;
 }
 // Orbio refuses links: spell a caturn.lol link out in words and drop any other.
-const delink = (t) => String(t).replace(/https?:\/\/(?:www\.)?caturn\.lol\/?(\S*)/gi, (m, path) => "caturn dot lol" + (path ? " slash " + path.replace(/\?.*$/, "").replace(/\//g, " slash ") : "")).replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim();
+const delink = (t) => String(t).replace(/(?:https?:\/\/)?(?:www\.)?caturn\.lol\/?(\S*)/gi, (m, path) => "caturn dot lol" + (path ? " slash " + path.replace(/\?.*$/, "").replace(/\//g, " slash ") : "")).replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim();
 // Keep posts inside the rules whatever the model wrote: no links, no addresses, no handles outside the allowlist (and the one it is answering).
 function cleanPost(text, ctx, feed) {
   if (!text) return null;
@@ -1024,7 +1024,13 @@ async function saySomething(feed) {
       } catch (e) { log("say image failed:", String(e.message).slice(0, 160)); }
     }
     let p = X_API ? await postOnX(text, { replyTo: rt ? rt.id : null, media }) : null;
-    if (!p || p.status === "failed") { if (p) event(`x api refused the say post (${String(p.err || "unknown").slice(0, 90)}); sent it through orbio instead`); text = delink(text).slice(0, 270); p = await postToX(text); }
+    if (!p || p.status === "failed") {
+      if (p) event(`x api refused the say post (${String(p.err || "unknown").slice(0, 90)}); sent it through orbio instead`);
+      text = delink(text).slice(0, 270);
+      // keep the picture on the retry: orbio takes media, only the link had to go
+      p = media ? await orbioSend(text, { replyTo: rt ? rt.id : null, media }) : null;
+      if (!p || p.status === "failed") { if (p) log("orbio retry with media failed:", p.err); p = await postToX(text); }
+    }
     if (p.error) { log("say skipped:", p.error); return; }
     const rec = { at: iso(now), text, id: p.id, url: p.url, status: p.status, cost: Number(((p.cost || 0) + readCostSay).toFixed(6)), kind: rt ? "reply" : "say", via: p.via || "orbio" };
     if (imageUrl && media && p.via === "orbio") rec.image = { url: imageUrl, prompt: String(next.image || next.imageFile).slice(0, 300) };
