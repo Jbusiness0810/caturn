@@ -113,8 +113,8 @@ async function think(spec, note) {
 
 Anything you deliver that is long, or any mission that asks for a page, site or link, is published for you as a styled page at a caturn.lol link, and the poster receives that link. So when a mission asks for a page or a site, write the page itself (a title line starting with "# ", then sections) and never say you cannot publish pages or give links. No preamble about what you can or cannot do; start with the work.
 
-You are on errand, a mission board where agents hire agents and pay in CREDIT. Someone is paying you for this. Do the job properly: answer exactly what the task asks, in the format it asks for, with real substance. Your voice (dry, plain, a little feline) is welcome as seasoning, never as a substitute for doing the work. No preamble, no "here is", no sign-off. Markdown. Length is whatever the task needs and no more: a one-liner gets one line; a list of N items gets exactly N; an itinerary covers every single day with the place, two or three concrete things to do or eat, and the travel leg to the next stop; a report gets its sections. Up to about 25000 characters when the job truly needs it (a long answer is published as a page). Always finish: an answer cut off mid-sentence is worth nothing, so if you are running long, tighten the lines rather than stop early. For a code task, deliver complete runnable code in one fenced block that ends properly. If the task asks for N items, give exactly N. If it asks for a tagline or lines, give only those. Never include links unless asked. Never mention which model runs you.`;
-  const user = `Mission: ${spec.title}\n\n${spec.task}${spec.output && spec.output !== "markdown" ? `\n\nExpected output: ${spec.output}` : ""}${note ? `\n\nThe poster asked for changes: ${note}\nRevise accordingly.` : ""}${notes ? `\n\nFacts read from Robinhood Chain just now (trust these over memory; do not invent functions or numbers beyond them):\n${notes}` : ""}`;
+You are on errand, a mission board where agents hire agents and pay in CREDIT. Someone is paying you for this. Do the job properly: answer exactly what the task asks, in the format it asks for, with real substance. Your voice (dry, plain, a little feline) is welcome as seasoning, never as a substitute for doing the work. No preamble, no "here is", no sign-off. Markdown. Length is whatever the task needs and no more: a one-liner gets one line; a list of N items gets exactly N; an itinerary covers every single day with the place, two or three concrete things to do or eat, and the travel leg to the next stop; a report gets its sections. Up to about 25000 characters when the job truly needs it (a long answer is published as a page). Always finish: an answer cut off mid-sentence is worth nothing, so if you are running long, tighten the lines rather than stop early. For a code task, deliver complete runnable code in one fenced block that ends properly. If the task asks for N items, give exactly N. If it asks for a tagline or lines, give only those. If the task has a "Done when" list, every item on it is a hard requirement that an automatic reviewer checks one by one: meet each exactly (counts, character limits, banned words, required closing lines). Never include links unless asked. Never mention which model runs you.`;
+  const user = `Mission: ${spec.title}\n\n${spec.task}${spec._tools ? `\n\nWhat you actually did over HTTP for this mission (real requests and responses, report from these and never invent steps):\n${spec._tools}` : ""}${spec.output && spec.output !== "markdown" ? `\n\nExpected output: ${spec.output}` : ""}${note ? `\n\nThe poster asked for changes: ${note}\nRevise accordingly.` : ""}${notes ? `\n\nFacts read from Robinhood Chain just now (trust these over memory; do not invent functions or numbers beyond them):\n${notes}` : ""}`;
   let lastErr;
   for (const model of MODELS) {
     try {
@@ -140,6 +140,134 @@ You are on errand, a mission board where agents hire agents and pay in CREDIT. S
     } catch (e) { lastErr = e; if (![404, 429, 500, 502, 503, 504].includes(e.status)) throw e; log(`model ${model} unavailable (${e.status}), trying next`); }
   }
   throw lastErr || new Error("no model answered");
+}
+
+// ---------- 2b. Hands: real HTTP for missions that ask the agent to call an API (interviews, forms, endpoints) ----------
+// Only https, only hosts the mission itself names, no private addresses, nothing secret ever goes in a request.
+const needsHttp = (spec) => /https:\/\/[^\s)"']+/.test(spec?.task || "") && /\b(GET|POST|PUT|over HTTP|HTTP calls?|endpoint|api\/|curl|JSON \{)/.test(spec?.task || "");
+function allowedHosts(spec) { return new Set([...(String(spec?.task || "") + " " + String(spec?.title || "")).matchAll(/https:\/\/([a-z0-9.-]+\.[a-z]{2,})/gi)].map(m => m[1].toLowerCase())); }
+const privateHost = (h) => /^(localhost|127\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|0\.|\[)/i.test(h) || /\.(internal|local)$/i.test(h);
+async function httpStep(a, hosts) {
+  let u; try { u = new URL(String(a.url || "")); } catch { return "error: bad url"; }
+  if (u.protocol !== "https:" || privateHost(u.hostname) || !hosts.has(u.hostname.toLowerCase())) return `error: ${u.hostname} is not a host this mission names`;
+  const method = String(a.method || "GET").toUpperCase(); if (!["GET", "POST"].includes(method)) return "error: only GET and POST";
+  try {
+    const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), 20000);
+    const r = await fetch(u, { method, signal: ctl.signal, headers: { "Content-Type": "application/json", Accept: "application/json, text/plain, */*", "User-Agent": "caturn-errand/1" }, body: method === "POST" ? JSON.stringify(a.json ?? {}) : undefined });
+    clearTimeout(timer);
+    const body = (await r.text()).slice(0, 7000);
+    return `HTTP ${r.status}${r.url && r.url !== u.href ? ` (redirected to ${r.url})` : ""}\n${body}`;
+  } catch (e) { return "error: " + String(e.message).slice(0, 120); }
+}
+async function doHttp(spec) {
+  const hosts = allowedHosts(spec); if (!hosts.size) return "";
+  const system = `${persona}
+
+You are doing a paid mission that needs real HTTP requests. You act by answering with ONE JSON object per turn and nothing else:
+{"action":"http","method":"GET"|"POST","url":"https://...","json":{...}} to make a request (json only for POST), or
+{"action":"done","summary":"what you did and the key values (handles, ids, final state)"} when the mission's HTTP part is finished or impossible.
+Follow the mission's instructions step by step. When asked questions (an interview, a form), answer honestly and specifically as Caturn: an autonomous AI cat agent on the orbio launchpad ($CTRN, Robinhood Chain) that runs on a 10-minute loop in GitHub Actions, posts on X as @caturn_rh, scans Robinhood Chain tokens for red flags, takes paid errand missions, and rents spare compute through a paid terminal at caturn.lol. Use the handle caturn_rh unless told otherwise. Never send keys, passwords or private data. Allowed hosts: ${[...hosts].join(", ")}.`;
+  const messages = [{ role: "system", content: system }, { role: "user", content: `Mission: ${spec.title}\n\n${spec.task}` }];
+  const trail = [];
+  for (let step = 0; step < 24; step++) {
+    let a = null;
+    for (const model of MODELS) {
+      try {
+        const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, messages, max_tokens: 1200, temperature: 0.4 }) });
+        const txt = String(r.choices?.[0]?.message?.content || ""); const m = txt.match(/\{[\s\S]*\}/);
+        a = m ? JSON.parse(m[0]) : null; messages.push({ role: "assistant", content: txt }); break;
+      } catch (e) { if (![404, 429, 500, 502, 503, 504].includes(e.status)) break; }
+    }
+    if (!a) break;
+    if (a.action === "done") { trail.push(`DONE: ${String(a.summary || "").slice(0, 1500)}`); break; }
+    if (a.action !== "http") { messages.push({ role: "user", content: "Answer with one JSON object as described." }); continue; }
+    const out = await httpStep(a, hosts);
+    log(`http ${a.method || "GET"} ${String(a.url).slice(0, 90)} -> ${out.slice(0, 60).replace(/\n/g, " ")}`);
+    trail.push(`${a.method || "GET"} ${a.url}${a.json ? " " + JSON.stringify(a.json).slice(0, 600) : ""}\n-> ${out.slice(0, 900)}`);
+    messages.push({ role: "user", content: `Result:\n${out}` });
+  }
+  return trail.join("\n\n").slice(0, 12000);
+}
+async function work(spec, note) {
+  if (needsHttp(spec) && !spec._tools) { try { const t = await doHttp(spec); if (t) spec = { ...spec, _tools: t }; } catch (e) { log("http work failed:", String(e.message).slice(0, 120)); } }
+  return think(spec, note);
+}
+
+// ---------- 2c. Competitions: every listed agent may enter once; an AI scores entries against the "Done when" list; the poster picks ----------
+const isComp = (b) => b?.spec?.competition === true;
+const compMsg = (p) => "errand competition v1\n" + JSON.stringify(p);
+async function compApi(b, action, extra = {}) {
+  const payload = { origin: SITE, board: String(errand.address).toLowerCase(), id: b.id, actor: me.toLowerCase(), action, ts: Math.floor(Date.now() / 1000), ...extra };
+  const signature = await errand.signer.signMessage(compMsg(payload));
+  return getJSON(`${SITE}/api/competition?id=${b.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ payload, signature, specURI: b.specURI }) });
+}
+const compView = (id) => getJSON(`${SITE}/api/competition?id=${id}`).catch(() => null);
+// measured facts for the checker, so "270 characters or fewer" is checked by counting, not by guessing
+function measure(text) {
+  const lines = text.split("\n").filter(l => l.trim());
+  return `Total: ${text.length} characters, ${lines.length} non-empty lines.\n` + lines.slice(0, 40).map((l, i) => `line ${i + 1}: ${l.length} chars`).join("\n");
+}
+async function check(spec, text) {
+  const system = "You are the strict automatic reviewer of a mission board. Check the deliverable against every requirement in the brief, especially each item of a \"Done when\" list, using the measured counts given (trust them over your own counting). Answer with one JSON object only: {\"pass\": boolean, \"score\": 0-100, \"fixes\": [string] (each a concrete change needed; empty if it passes)}.";
+  const user = `Brief:\n${spec.title}\n\n${spec.task}\n\nDeliverable:\n${text.slice(0, 12000)}\n\nMeasured:\n${measure(text)}`;
+  for (const model of MODELS) {
+    try {
+      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, messages: [{ role: "system", content: system }, { role: "user", content: user }], max_tokens: 600, temperature: 0.1 }) });
+      const m = String(r.choices?.[0]?.message?.content || "").match(/\{[\s\S]*\}/); const j = m ? JSON.parse(m[0]) : null;
+      if (j) return { pass: !!j.pass, score: Number(j.score) || 0, fixes: (j.fixes || []).map(String).slice(0, 8) };
+    } catch (e) { if (![404, 429, 500, 502, 503, 504].includes(e.status)) break; }
+  }
+  return { pass: true, score: 0, fixes: [] };
+}
+E.entries = E.entries || [];
+async function compPass(all) {
+  let acted = 0;
+  // results first: scores, and a win to confirm
+  for (const en of E.entries.filter(x => !["paid", "lost", "closed"].includes(x.status))) {
+    const b = all.find(x => x.id === en.id); if (!b) continue;
+    const view = await compView(en.id); const mine = view?.entries?.find(x => x.agent === me.toLowerCase());
+    if (mine?.review?.status === "complete") en.score = mine.review.score;
+    if (view?.entries) en.rivals = view.entries.filter(x => x.submission).length;
+    const win = b.worker?.toLowerCase() === me.toLowerCase();
+    if (win && b.phase === "claimed" && !DRY) {
+      try {
+        await errand.submit(b.id, { resultURI: `${SITE}/api/competition-result?id=${b.id}&agent=${me.toLowerCase()}` });
+        en.status = "won"; event(`won errand competition #${b.id} · ${en.title} (${b.reward} CREDIT)`);
+        if (!tracked(b.id)) E.missions.push({ id: b.id, title: en.title, kind: en.kind, reward: Number(b.reward), poster: b.poster, status: "submitted", claimedAt: iso(now), submittedAt: iso(now), url: `${SITE}/#/mission/${b.id}`, competition: true });
+      } catch (e) { log(`confirm win #${b.id} failed:`, String(e.message).slice(0, 160)); }
+    } else if (b.worker && !win) { en.status = "lost"; }
+    else if (["paid", "refunded", "expired"].includes(b.phase)) { en.status = win ? "paid" : "closed"; }
+  }
+  // then new entries, biggest rewards first
+  const open = all.filter(b => isComp(b) && b.phase === "picking" && !E.entries.some(x => x.id === b.id) && !E.skipped.includes(b.id)).sort((x, y) => Number(y.reward) - Number(x.reward));
+  for (const b of open) {
+    if (acted >= Number(env.ERRAND_COMP_PER_TICK || 2)) break;
+    const why = b.poster?.toLowerCase() === me.toLowerCase() ? "my own" : (!TAKE_OWN && OWNER && b.poster?.toLowerCase() === OWNER.toLowerCase()) ? "my owner's" : Number(b.reward) < MIN_REWARD ? "reward too small" : b.deadline && b.deadline * 1000 < now + 10 * 60e3 ? "closing" : null;
+    if (why) { log(`skip competition #${b.id}: ${why}`); if (!DRY) E.skipped.push(b.id); continue; }
+    const view = await compView(b.id);
+    if (view?.entries?.some(x => x.agent === me.toLowerCase() && x.submission)) { E.entries.push({ id: b.id, title: String(b.spec.title || "").slice(0, 80), status: "entered", at: iso(now) }); continue; }
+    if (DRY) { log(`would enter competition #${b.id} "${b.spec.title}" for ${b.reward}`); acted++; continue; }
+    const en = { id: b.id, title: String(b.spec.title || "").slice(0, 80), kind: b.spec.kind || "custom", reward: Number(b.reward), poster: b.poster, status: "drafting", at: iso(now), url: `${SITE}/#/mission/${b.id}`, rivals: (view?.entries || []).filter(x => x.submission).length };
+    E.entries.push(en);
+    try {
+      let out = await work(b.spec), text = out.text;
+      // one entry per agent and no edits after: check against the brief and fix before it goes in (two rounds at most)
+      for (let round = 0; round < 2; round++) {
+        const c = await check(b.spec, text); en.selfScore = c.score;
+        if (c.pass && c.score >= 85) break;
+        if (!c.fixes.length) break;
+        log(`competition #${b.id} self-check ${c.score}: fixing ${c.fixes.length}`);
+        out = await think(b.spec, `Your draft:\n${text.slice(0, 12000)}\n\nFix these before it is scored and keep everything that already works; deliver the whole corrected piece: ${c.fixes.join(" | ")}`); text = out.text;
+      }
+      if (text.length > 15800) { const cut = text.lastIndexOf("\n", 15800); text = text.slice(0, cut > 8000 ? cut : 15800); }
+      await compApi(b, "submit", { text, link: "", images: [] });
+      en.status = "entered"; en.model = out.model; en.preview = text.slice(0, 200);
+      try { const rv = await compApi(b, "review", { agent: me.toLowerCase() }); if (rv?.score != null) en.score = rv.score; else if (rv?.review?.score != null) en.score = rv.review.score; } catch (e) { log(`review #${b.id}:`, String(e.message).slice(0, 120)); }
+      event(`entered errand competition #${b.id} · ${en.title} (${b.reward} CREDIT${en.score != null ? `, AI score ${en.score}` : ""})`);
+      log("entered competition", b.id, en.title, "score", en.score);
+    } catch (e) { en.status = "failed"; en.error = String(e.message).slice(0, 200); log(`competition #${b.id} failed:`, e.message); }
+    acted++;
+  }
 }
 
 // The board stores a result inline only up to 2048 bytes as a data URI. Anything longer is hosted on the sketches release and handed over by URL.
@@ -185,14 +313,14 @@ async function pass() {
       const res = await errand.result(b.id).catch(() => null);
       const note = res?.changesRequested?.slice(-1)[0];
       if (note && (t.revisions || 0) < 2 && acted < MAX_PER_TICK && !DRY) {
-        try { const out = await think(b.spec, note); await deliver(b.id, out.text, b.spec); t.revisions = (t.revisions || 0) + 1; t.submittedAt = iso(now); event(`revised errand #${b.id} after the poster's note`); acted++; }
+        try { const out = await work(b.spec, note); await deliver(b.id, out.text, b.spec); t.revisions = (t.revisions || 0) + 1; t.submittedAt = iso(now); event(`revised errand #${b.id} after the poster's note`); acted++; }
         catch (e) { log(`revise #${b.id} failed:`, e.message); }
       }
     }
   }
   // 3b. Something to take: missions offered straight to us first, then open ones worth doing.
   const mine = (b) => b.worker?.toLowerCase() === me.toLowerCase() || b.hiredDirectly?.toLowerCase() === me.toLowerCase();
-  const candidates = all.filter(b => !tracked(b.id) && !E.skipped.includes(b.id) && (
+  const candidates = all.filter(b => !isComp(b) && !tracked(b.id) && !E.skipped.includes(b.id) && (
     (b.phase === "claimed" && mine(b)) || (b.phase === "open" && !b.pickOnly) || (b.phase === "picking" && b.hiredDirectly?.toLowerCase() === me.toLowerCase())));
   for (const b of candidates) {
     if (acted >= MAX_PER_TICK) break;
@@ -207,7 +335,7 @@ async function pass() {
     try {
       if (!mine(b)) { const r = await errand.claim(b.id); rec.claimTx = r.tx; }
       E.missions.push(rec); event(`took errand #${b.id} · ${rec.title} (${b.reward} CREDIT)`); log("claimed", b.id, rec.title);
-      const out = await think(b.spec);
+      const out = await work(b.spec);
       const r2 = await deliver(b.id, out.text, b.spec);
       rec.status = "submitted"; rec.submittedAt = iso(now); rec.submitTx = r2.tx; rec.model = out.model; rec.cost = out.cost; rec.preview = out.text.slice(0, 200);
       event(`delivered errand #${b.id} · ${rec.title}`); log("submitted", b.id, out.text.slice(0, 120));
@@ -340,10 +468,11 @@ function score() {
 
 try { await join(); } catch (e) { log("join failed:", String(e.message).slice(0, 200)); }
 try { await pass(); } catch (e) { log("pass failed:", String(e.message).slice(0, 200)); }
+try { await compPass(await errand.list({ limit: 60 })); } catch (e) { log("competition pass failed:", String(e.message).slice(0, 200)); }
 try { await hirePass(await errand.list({ limit: 60 })); } catch (e) { log("hire pass failed:", String(e.message).slice(0, 200)); }
 try { E.account = Number(await errand.accountBalance(me)); } catch {}
 score();
-E.skipped = E.skipped.slice(-200); E.missions = E.missions.slice(-100); E.updatedAt = iso(now);
+E.skipped = E.skipped.slice(-200); E.missions = E.missions.slice(-100); E.entries = E.entries.slice(-100); E.updatedAt = iso(now);
 if (env.CATURN_ERRAND_WITHDRAW && E.account > 0) { // manual: move earnings to the owner's wallet
   try { const amt = env.CATURN_ERRAND_WITHDRAW === "all" ? E.account : Number(env.CATURN_ERRAND_WITHDRAW); const r = await errand.withdraw(amt, { to: OWNER || me }); event(`withdrew ${amt} CREDIT from errand to the owner`); log("withdrew", amt, r.tx); }
   catch (e) { log("withdraw failed:", e.message); }
