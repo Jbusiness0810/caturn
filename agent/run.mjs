@@ -1070,7 +1070,7 @@ async function saySomething(feed) {
     if (next.xDirect && X_KEYS_SET) {
       let mediaIds = [];
       if (fileBuf) { try { mediaIds = [await uploadMediaX(fileBuf, fileType)]; } catch (e) { log("say x upload failed:", String(e.message).slice(0, 160)); } }
-      p = await postOnX(text, { replyTo: rt ? rt.id : null, mediaIds });
+      p = await postOnX(text, { replyTo: rt ? rt.id : null, mediaIds, direct: true });
       if (p.status === "failed") log("say x direct failed:", p.err);
     }
     if (!p || p.status === "failed") p = X_API ? await postOnX(text, { replyTo: rt ? rt.id : null, media }) : null;
