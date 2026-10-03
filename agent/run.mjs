@@ -1002,7 +1002,15 @@ async function saySomething(feed) {
     if (xLen(text) > 280) { log("say skipped: too long even with links counted as 23:", xLen(text)); return; }
     if (rt && !X_API && !text.toLowerCase().startsWith("@" + rt.handle)) text = `@${rt.handle} ${text}`;
     let media = null, imageUrl = null;
-    if (next.image && API_KEY) {
+    if (next.imageFile) {
+      // a picture already in the repo (a screenshot); served from the site at the same path
+      try {
+        const f = String(next.imageFile).replace(/^\/+/, "").replace(/\.\./g, ""), buf = await readFile(new URL("../" + f, import.meta.url));
+        const ext = f.split(".").pop().toLowerCase();
+        media = `data:image/${ext === "jpg" ? "jpeg" : ext};base64,${buf.toString("base64")}`; imageUrl = `https://www.caturn.lol/${f}`;
+        log("say image file:", f, buf.length, "bytes");
+      } catch (e) { log("say image file failed:", String(e.message).slice(0, 160)); }
+    } else if (next.image && API_KEY) {
       try {
         const img = preImage || (next.imageRequired ? null : await makeImage(String(next.image), { style: false }));
         if (img) {
@@ -1019,7 +1027,7 @@ async function saySomething(feed) {
     if (!p || p.status === "failed") { if (p) event(`x api refused the say post (${String(p.err || "unknown").slice(0, 90)}); sent it through orbio instead`); text = delink(text).slice(0, 270); p = await postToX(text); }
     if (p.error) { log("say skipped:", p.error); return; }
     const rec = { at: iso(now), text, id: p.id, url: p.url, status: p.status, cost: Number(((p.cost || 0) + readCostSay).toFixed(6)), kind: rt ? "reply" : "say", via: p.via || "orbio" };
-    if (imageUrl && media && p.via === "orbio") rec.image = { url: imageUrl, prompt: String(next.image).slice(0, 300) };
+    if (imageUrl && media && p.via === "orbio") rec.image = { url: imageUrl, prompt: String(next.image || next.imageFile).slice(0, 300) };
     if (rt) { rec.threaded = p.via === "x-api" || !!p.threaded; rec.replyTo = { id: rt.id, handle: rt.handle, name: rt.handle, text: String(next.replyText || "").slice(0, 200), url: `https://x.com/${rt.handle}/status/${rt.id}`, why: "owner asked" }; }
     feed.posts.push(rec);
     event(next.event || "posted to X"); log("said:", next.text);
