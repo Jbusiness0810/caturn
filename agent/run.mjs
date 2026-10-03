@@ -284,7 +284,7 @@ async function readX(params) {
   const key = JSON.stringify(params);
   if (xCache.has(key)) return xCache.get(key);
   const p = readXRaw(params); xCache.set(key, p);
-  try { return await p; } catch (e) { xCache.delete(key); feed?.replyDebug && (feed.replyDebug.errors = [...(feed.replyDebug.errors || []), `${Object.keys(params)[0]}: ${e.status || ""} ${String(e.message).slice(0, 80)}`].slice(-6)); throw e; }
+  try { return await p; } catch (e) { xCache.delete(key); feed?.replyDebug && (feed.replyDebug.errors = [...(feed.replyDebug.errors || []), `${Object.keys(params)[0]}: ${e.status || ""} ${String(e.message).slice(0, 240)}`].slice(-6)); throw e; }
 }
 async function readXRaw(params) {
   let r;
@@ -623,11 +623,12 @@ async function orbioSend(text, { replyTo = null, quote = null, poll = null, medi
   }
 }
 async function postOnX(text, { replyTo = null, mediaIds = [], poll = null, quote = null, media = null } = {}) {
+  let orbioErr = null;
   if (API_KEY && !mediaIds.length && env.CATURN_X_DIRECT !== "1") {
     const o = await orbioSend(text, { replyTo, quote, poll, media });
     if (o.status !== "failed") return o;
     if (!X_KEYS_SET) return o;
-    log("orbio could not post it, trying the X app:", o.err);
+    orbioErr = o.err; log("orbio could not post it, trying the X app:", o.err);
   }
   const url = "https://api.x.com/2/tweets";   // links are allowed here (X bills a link post higher, so only the say queue and the sky film carry them)
   const body = { text };
@@ -643,7 +644,7 @@ async function postOnX(text, { replyTo = null, mediaIds = [], poll = null, quote
   } catch (e) {
     const msg = String(e.body?.detail || e.body?.title || e.body?.errors?.[0]?.message || e.message).slice(0, 200);
     log("x post failed:", e.status || "", msg);
-    return { id: null, status: "failed", url: null, err: msg, cost: 0, via: "x-api" };
+    return { id: null, status: "failed", url: null, err: orbioErr ? `${msg} (orbio: ${orbioErr})` : msg, cost: 0, via: "x-api" };
   }
 }
 const replyOnX = (text, inReplyToId) => postOnX(text, { replyTo: inReplyToId });
@@ -1056,7 +1057,7 @@ async function saySomething(feed) {
     if ((!p || p.status === "failed") && next.replyOnly && rt) {
       // a reply or nothing: never turn it into a standalone post
       feed.sayTries = feed.sayTries || {}; const tries = (feed.sayTries[next.id] = (feed.sayTries[next.id] || 0) + 1);
-      event(`could not reply to @${rt.handle} (${String(p?.err || "no route").slice(0, 90)})${tries < 3 ? "; trying again next tick" : "; gave up"}`);
+      event(`could not reply to @${rt.handle} (${String(p?.err || "no route").slice(0, 220)})${tries < 3 ? "; trying again next tick" : "; gave up"}`);
       if (tries < 3) feed.said = feed.said.filter(x => x !== next.id);
       await persistNow(feed); return;
     }
