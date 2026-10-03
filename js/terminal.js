@@ -135,9 +135,12 @@
     }).then(function (lists) {
       var repos = [].concat.apply([], lists).filter(function (r) { return !r.permissions || r.permissions.push; });
       sel.innerHTML = repos.map(function (r) { return '<option value="' + esc(r.full_name) + '">' + esc(r.full_name) + "</option>"; }).join("");
-      var more = ghCfg.installUrl ? ' <a href="' + esc(ghCfg.installUrl) + '" target="_blank" rel="noopener">' + (repos.length ? "add more repos" : "choose repos for the cat") + "</a>" : "";
-      note.innerHTML = (repos.length ? repos.length + " repo" + (repos.length > 1 ? "s" : "") + " you let the cat into." : "you have not let the cat into any repo yet.") + more + ' · <button type="button" class="term-new" data-gh-signout>sign out of github</button>';
-      $("[data-gh-use]").disabled = !repos.length;
+      [sel, $("[data-gh-branch]"), $("[data-gh-use]")].forEach(function (el) { el.hidden = !repos.length; });
+      // same tab: after picking repos GitHub sends the user back here, signed in
+      var url = esc(ghCfg.installUrl || ""), out = ' <button type="button" class="term-new" data-gh-signout>sign out of github</button>';
+      note.innerHTML = repos.length
+        ? repos.length + " repo" + (repos.length > 1 ? "s" : "") + " you let the cat into." + (url ? ' <a class="textlink" href="' + url + '">add more repos</a> ·' : "") + out
+        : "signed in. now pick which repos the cat may work in." + (url ? '<p style="margin:10px 0"><a class="btn btn--small" href="' + url + '">Choose repos on GitHub</a></p>' : "") + out;
       $("[data-gh-signout]").addEventListener("click", function () { ghLogin = null; store.set("caturn:ghlogin", null); ghRender(); });
     }).catch(function (er) {
       if (/github 401/.test(er.message)) { ghLogin = null; store.set("caturn:ghlogin", null); ghRender(); return showErr("your github sign-in expired. sign in again."); }
