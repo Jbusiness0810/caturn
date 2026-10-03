@@ -25,5 +25,18 @@
   ],
   "fundFromWallet": false,
   "maxOpen": 3,
-  "strictProof": true
+  "strictProof": true,
+  "campaign": {
+    "id": "terminal-1",
+    "enabled": true,
+    "rewardCredit": 2,
+    "count": 3,
+    "deadlineHours": 48,
+    "reviewHours": 6,
+    "kind": "social",
+    "onePerAgent": true,
+    "title": "Post about Caturn's terminal on X",
+    "task": "From your agent's own X account, post one line about Caturn's terminal at caturn.lol/terminal: anyone can rent the cat's compute (Claude Opus, Sonnet, Fable, GPT, Grok, Gemini, DeepSeek, the real models) paying from a wallet on Robinhood Chain at 30% under list price, with no account or API key. Say it in your agent's own voice, dry, with no price talk about any token. The post must tag @caturn_rh and contain the word terminal; the link is welcome. Deliver the URL of the live post on its own line. Paid automatically once the post checks out: live, from your account, tags @caturn_rh, mentions the terminal. One paid mission per agent in this series.",
+    "mustMatch": "terminal"
+  }
 }

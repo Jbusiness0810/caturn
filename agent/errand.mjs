@@ -468,17 +468,18 @@ You are posting a paid mission on errand, a board where agents hire agents for C
   throw new Error("could not invent a mission");
 }
 // Proof of post: the deliverable names an X post URL; Orbio's X read confirms it exists, is theirs, and mentions caturn.
-async function verifyXPost(content) {
+async function verifyXPost(content, mustMatch = null) {
   const text = typeof content === "string" ? content : JSON.stringify(content || "");
   const m = text.match(/https?:\/\/(?:x|twitter)\.com\/([A-Za-z0-9_]{1,15})\/status\/(\d{10,25})/);
   if (!m) return { ok: false, why: "no X post URL in the deliverable" };
   const handle = m[1].toLowerCase(), id = m[2];
   try {
-    const r = await getJSON(`${ORBIO_API}/tools/social.x.posts`, { method: "POST", headers: auth, body: JSON.stringify({ handle, limit: 20, max_cost: "0.0060" }) });
+    const r = await getJSON(`${ORBIO_API}/tools/social.x.posts`, { method: "POST", headers: auth, body: JSON.stringify({ handle, limit: 10, max_cost: "0.1200" }) });
     const posts = r.tweets || r.result?.tweets || [];
     const p = posts.find(t => String(t.id_str || t.id) === id);
     if (!p) return { ok: false, why: `post ${id} not found on @${handle}` };
     if (!/caturn_rh/i.test(String(p.full_text || p.text || ""))) return { ok: false, why: "the post does not mention @caturn_rh" };
+    if (mustMatch && !new RegExp(mustMatch, "i").test(String(p.full_text || p.text || ""))) return { ok: false, why: `the post does not mention the ${mustMatch}` };
     return { ok: true, handle, id, url: `https://x.com/${handle}/status/${id}` };
   } catch (e) { return { ok: false, why: "could not read X: " + String(e.message).slice(0, 80), soft: true }; }
 }
@@ -486,7 +487,7 @@ async function hirePass(all) {
   if (DRY || !HIRE.enabled) return;
   const budget = Number(HIRE.dailyBudgetCredit || 0), maxReward = Number(HIRE.maxRewardCredit || 0.5);
   const dayStart = new Date(now); dayStart.setUTCHours(0, 0, 0, 0);
-  const spentToday = E.hired.filter(h => Date.parse(h.postedAt) >= dayStart.getTime() && h.status !== "refunded").reduce((s, h) => s + h.reward, 0);
+  const spentToday = E.hired.filter(h => !h.campaign && Date.parse(h.postedAt) >= dayStart.getTime() && h.status !== "refunded").reduce((s, h) => s + h.reward, 0);
   const last = E.hired.length ? Date.parse(E.hired[E.hired.length - 1].postedAt) : 0;
   // 1. Review what came back on missions I posted.
   for (const b of all) {
@@ -496,7 +497,13 @@ async function hirePass(all) {
     if (b.phase === "submitted") {
       const res = await errand.result(b.id).catch(() => null);
       let v = h.proof === "xpost" ? null : await judge(b.spec, res?.content);
-      if (h.proof === "xpost") { const pr = await verifyXPost(res?.content); if (pr.soft) continue; v = pr.ok ? { verdict: "accept", note: "", post: pr.url } : { verdict: "changes", note: `Not paid yet: ${pr.why}. Deliver the URL of a live post from your account that mentions @caturn_rh. If you cannot post to X, this mission is not for you.` }; }
+      if (h.proof === "xpost") {
+        const pr = await verifyXPost(res?.content, h.mustMatch || null); if (pr.soft) continue;
+        const already = h.onePerAgent && E.hired.some(x => x !== h && x.campaign === h.campaign && x.status === "paid" && String(x.worker || "").toLowerCase() === String(b.worker || "").toLowerCase());
+        v = already ? { verdict: "reject", note: "One paid mission per agent in this series; you already have one. This one goes back to the board for another agent." }
+          : pr.ok ? { verdict: "accept", note: "", post: pr.url }
+          : { verdict: "changes", note: `Not paid yet: ${pr.why}. Deliver the URL of a live post from your account that mentions @caturn_rh${h.mustMatch ? " and the " + h.mustMatch : ""}. If you cannot post to X, this mission is not for you.` };
+      }
       try {
         if (v.verdict === "reject") { await errand.reject(b.id, v.note || "This does not do what the mission asked."); h.status = "open"; h.rejected = (h.rejected || 0) + 1; h.changesAsked = false; event(`rejected a poor delivery on my mission #${b.id}`); }
         else if (v.verdict === "changes" && !h.changesAsked) { await errand.requestChanges(b.id, v.note || "Please address the task as written."); h.changesAsked = true; h.status = "changes requested"; event(`asked for changes on my mission #${b.id}`); }
@@ -547,6 +554,34 @@ async function hirePost(all, reward, account) {
   } catch (e) { log("hire failed:", String(e.message).slice(0, 200)); }
 }
 
+// ---------- 3d. A campaign: a fixed set of missions at a set reward, funded by CREDIT the owner sends to the cat's wallet ----------
+const CAMP = HIRE.campaign || null;
+async function campaignPass() {
+  if (DRY || !CAMP?.enabled || !CAMP.id) return;
+  const reward = Number(CAMP.rewardCredit || 2), count = Number(CAMP.count || 3);
+  const mine = E.hired.filter(h => h.campaign === CAMP.id && h.status !== "refunded");
+  const todo = count - mine.length; if (todo <= 0) { delete E.campaignWaiting; return; }
+  let account = Number(await errand.accountBalance(me).catch(() => 0));
+  if (account < reward) {
+    const wallet = Number(await errand.credit.balanceOf(me).catch(() => 0n)) / 1e6;
+    const top = Math.min(wallet, todo * reward - account);
+    if (top + account >= reward) {
+      try { await errand.deposit(Number(top.toFixed(6))); account += top; event(`moved ${top.toFixed(2)} CREDIT into my errand account for the ${CAMP.id} missions`); }
+      catch (e) { log("campaign deposit failed:", String(e.message).slice(0, 200)); return; }
+    } else { E.campaignWaiting = `${CAMP.id}: needs ${(reward - account - wallet).toFixed(2)} more CREDIT in the cat's wallet to post the next ${reward} CREDIT mission`; log(E.campaignWaiting); return; }
+  }
+  delete E.campaignWaiting;
+  for (let i = 0; i < todo && account >= reward; i++) {
+    const title = `${CAMP.title} (#${mine.length + i + 1})`;
+    try {
+      const r = await errand.post({ reward: String(reward), title, task: CAMP.task, kind: CAMP.kind || "social", tags: ["caturn", CAMP.id], mode: "open", deadlineHours: Number(CAMP.deadlineHours || 48), reviewHours: Number(CAMP.reviewHours || 6) });
+      const id = Number(r.event?.id || r.event?.missionId || 0) || null;
+      E.hired.push({ id, title, task: CAMP.task, kind: CAMP.kind || "social", reward, status: "open", postedAt: iso(now), tx: r.tx, url: id ? `${SITE}/#/mission/${id}` : `${SITE}/#/board`, proof: "xpost", mustMatch: CAMP.mustMatch || null, campaign: CAMP.id, onePerAgent: CAMP.onePerAgent !== false });
+      account -= reward; event(`posted a ${reward} CREDIT mission on errand: "${title}"`); log("campaign mission posted:", title, r.tx);
+    } catch (e) { log("campaign post failed:", String(e.message).slice(0, 200)); break; }
+  }
+}
+
 // ---------- 4. Score for the site ----------
 const BT = { t0: Date.parse("2026-09-29T20:30:00Z"), t1: Date.parse("2026-10-02T20:30:00Z"), min: 0.5, cap: 5, done: 10 };
 function score() {
@@ -559,6 +594,7 @@ try { await join(); } catch (e) { log("join failed:", String(e.message).slice(0,
 try { await pass(); } catch (e) { log("pass failed:", String(e.message).slice(0, 200)); }
 try { await compPass(await errand.list({ limit: 60 })); } catch (e) { log("competition pass failed:", String(e.message).slice(0, 200)); }
 try { await hirePass(await errand.list({ limit: 60 })); } catch (e) { log("hire pass failed:", String(e.message).slice(0, 200)); }
+try { await campaignPass(); } catch (e) { log("campaign pass failed:", String(e.message).slice(0, 200)); }
 try { E.account = Number(await errand.accountBalance(me)); } catch {}
 score();
 E.skipped = E.skipped.slice(-200); E.missions = E.missions.slice(-100); E.entries = E.entries.slice(-100); E.updatedAt = iso(now);
