@@ -97,7 +97,7 @@
     $("[data-gh-on]").hidden = !on; $("[data-gh-manual]").hidden = on;
     $("[data-gh-login]").hidden = on || !ghCfg.enabled || !!ghLogin;
     var showPick = !on && !!ghLogin; if (showPick && pick.hidden) { pick.hidden = false; loadRepos(); } else if (!showPick) pick.hidden = true;
-    $("[data-gh-state]").textContent = on ? gh.repo + " · " + gh.branch : "not connected";
+    $("[data-gh-state]").textContent = on ? gh.repo + " · " + gh.branch : ghLogin ? "signed in · pick a repo" : "not connected";
     if (on) { $("[data-gh-info]").textContent = "connected to " + gh.repo + " on " + gh.branch + " · " + (gh.tree || []).length + ((gh.tree || []).length === 1 ? " file" : " files"); $("[data-gh-auto]").checked = !!gh.auto; }
     $("[data-term-text]").placeholder = on ? "ask anything, or tell it what to build in " + gh.repo : "ask anything";
     var n = Object.keys(pending).length, bar = $("[data-gh-changes]");
