@@ -18,6 +18,8 @@ const PRICE = Number(process.env.TERMINAL_PRICE || 0.7);      // $1 of compute c
 const RESERVE = Number(process.env.TERMINAL_RESERVE || 250);  // the cat keeps at least this much gateway balance for itself
 const MIN_USD = 1, MAX_AGE_S = 72 * 3600, MAX_TOKENS = 4000, MAX_CHARS = 60000;
 const SECRET = "caturn-terminal|" + SB_KEY.slice(0, 32);
+// wallets that use the terminal without paying (the owner's); comma-separated in TERMINAL_FREE_WALLETS
+const FREE = new Set((process.env.TERMINAL_FREE_WALLETS || "0xEF22CB6af45C0A0145f64d6a8b4248505A8aE419").toLowerCase().split(",").map(x => x.trim()).filter(Boolean));
 // tokens accepted on Robinhood Chain besides native ETH: stablecoins at $1, $CTRN at its live DEX price
 const TOKENS = {
   "0x5fc5360d0400a0fd4f2af552add042d716f1d168": { symbol: "USDG", decimals: 6, usd: async () => 1 },
@@ -94,7 +96,8 @@ const catBalance = () => cached("bal", 60e3, async () => {
 });
 async function account(wallet) {
   const rows = await sb(`terminal_accounts?wallet=eq.${wallet}&select=wallet,credit,spent`);
-  return rows[0] || { wallet, credit: 0, spent: 0 };
+  const a = rows[0] || { wallet, credit: 0, spent: 0 };
+  return FREE.has(wallet) ? { ...a, free: true } : a;
 }
 async function saveAccount(a) {
   await sb("terminal_accounts", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ wallet: a.wallet, credit: round(a.credit), spent: round(a.spent || 0), updated_at: new Date().toISOString() }) });
@@ -165,9 +168,10 @@ export default async function handler(req, res) {
       if (!msgs.length || msgs[msgs.length - 1].role !== "user") return res.status(400).json({ error: "say something." });
       const repo = readRepo(b.repo), system = repo ? SYSTEM + "\n\n" + repoSystem(repo) : SYSTEM;
       const chars = msgs.reduce((a, m) => a + m.content.length, 0); if (chars > MAX_CHARS) return res.status(400).json({ error: "that conversation is too long. start a new one." });
-      const uh = (hits.get(wallet) || []).filter(t => now() - t < 60e3); if (uh.length >= 8) return res.status(429).json({ error: "eight a minute. the cat needs to breathe." }); uh.push(now()); hits.set(wallet, uh);
-      if ((await catBalance().catch(() => RESERVE + 1)) <= RESERVE) return res.status(503).json({ error: "the cat's compute is reserved for the cat right now. try again later." });
-      const a = await account(wallet), credit = Number(a.credit || 0);
+      const free = FREE.has(wallet);
+      const uh = (hits.get(wallet) || []).filter(t => now() - t < 60e3); if (uh.length >= (free ? 20 : 8)) return res.status(429).json({ error: "eight a minute. the cat needs to breathe." }); uh.push(now()); hits.set(wallet, uh);
+      if (!free && (await catBalance().catch(() => RESERVE + 1)) <= RESERVE) return res.status(503).json({ error: "the cat's compute is reserved for the cat right now. try again later." });
+      const a = await account(wallet), credit = free ? 1e9 : Number(a.credit || 0);
       const p = (await pricing())[model] || { prompt: 0.00001, completion: 0.00005 };
       const inTok = Math.ceil((chars + system.length) / 3.5), inCost = inTok * p.prompt * 1.1;
       const maxTokens = Math.min(repo ? MAX_REPO_TOKENS : MAX_TOKENS, Math.floor((credit - inCost) / (p.completion * 1.1)));
@@ -178,11 +182,11 @@ export default async function handler(req, res) {
       const reply = String(j.choices?.[0]?.message?.content || ""), u = j.usage || {};
       let cost = Number(u.cost ?? j.cost?.credit ?? 0);
       if (!(cost > 0)) cost = ((u.prompt_tokens || inTok) * p.prompt + (u.completion_tokens || Math.ceil(reply.length / 3.5)) * p.completion) * 1.1;
-      cost = round(Math.min(cost, credit));
-      const next = { ...a, credit: credit - cost, spent: Number(a.spent || 0) + cost };
+      cost = round(free ? cost : Math.min(cost, credit));
+      const next = free ? { ...a, spent: Number(a.spent || 0) + cost } : { ...a, credit: credit - cost, spent: Number(a.spent || 0) + cost };
       await saveAccount(next);
       sb("terminal_usage", { method: "POST", body: JSON.stringify({ wallet, model, cost, prompt: msgs[msgs.length - 1].content.slice(0, 300) }), prefer: "return=minimal" }).catch(() => {});
-      return res.status(200).json({ reply, cost, model, finish: j.choices?.[0]?.finish_reason || null, account: { wallet, credit: round(next.credit), spent: round(next.spent) } });
+      return res.status(200).json({ reply, cost, free, model, finish: j.choices?.[0]?.finish_reason || null, account: { wallet, credit: round(next.credit || 0), spent: round(next.spent), free } });
     }
     return res.status(400).json({ error: "what?" });
   } catch (e) {

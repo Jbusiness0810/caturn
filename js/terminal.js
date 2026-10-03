@@ -51,8 +51,8 @@
     var a = d.account;
     if (a) {
       wbtn.textContent = a.wallet.slice(0, 6) + "…" + a.wallet.slice(-4) + " · sign out";
-      winfo.textContent = money(a.credit) + " of compute left · " + money(a.spent) + " used";
-      $("[data-term-credit]").textContent = money(a.credit) + " of compute";
+      winfo.textContent = a.free ? "owner wallet · compute is free here · " + money(a.spent) + " used so far" : money(a.credit) + " of compute left · " + money(a.spent) + " used";
+      $("[data-term-credit]").textContent = a.free ? "owner · free" : money(a.credit) + " of compute";
       if (!depBusy) $("[data-term-dep-note]").textContent = "deposits from " + a.wallet.slice(0, 6) + "…" + a.wallet.slice(-4) + " are credited as soon as they confirm.";
     } else {
       wbtn.textContent = "Connect wallet"; winfo.textContent = "sign in with any EVM wallet. one signature, no gas.";
@@ -229,7 +229,7 @@
       if (!x.ok) { var e = new Error(x.j.error || "that did not go through."); e.status = x.status; throw e; }
       chat.push({ role: "assistant", content: x.j.reply || "(no answer)", model: name });
       store.set("caturn:termchat", JSON.stringify(chat.slice(-30))); draw();
-      $("[data-term-cost]").textContent = "last answer cost " + money(x.j.cost) + (x.j.finish === "length" ? " · cut off at your balance or the length cap" : "");
+      $("[data-term-cost]").textContent = "last answer cost " + money(x.j.cost) + (x.j.free ? " · on the house" : "") + (x.j.finish === "length" ? " · cut off at the length cap" : "");
       if (info && x.j.account) render(Object.assign({}, info, { account: x.j.account }));
       if (!gh || !gh.repo) return;
       var segs = parse(x.j.reply || ""), reads = [];
