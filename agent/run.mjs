@@ -34,7 +34,7 @@ const OWN_HANDLE = (env.CATURN_X_HANDLE || "caturn_rh").toLowerCase();
 const PINNED_TAG_HANDLES = (env.CATURN_TAG_HANDLES || "errandboard").split(",").map(s => s.trim().replace(/^@/, "").toLowerCase()).filter(Boolean);
 const TAG_EVERY  = Number(env.CATURN_TAG_EVERY || 3);
 const IMAGE_EVERY = Number(env.CATURN_IMAGE_EVERY || 0);  // off with the rest of the art  // one post in N carries a picture the cat had made for it (0 = never; needs the X app)
-const IMAGE_MODELS = (env.CATURN_IMAGE_MODELS || "bytedance-seed/seedream-5-0-pro,bytedance-seed/seedream-5-0-lite,bytedance-seed/seedream-5-0-flash").split(",").map(s => s.trim()).filter(Boolean);
+const IMAGE_MODELS = (env.CATURN_IMAGE_MODELS || "bytedance-seed/seedream-5-0-pro,google/gemini-3.1-flash-image,bytedance-seed/seedream-5-0-flash,openai/gpt-5-image-mini").split(",").map(s => s.trim()).filter(Boolean);
 // One look for every picture, so the timeline reads as one artist: quiet conceptual still life, the joke carried by objects.
 const IMAGE_STYLE = "Minimal conceptual still-life photograph. Plain warm cream paper background, soft natural daylight from the upper left, a gentle soft shadow, lots of empty space, one small arrangement near the center. Muted natural colors with at most one accent color. Real objects, tactile, slightly whimsical. No text, no letters, no numbers, no logos, no people, no watermark. Square composition.";
 const CA_EVERY   = Number(env.CATURN_CA_EVERY || 6);     // append the real contract address to one post in N (0 = never)     // tag someone in roughly one post in five (0 = never)
@@ -652,7 +652,7 @@ async function makeImage(idea, { style = true } = {}) {
   for (const model of IMAGE_MODELS) {
     try {
       const both = /gemini|gpt-5|auto/.test(model);
-      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, modalities: both ? ["image", "text"] : ["image"], messages: [{ role: "user", content: style ? `${idea}\n\n${IMAGE_STYLE}` : idea }] }) });
+      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 4096, modalities: both ? ["image", "text"] : ["image"], messages: [{ role: "user", content: style ? `${idea}\n\n${IMAGE_STYLE}` : idea }] }) });
       const msg = r.choices?.[0]?.message || {};
       const parts = Array.isArray(msg.content) ? msg.content : [];
       const url = msg.images?.[0]?.image_url?.url || msg.images?.[0]?.url || parts.find(c => c?.type === "image_url")?.image_url?.url
@@ -954,9 +954,16 @@ async function disTru(feed) {
   const canQuote = /@caturn_rh\b/i.test(t.text);
   let p = canQuote ? await postOnX(text, { quote: t.id }) : await postOnX(`${text} ${link}`);
   if (p.status === "failed" && canQuote) p = await postOnX(`${text} ${link}`);
+  let inline = null;
+  if (p.status === "failed") {
+    const claim = t.text.replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim();
+    const room = 270 - text.length - t.handle.length - 12;
+    inline = `${text} @${t.handle}: "${claim.length > room ? claim.slice(0, room - 1).replace(/\s+\S*$/, "") + "…" : claim}"`;
+    p = await postOnX(inline);
+  }
   if (p.status === "failed") { log("dis tru refused:", p.err); event(`tried to ask @grok about @${t.handle}'s post and x refused (${String(p.err || "").slice(0, 80)})`); return; }
   feed.grok.quotes = n + 1;
-  feed.posts.push({ at: iso(now), text: canQuote ? text : `${text} ${link}`, id: p.id, url: p.url, status: p.status, cost: 0, via: p.via, kind: "quote", grok: true, quoted: { id: t.id, handle: t.handle, text: t.text.slice(0, 200), url: `https://x.com/${t.handle}/status/${t.id}` } });
+  feed.posts.push({ at: iso(now), text: inline || (canQuote ? text : `${text} ${link}`), id: p.id, url: p.url, status: p.status, cost: 0, via: p.via, kind: "quote", grok: true, quoted: { id: t.id, handle: t.handle, text: t.text.slice(0, 200), url: `https://x.com/${t.handle}/status/${t.id}` } });
   event(`asked @grok if @${t.handle}'s orbio post is tru`);
   await persistNow(feed);
 }
