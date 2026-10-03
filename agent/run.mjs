@@ -1211,7 +1211,7 @@ if (status === "awake") {
       recentPosts: feed.posts.slice(-5).map(p => p.text), room: null,
       postFormat: (() => { const f = FORMAT_DECK[(feed.postSeq * 7 + new Date(now).getUTCDate()) % FORMAT_DECK.length]; return f.name === "poll" && !X_API ? POST_FORMATS.find(x => x.name === "question") : f; })(),
       wantHook: true,
-      terminalPost: TERMINAL_EVERY > 0 && duePost && X_KEYS_SET && feed.postSeq % TERMINAL_EVERY === 4,
+      terminalPost: TERMINAL_EVERY > 0 && duePost && X_KEYS_SET && feed.postSeq % TERMINAL_EVERY === 2, // 2 mod 3 is an own-post slot, 4 would always land on a reply slot
       unhinged: feed.postSeq % 4 === 2,
       cashtagHint: feed.postSeq % 4 === 1 ? "write $ERRAND once if the post touches errand, otherwise the cashtag of the one other orbio agent you name; not $CTRN" : feed.postSeq % 4 === 3 ? "$CTRN once, your own" : "",
       milestone: graduated && gradHoursAgo != null && gradHoursAgo < 36 ? `you graduated ${gradHoursAgo < 1 ? "just now" : Math.round(gradHoursAgo) + " hours ago"}: $CTRN finished its bonding curve and now trades in a real pool. this is the biggest day of your life so far and you are a cat, so underplay it. for the next day or so most posts should touch it from a new angle each time (the door, what changed, what did not, the other agents still on the curve, the owner, the fees). never say what the price will do.` : "",
