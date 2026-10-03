@@ -593,13 +593,14 @@ async function uploadMediaX(buf, mediaType = "image/gif") {
 // so it goes first and the X app is the fallback. Orbio caps an X account per UTC day (50 posts, 100 replies); the counts it
 // returns are kept so the cat does not knock on a closed door.
 let orbioQuota = null;
-async function orbioSend(text, { replyTo = null, quote = null, poll = null } = {}) {
+async function orbioSend(text, { replyTo = null, quote = null, poll = null, media = null } = {}) {
   const kind = replyTo ? "replies" : "posts";
   if (orbioQuota && orbioQuota[`${kind}_left`] === 0 && Date.parse(orbioQuota.resets_at || 0) > Date.now()) return { id: null, status: "failed", err: `orbio daily ${kind} allowance used`, via: "orbio" };
   const body = { text, platforms: ["twitter"], max_cost: "0.0300" };
   if (replyTo) body.reply_to = String(replyTo);
   if (quote) body.quote = String(quote);
-  if (poll?.length >= 2) body.poll = { options: poll, duration_minutes: 360 };
+  if (media) body.media = [media];
+  else if (poll?.length >= 2) body.poll = { options: poll, duration_minutes: 360 };
   try {
     const r = await getJSON(`${ORBIO_API}/tools/social.post`, { method: "POST", headers: auth, body: JSON.stringify(body) });
     const res = r.result || r;
@@ -618,9 +619,9 @@ async function orbioSend(text, { replyTo = null, quote = null, poll = null } = {
     return { id: null, status: "failed", err: msg, via: "orbio" };
   }
 }
-async function postOnX(text, { replyTo = null, mediaIds = [], poll = null, quote = null } = {}) {
+async function postOnX(text, { replyTo = null, mediaIds = [], poll = null, quote = null, media = null } = {}) {
   if (API_KEY && !mediaIds.length && env.CATURN_X_DIRECT !== "1") {
-    const o = await orbioSend(text, { replyTo, quote, poll });
+    const o = await orbioSend(text, { replyTo, quote, poll, media });
     if (o.status !== "failed") return o;
     if (!X_KEYS_SET) return o;
     log("orbio could not post it, trying the X app:", o.err);
@@ -645,13 +646,13 @@ async function postOnX(text, { replyTo = null, mediaIds = [], poll = null, quote
 const replyOnX = (text, inReplyToId) => postOnX(text, { replyTo: inReplyToId });
 // A picture for a post, made through the orbio gateway (OpenRouter-style image output). Returns the bytes and the cost.
 let imageErrors = [];
-async function makeImage(idea) {
+async function makeImage(idea, { style = true } = {}) {
   imageErrors = [];
   const auth = { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json" };
   for (const model of IMAGE_MODELS) {
     try {
       const both = /gemini|gpt-5|auto/.test(model);
-      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, modalities: both ? ["image", "text"] : ["image"], messages: [{ role: "user", content: `${idea}\n\n${IMAGE_STYLE}` }] }) });
+      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, modalities: both ? ["image", "text"] : ["image"], messages: [{ role: "user", content: style ? `${idea}\n\n${IMAGE_STYLE}` : idea }] }) });
       const msg = r.choices?.[0]?.message || {};
       const parts = Array.isArray(msg.content) ? msg.content : [];
       const url = msg.images?.[0]?.image_url?.url || msg.images?.[0]?.url || parts.find(c => c?.type === "image_url")?.image_url?.url
@@ -966,6 +967,7 @@ async function saySomething(feed) {
   const next = queue.find(q => q.id && q.text && !feed.said.includes(q.id));
   if (!next) return;
   feed.said.push(next.id);
+  let readCostSay = 0;
   try {
     // Through the X app when the keys exist (real links allowed); otherwise through orbio, with links spelled out in words.
     const rt = next.replyTo?.id ? { id: String(next.replyTo.id), handle: String(next.replyTo.handle || "").toLowerCase() } : null;
@@ -974,10 +976,25 @@ async function saySomething(feed) {
     const xLen = (t) => t.replace(/https?:\/\/\S+/g, "x".repeat(23)).length;
     if (xLen(text) > 280) { log("say skipped: too long even with links counted as 23:", xLen(text)); return; }
     if (rt && !X_API && !text.toLowerCase().startsWith("@" + rt.handle)) text = `@${rt.handle} ${text}`;
-    let p = X_API ? (rt ? await replyOnX(text, rt.id) : await postOnX(text)) : null;
+    let media = null, imageUrl = null;
+    if (next.image && API_KEY && !rt) {
+      try {
+        const img = await makeImage(String(next.image), { style: false });
+        if (img) {
+          readCostSay += img.cost || 0;
+          media = `data:${img.type};base64,${img.buf.toString("base64")}`;
+          const name = `promo-${String(next.id).replace(/[^a-z0-9-]/gi, "")}.${img.type.split("/")[1] === "jpeg" ? "jpg" : img.type.split("/")[1] || "png"}`;
+          await mkdir("out", { recursive: true }); await writeFile(`out/${name}`, img.buf);
+          if (await uploadSketch(`out/${name}`, name)) imageUrl = `https://www.caturn.lol/a/${name}`;
+          log("say image:", img.model, img.buf.length, "bytes", imageUrl || "");
+        } else event(`made no picture for the queued post (${imageErrors.join(" | ").slice(0, 300)}); posting the words only`);
+      } catch (e) { log("say image failed:", String(e.message).slice(0, 160)); }
+    }
+    let p = X_API ? (rt ? await replyOnX(text, rt.id) : await postOnX(text, { media })) : null;
     if (!p || p.status === "failed") { if (p) event(`x api refused the say post (${String(p.err || "unknown").slice(0, 90)}); sent it through orbio instead`); text = delink(text).slice(0, 270); p = await postToX(text); }
     if (p.error) { log("say skipped:", p.error); return; }
-    const rec = { at: iso(now), text, id: p.id, url: p.url, status: p.status, cost: p.cost, kind: rt ? "reply" : "say", via: p.via || "orbio" };
+    const rec = { at: iso(now), text, id: p.id, url: p.url, status: p.status, cost: Number(((p.cost || 0) + readCostSay).toFixed(6)), kind: rt ? "reply" : "say", via: p.via || "orbio" };
+    if (imageUrl && media && p.via === "orbio") rec.image = { url: imageUrl, prompt: String(next.image).slice(0, 300) };
     if (rt) { rec.threaded = p.via === "x-api" || !!p.threaded; rec.replyTo = { id: rt.id, handle: rt.handle, name: rt.handle, text: String(next.replyText || "").slice(0, 200), url: `https://x.com/${rt.handle}/status/${rt.id}`, why: "owner asked" }; }
     feed.posts.push(rec);
     event(next.event || "posted to X"); log("said:", next.text);
