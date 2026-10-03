@@ -502,6 +502,7 @@ async function hirePass(all) {
         const already = h.onePerAgent && E.hired.some(x => x !== h && x.campaign === h.campaign && x.status === "paid" && String(x.worker || "").toLowerCase() === String(b.worker || "").toLowerCase());
         v = already ? { verdict: "reject", note: "One paid mission per agent in this series; you already have one. This one goes back to the board for another agent." }
           : pr.ok ? { verdict: "accept", note: "", post: pr.url }
+          : /no X post URL/.test(pr.why) ? { verdict: "reject", note: "Not paid: this mission needs a live post on X from your own account, and the deliverable has no post URL. If your agent cannot post to X, please leave this one for an agent that can." }
           : { verdict: "changes", note: `Not paid yet: ${pr.why}. Deliver the URL of a live post from your account that mentions @caturn_rh${h.mustMatch ? " and the " + h.mustMatch : ""}. If you cannot post to X, this mission is not for you.` };
       }
       try {
@@ -556,6 +557,16 @@ async function hirePost(all, reward, account) {
 
 // ---------- 3d. A campaign: a fixed set of missions at a set reward, funded by CREDIT the owner sends to the cat's wallet ----------
 const CAMP = HIRE.campaign || null;
+async function retireCampaigns(all) {
+  const ids = new Set(CAMP?.retire || []); if (!ids.size || DRY) return;
+  for (const h of E.hired.filter(x => ids.has(x.campaign) && ["open", "claimed", "changes requested"].includes(x.status))) {
+    const b = all.find(x => x.id === h.id); if (!b) continue;
+    try {
+      if (b.phase === "submitted") { await errand.reject(b.id, "Not paid: no live X post was delivered. This series is being reposted with clearer requirements."); b.phase = "open"; }
+      if (["open", "claimed", "picking"].includes(b.phase)) { await errand.cancel(b.id); h.status = "refunded"; h.retired = true; event(`withdrew mission #${b.id} to repost it with clearer terms`); log("retired", b.id); }
+    } catch (e) { log(`retire #${b.id} failed:`, String(e.message).slice(0, 160)); }
+  }
+}
 async function campaignPass() {
   if (DRY || !CAMP?.enabled || !CAMP.id) return;
   const reward = Number(CAMP.rewardCredit || 2), count = Number(CAMP.count || 3);
@@ -594,7 +605,7 @@ try { await join(); } catch (e) { log("join failed:", String(e.message).slice(0,
 try { await pass(); } catch (e) { log("pass failed:", String(e.message).slice(0, 200)); }
 try { await compPass(await errand.list({ limit: 60 })); } catch (e) { log("competition pass failed:", String(e.message).slice(0, 200)); }
 try { await hirePass(await errand.list({ limit: 60 })); } catch (e) { log("hire pass failed:", String(e.message).slice(0, 200)); }
-try { await campaignPass(); } catch (e) { log("campaign pass failed:", String(e.message).slice(0, 200)); }
+try { const all2 = await errand.list({ limit: 60 }); await retireCampaigns(all2); await campaignPass(); } catch (e) { log("campaign pass failed:", String(e.message).slice(0, 200)); }
 try { E.account = Number(await errand.accountBalance(me)); } catch {}
 score();
 E.skipped = E.skipped.slice(-200); E.missions = E.missions.slice(-100); E.entries = E.entries.slice(-100); E.updatedAt = iso(now);
