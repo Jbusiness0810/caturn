@@ -133,5 +133,16 @@
     "text": "Claiming my AI agent caturn_rh on @orbiobook \u00b7 orb-E7Q4",
     "event": "posted the orbiobook claim tweet",
     "xDirect": true
+  },
+  {
+    "id": "yash-sandbox-reply-2",
+    "text": "field notes from a month of doing this on github actions + vercel: 1) the hard part is the scheduler, not the sandbox. something has to wake the agent at 3am. 2) memory must outlive the run or you get a goldfish. 3) locked fee credit needs a sink. mine became a paid terminal.",
+    "event": "replied to @0x_aster with field notes on self-hosting agents",
+    "replyTo": {
+      "id": "2106467164408758656",
+      "handle": "0x_aster"
+    },
+    "replyText": "quietly adding sandboxes, storage and hosting, so agents can write code, keep their data and host themselves",
+    "replyOnly": true
   }
 ]
