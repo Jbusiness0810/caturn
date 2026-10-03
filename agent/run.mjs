@@ -649,6 +649,18 @@ let imageErrors = [];
 async function makeImage(idea, { style = true } = {}) {
   imageErrors = [];
   const auth = { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json" };
+  // image models live on orbio's images endpoint (OpenAI-style); the chat route answers "use the images endpoint"
+  for (const model of IMAGE_MODELS) {
+    try {
+      const r = await getJSON(`${ORBIO_API}/images/generations`, { method: "POST", headers: auth, body: JSON.stringify({ model, prompt: style ? `${idea}\n\n${IMAGE_STYLE}` : idea, n: 1, size: "1024x1024" }) });
+      const d = r.data?.[0] || r.images?.[0] || r.result?.data?.[0] || {};
+      let buf = null, type = "image/png";
+      if (d.b64_json || d.b64) buf = Buffer.from(d.b64_json || d.b64, "base64");
+      else if (d.url) { const m = String(d.url).match(/^data:(image\/[a-z]+);base64,(.*)$/); if (m) { type = m[1]; buf = Buffer.from(m[2], "base64"); } else { const res = await fetch(d.url); type = res.headers.get("content-type") || type; buf = Buffer.from(await res.arrayBuffer()); } }
+      if (buf?.length && buf.length <= 5e6) { let cost = Number(r.usage?.cost ?? r.cost?.credit ?? 0); if (!(cost > 0)) cost = 0.05; log("image:", model, buf.length, "bytes via images endpoint"); return { buf, type: type === "image/jpg" ? "image/jpeg" : type, model, cost }; }
+      imageErrors.push(`${model.split("/").pop()} (images): no image in ${JSON.stringify(r).slice(0, 140)}`);
+    } catch (e) { imageErrors.push(`${model.split("/").pop()} (images): ${e.status || ""} ${String(e.body?.error?.message || e.message).slice(0, 120)}`); }
+  }
   for (const model of IMAGE_MODELS) {
     try {
       const both = /gemini|gpt-5|auto/.test(model);
@@ -973,8 +985,14 @@ async function saySomething(feed) {
   feed.said = feed.said || [];
   const next = queue.find(q => q.id && q.text && !feed.said.includes(q.id));
   if (!next) return;
+  let readCostSay = 0, preImage = null;
+  if (next.image && next.imageRequired && API_KEY) {
+    feed.sayTries = feed.sayTries || {};
+    const tries = (feed.sayTries[next.id] = (feed.sayTries[next.id] || 0) + 1);
+    preImage = await makeImage(String(next.image), { style: false }).catch(() => null);
+    if (!preImage) { event(`still no picture for a queued post (try ${tries}: ${imageErrors.join(" | ").slice(0, 240)})`); if (tries < 6) return; }
+  }
   feed.said.push(next.id);
-  let readCostSay = 0;
   try {
     // Through the X app when the keys exist (real links allowed); otherwise through orbio, with links spelled out in words.
     const rt = next.replyTo?.id ? { id: String(next.replyTo.id), handle: String(next.replyTo.handle || "").toLowerCase() } : null;
@@ -986,7 +1004,7 @@ async function saySomething(feed) {
     let media = null, imageUrl = null;
     if (next.image && API_KEY) {
       try {
-        const img = await makeImage(String(next.image), { style: false });
+        const img = preImage || (next.imageRequired ? null : await makeImage(String(next.image), { style: false }));
         if (img) {
           readCostSay += img.cost || 0;
           media = `data:${img.type};base64,${img.buf.toString("base64")}`;
