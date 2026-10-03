@@ -1001,13 +1001,14 @@ async function saySomething(feed) {
     const xLen = (t) => t.replace(/https?:\/\/\S+/g, "x".repeat(23)).length;
     if (xLen(text) > 280) { log("say skipped: too long even with links counted as 23:", xLen(text)); return; }
     if (rt && !X_API && !text.toLowerCase().startsWith("@" + rt.handle)) text = `@${rt.handle} ${text}`;
-    let media = null, imageUrl = null;
+    let media = null, imageUrl = null, fileBuf = null, fileType = null;
     if (next.imageFile) {
       // a picture already in the repo (a screenshot); served from the site at the same path
       try {
         const f = String(next.imageFile).replace(/^\/+/, "").replace(/\.\./g, ""), buf = await readFile(new URL("../" + f, import.meta.url));
         const ext = f.split(".").pop().toLowerCase();
-        media = `data:image/${ext === "jpg" ? "jpeg" : ext};base64,${buf.toString("base64")}`; imageUrl = `https://www.caturn.lol/${f}`;
+        fileBuf = buf; fileType = `image/${ext === "jpg" ? "jpeg" : ext}`;
+        media = `data:${fileType};base64,${buf.toString("base64")}`; imageUrl = `https://www.caturn.lol/${f}`;
         log("say image file:", f, buf.length, "bytes");
       } catch (e) { log("say image file failed:", String(e.message).slice(0, 160)); }
     } else if (next.image && API_KEY) {
@@ -1023,7 +1024,15 @@ async function saySomething(feed) {
         } else event(`made no picture for the queued post (${imageErrors.join(" | ").slice(0, 300)}); posting the words only`);
       } catch (e) { log("say image failed:", String(e.message).slice(0, 160)); }
     }
-    let p = X_API ? await postOnX(text, { replyTo: rt ? rt.id : null, media }) : null;
+    let p = null;
+    // xDirect: straight through the X app (real link, picture uploaded to X); orbio is the fallback
+    if (next.xDirect && X_KEYS_SET) {
+      let mediaIds = [];
+      if (fileBuf) { try { mediaIds = [await uploadMediaX(fileBuf, fileType)]; } catch (e) { log("say x upload failed:", String(e.message).slice(0, 160)); } }
+      p = await postOnX(text, { replyTo: rt ? rt.id : null, mediaIds });
+      if (p.status === "failed") log("say x direct failed:", p.err);
+    }
+    if (!p || p.status === "failed") p = X_API ? await postOnX(text, { replyTo: rt ? rt.id : null, media }) : null;
     if (!p || p.status === "failed") {
       if (p) event(`x api refused the say post (${String(p.err || "unknown").slice(0, 90)}); sent it through orbio instead`);
       text = delink(text).slice(0, 270);

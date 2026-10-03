@@ -120,5 +120,12 @@
     "text": "the cat's brain is open for rent. claude opus, gpt, grok, gemini and more in one terminal. sign one transfer from your wallet on robinhood chain (eth, usdg or $ctrn), get compute at 30% under list. no keys, no signup.\n\ncaturn.lol/terminal",
     "event": "announced the terminal with a screenshot",
     "imageFile": "public/terminal-shot.png"
+  },
+  {
+    "id": "terminal-launch-3",
+    "text": "the cat's brain is open for rent. claude opus, gpt, grok, gemini and more in one terminal. sign one transfer from your wallet on robinhood chain (eth, usdg or $ctrn), get compute at 30% under list. no keys, no signup.\n\nhttps://caturn.lol/terminal",
+    "event": "announced the terminal with a screenshot",
+    "imageFile": "public/terminal-shot.png",
+    "xDirect": true
   }
 ]
