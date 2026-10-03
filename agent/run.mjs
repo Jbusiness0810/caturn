@@ -1033,6 +1033,13 @@ async function saySomething(feed) {
       if (p.status === "failed") log("say x direct failed:", p.err);
     }
     if (!p || p.status === "failed") p = X_API ? await postOnX(text, { replyTo: rt ? rt.id : null, media }) : null;
+    if ((!p || p.status === "failed") && next.replyOnly && rt) {
+      // a reply or nothing: never turn it into a standalone post
+      feed.sayTries = feed.sayTries || {}; const tries = (feed.sayTries[next.id] = (feed.sayTries[next.id] || 0) + 1);
+      event(`could not reply to @${rt.handle} (${String(p?.err || "no route").slice(0, 90)})${tries < 3 ? "; trying again next tick" : "; gave up"}`);
+      if (tries < 3) feed.said = feed.said.filter(x => x !== next.id);
+      await persistNow(feed); return;
+    }
     if (!p || p.status === "failed") {
       if (p) event(`x api refused the say post (${String(p.err || "unknown").slice(0, 90)}); sent it through orbio instead`);
       text = delink(text).slice(0, 270);
