@@ -71,6 +71,9 @@
     },
     "api/asset.js": {
       "maxDuration": 20
+    },
+    "api/terminal.js": {
+      "maxDuration": 60
     }
   },
   "ignoreCommand": "git diff --quiet HEAD^ HEAD -- . ':(exclude)data/feed.json' ':(exclude).kick'",

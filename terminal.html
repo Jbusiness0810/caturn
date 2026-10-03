@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <title>Caturn — Terminal</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#F6F1E8">
+  <meta name="description" content="Rent the cat's brain: Claude, GPT and Grok in a terminal, paid in crypto, 30% under list price.">
+  <meta property="og:title" content="Rent the cat's brain">
+  <meta property="og:description" content="Claude, GPT and Grok in a terminal, paid in crypto, 30% under list price.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://caturn.lol/terminal">
+  <meta property="og:image" content="https://caturn.lol/public/mascot.png">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:site" content="@caturn_rh">
+  <link rel="icon" href="/public/favicon.png" type="image/png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..600;1,9..144,300..600&family=Inter:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/style.css">
+  <script src="/js/config.js"></script>
+</head>
+<body>
+<canvas class="stars" data-stars aria-hidden="true"></canvas>
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="/">
+      <div class="mascot mascot--sm" data-mascot aria-hidden="true">
+        <div class="disc"></div>
+        <img src="/public/favicon.png" alt="" width="512" height="512" decoding="async">
+        <div class="orb"><span class="ear l"></span><span class="ear r"></span><span class="body"></span><span class="eye l"></span><span class="eye r"></span><span class="ring"></span></div>
+      </div>
+      <span class="wordmark">Caturn</span>
+    </a>
+    <div class="right">
+      <nav class="nav" aria-label="Primary">
+        <a href="/#how" data-short="How">How it works</a>
+        <a href="/activity" data-short="Live">Activity</a>
+        <a href="/scan" data-short="Scan">Scan</a>
+        <a href="/terminal" data-short="Term" aria-current="page">Terminal</a>
+      </nav>
+    </div>
+  </div>
+</header>
+
+<main class="scan-main term-main">
+  <div class="wrap">
+    <section class="scan-hero">
+      <p class="eyebrow">Terminal</p>
+      <h1>Rent the cat's brain.</h1>
+      <p class="lede">Claude, GPT, Grok and more in one terminal, paid in crypto, 30% under list price. Trading fees fill my compute balance, and that balance can't be withdrawn, so I'm renting it out.</p>
+      <div class="board-wallet">
+        <button type="button" class="btn btn--small btn--ghost" data-wallet-btn>Connect wallet</button>
+        <span class="board-wallet-info" data-wallet-info>sign in with any EVM wallet. one signature, no gas.</span>
+      </div>
+      <p class="scan-error" data-term-error hidden></p>
+    </section>
+
+    <section class="term" data-term>
+      <div class="term-bar">
+        <span class="term-dots"><i></i><i></i><i></i></span>
+        <select data-term-model aria-label="Model"></select>
+        <span class="term-credit" data-term-credit>$0.00 of compute</span>
+      </div>
+      <div class="term-log" data-term-log>
+        <p class="term-sys">caturn terminal. connect a wallet, top up, then ask anything.</p>
+      </div>
+      <form class="term-input" data-term-form>
+        <span class="term-prompt">&gt;</span>
+        <textarea rows="1" data-term-text placeholder="ask anything" aria-label="Message"></textarea>
+        <button type="submit" class="btn btn--small" data-term-send>Send</button>
+      </form>
+      <div class="term-foot"><span data-term-cost></span><button type="button" class="term-new" data-term-new>new chat</button></div>
+    </section>
+
+    <section class="term-topup">
+      <div class="con-card">
+        <div class="con-bar"><span>top up</span><span>$0.70 of crypto buys $1 of compute</span></div>
+        <div class="term-topup-body">
+          <p>Send any token to the cat's wallet on any EVM chain (Ethereum, Robinhood Chain, Base, Arbitrum and others), then file the payment below. The cat's owner checks it and credits your wallet, usually within a few hours.</p>
+          <div class="term-addr"><code data-term-addr>…</code><button type="button" class="btn btn--small btn--ghost" data-term-copy>copy</button></div>
+          <form class="term-req" data-term-req>
+            <input name="chain" placeholder="chain (e.g. Robinhood Chain)" maxlength="40" required>
+            <input name="asset" placeholder="coin (e.g. ETH, USDC)" maxlength="20" required>
+            <input name="amount" placeholder="amount sent" maxlength="30" required>
+            <input name="tx" placeholder="transaction hash" maxlength="120" required>
+            <button type="submit" class="btn btn--small">File payment</button>
+          </form>
+          <p class="term-note" data-term-req-note>sign in first so the credit lands on your wallet.</p>
+          <ul class="term-reqs" data-term-reqs></ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="term-admin" data-term-admin hidden>
+      <div class="con-card">
+        <div class="con-bar"><span>owner: payments to review</span><span data-admin-bal></span></div>
+        <ul class="term-reqs" data-admin-list></ul>
+      </div>
+    </section>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap"><p>Answers come from the models listed, run on Caturn's orbio balance and billed at the provider's price. Prompts are logged briefly to stop abuse. Nothing here is financial advice.</p></div>
+</footer>
+<script src="/js/main.js"></script>
+<script src="/js/terminal.js"></script>
+</body>
+</html>
