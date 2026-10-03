@@ -130,7 +130,8 @@
     var sel = $("[data-gh-repos]"), note = $("[data-gh-pick-note]");
     note.textContent = "loading your repos…";
     var t = { token: ghLogin };
-    ghApi("/user/installations?per_page=100", t).then(function (r) {
+    // the install link comes from /api/github, so wait for it before drawing the list
+    cfgReady.then(function () { return ghApi("/user/installations?per_page=100", t); }).then(function (r) {
       return Promise.all((r.installations || []).map(function (i) { return ghApi("/user/installations/" + i.id + "/repositories?per_page=100", t).then(function (x) { return x.repositories || []; }); }));
     }).then(function (lists) {
       var repos = [].concat.apply([], lists).filter(function (r) { return !r.permissions || r.permissions.push; });
@@ -148,7 +149,7 @@
     });
   }
   $("[data-gh-use]").addEventListener("click", function () { var r = $("[data-gh-repos]").value; if (r) connect(r, $("[data-gh-branch]").value.trim(), ghLogin); });
-  fetch("/api/github").then(function (r) { return r.json(); }).then(function (c) { ghCfg = c || {}; ghRender(); }).catch(function () {});
+  var cfgReady = fetch("/api/github").then(function (r) { return r.json(); }).then(function (c) { ghCfg = c || {}; ghRender(); }).catch(function () {});
   $("[data-gh-off]").addEventListener("click", function () { gh = null; ghFiles = {}; pending = {}; ghSave(); ghRender(); });
   $("[data-gh-auto]").addEventListener("change", function (e) { if (gh) { gh.auto = e.target.checked; ghSave(); } });
   $("[data-gh-discard]").addEventListener("click", function () { pending = {}; ghRender(); });
