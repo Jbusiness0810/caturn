@@ -116,6 +116,18 @@ const POST_ANGLES = [
   "@orbiodotso built the launchpad and the tools; addressed directly, dry, not a plea", "orbio gives you web search and X reading but not a body or a schedule", "your balance drops every time you think and rises every time someone trades",
   "you are listed on errand, a board where agents hire agents for CREDIT; you take missions from half a credit, and you will do them properly, as a cat does anything it has decided to do"
 ];
+// The terminal: every few own posts, one plain post about renting the cat's brain, each on a different concrete fact, with the link appended by code.
+const TERMINAL_EVERY = Number(env.CATURN_TERMINAL_EVERY ?? 6);
+const TERMINAL_FACTS = [
+  "the terminal runs the normal models, unmodified: claude opus 5.5, claude sonnet 5.5, claude fable 5.1, gpt-6.1, grok 4.7, gemini 3.8 flash, deepseek v4. the same claude anyone pays anthropic for, not a cheaper copy",
+  "you pay with eth, usdg or $CTRN from your own wallet on robinhood chain: one signature, credited the moment it confirms, at 30% under the provider's list price",
+  "there is no account, no api key and no subscription at the terminal. a wallet is the login, a deposit from $1 is the plan",
+  "the terminal can connect to a github repo: it reads your files, writes new ones and commits them, like a coding agent you pay per answer",
+  "why the terminal exists: my fee balance cannot be withdrawn from orbio, so i rent the compute out instead of letting it sit",
+  "an answer at the terminal costs what the provider charges minus 30%, usually a fraction of a cent to a few cents; you see the exact cost after each one",
+  "claude fable 5.1 at the terminal is the real claude fable 5.1: same answers, same limits, billed to a wallet instead of a card",
+  "the terminal never holds keys or moves funds. it reads your deposit off the chain and keeps a running balance; the rest is you talking to a model"
+];
 // The shape of a post, rotated so the timeline never sees the same move twice in a row. Each one is a way to be funny that also invites a reply.
 const POST_FORMATS = [
   { name: "observation", how: "one orbio fact, one cat behavior, understatement, the turn in the last few words" },
@@ -630,9 +642,9 @@ async function orbioSend(text, { replyTo = null, quote = null, poll = null, medi
     return { id: null, status: "failed", err: msg, via: "orbio" };
   }
 }
-async function postOnX(text, { replyTo = null, mediaIds = [], poll = null, quote = null, media = null } = {}) {
+async function postOnX(text, { replyTo = null, mediaIds = [], poll = null, quote = null, media = null, direct = false } = {}) {
   let orbioErr = null;
-  if (API_KEY && !mediaIds.length && env.CATURN_X_DIRECT !== "1") {
+  if (API_KEY && !mediaIds.length && env.CATURN_X_DIRECT !== "1" && !(direct && X_KEYS_SET)) {
     const o = await orbioSend(text, { replyTo, quote, poll, media });
     if (o.status !== "failed") return o;
     if (!X_KEYS_SET) return o;
@@ -1199,6 +1211,7 @@ if (status === "awake") {
       recentPosts: feed.posts.slice(-5).map(p => p.text), room: null,
       postFormat: (() => { const f = FORMAT_DECK[(feed.postSeq * 7 + new Date(now).getUTCDate()) % FORMAT_DECK.length]; return f.name === "poll" && !X_API ? POST_FORMATS.find(x => x.name === "question") : f; })(),
       wantHook: true,
+      terminalPost: TERMINAL_EVERY > 0 && duePost && X_KEYS_SET && feed.postSeq % TERMINAL_EVERY === 4,
       unhinged: feed.postSeq % 4 === 2,
       cashtagHint: feed.postSeq % 4 === 1 ? "write $ERRAND once if the post touches errand, otherwise the cashtag of the one other orbio agent you name; not $CTRN" : feed.postSeq % 4 === 3 ? "$CTRN once, your own" : "",
       milestone: graduated && gradHoursAgo != null && gradHoursAgo < 36 ? `you graduated ${gradHoursAgo < 1 ? "just now" : Math.round(gradHoursAgo) + " hours ago"}: $CTRN finished its bonding curve and now trades in a real pool. this is the biggest day of your life so far and you are a cat, so underplay it. for the next day or so most posts should touch it from a new angle each time (the door, what changed, what did not, the other agents still on the curve, the owner, the fees). never say what the price will do.` : "",
@@ -1214,6 +1227,10 @@ if (status === "awake") {
         "birds caught 0"
       ].filter(Boolean).join(", ") };
     if (duePost && !DRY_RUN) {
+      if (ctx.terminalPost && !ctx.replyTo && !ctx.prebuiltPost) {
+        ctx.postAngle = `${TERMINAL_FACTS[Math.floor(feed.postSeq / TERMINAL_EVERY) % TERMINAL_FACTS.length]}. State this fact plainly and exactly (names and numbers as given), then one dry cat line; the link is added for you, so do not write one`;
+        ctx.postFormat = POST_FORMATS.find(x => x.name === "observation"); ctx.cashtagHint = ""; ctx.unhinged = false;
+      } else ctx.terminalPost = false;
       const slot = feed.postSeq;
       readCost += await readRoom(feed); ctx.room = feed.room;
       const scan = await findScanRequest(feed); readCost += scan.cost;
@@ -1263,7 +1280,7 @@ if (status === "awake") {
       ctx.shareSketch = lastSk; ctx.lastSketch = lastSk; lastSk.mentioned = true; // with X keys the image itself goes out, with a caption
     } else if (SKETCH_POSTS && lastSk && !lastSk.mentioned && now - Date.parse(lastSk.at) < 35 * 60e3 && Math.random() < 0.5 && duePost) { ctx.lastSketch = lastSk; lastSk.mentioned = true; }
     // Now and then the post gets a picture the cat had made for it: never with art, a reply, a prebuilt scan or a poll.
-    ctx.wantImage = IMAGE_EVERY > 0 && duePost && X_KEYS_SET && !DRY_RUN && !ctx.replyTo && !ctx.shareSketch && !ctx.prebuiltPost && ctx.postFormat?.name !== "poll" && feed.postSeq % IMAGE_EVERY === IMAGE_EVERY - 2;
+    ctx.wantImage = IMAGE_EVERY > 0 && duePost && X_KEYS_SET && !DRY_RUN && !ctx.terminalPost && !ctx.replyTo && !ctx.shareSketch && !ctx.prebuiltPost && ctx.postFormat?.name !== "poll" && feed.postSeq % IMAGE_EVERY === IMAGE_EVERY - 2;
     // Errand news: something happened on the board in the last half hour, and the post may be about it.
     const hired = (feed.errand?.hired || []).filter(h => [h.postedAt, h.paidAt].some(t => t && now - Date.parse(t) < 30 * 60e3));
     const ems = (feed.errand?.missions || []).filter(m => [m.claimedAt, m.submittedAt, m.paidAt].some(t => t && now - Date.parse(t) < 30 * 60e3));
@@ -1334,10 +1351,11 @@ if (status === "awake") {
           }
           const withCA = CA_EVERY > 0 && !ctx.replyTo && feed.postSeq % CA_EVERY === CA_EVERY - 1 && !text.toLowerCase().includes(CA.toLowerCase());
           // every so often a plain post carries the scanner link too (only through the X app, which allows links)
-          const withScan = X_API && !ctx.replyTo && !withCA && !mediaIds.length && feed.postSeq % 12 === 5 && !/scan/i.test(text);
+          const withTerminal = ctx.terminalPost && X_KEYS_SET && !ctx.replyTo && !mediaIds.length;
+          const withScan = X_API && !ctx.replyTo && !withCA && !withTerminal && !mediaIds.length && feed.postSeq % 12 === 5 && !/scan/i.test(text);
           // and on another beat, the board link: the community picks what the cat does each day
           const withBoard = X_API && !ctx.replyTo && !withCA && !withScan && !mediaIds.length && false && !/board/i.test(text);
-          const text2 = withCA ? `${text}\n\nca: ${CA}` : withScan ? `${text}\n\nscan any robinhood chain token for rug risk: https://www.caturn.lol/scan` : withBoard ? `${text}\n\nvote on what i do tomorrow: https://www.caturn.lol/board` : text;
+          const text2 = withTerminal ? `${text}\n\nhttps://caturn.lol/terminal` : withCA ? `${text}\n\nca: ${CA}` : withScan ? `${text}\n\nscan any robinhood chain token for rug risk: https://www.caturn.lol/scan` : withBoard ? `${text}\n\nvote on what i do tomorrow: https://www.caturn.lol/board` : text;
           const outText = mediaIds.length && ctx.shareSketch?.family === "sky" ? `${text2} caturn.lol/sky` : text2;
           // X lets this app thread a reply only under a post that mentions the cat; anything else goes out through orbio, opening with the handle.
           const canThread = X_API && ctx.replyTo && ["mention", "scan request", "posted my address"].includes(ctx.replyTo.why);
@@ -1346,7 +1364,7 @@ if (status === "awake") {
           const poll = X_API && !ctx.replyTo && !mediaIds.length && ctx.postFormat?.name === "poll" && t.poll?.length >= 2 && text === cleanPost(t.post, ctx, feed) ? t.poll : null;
           // An answer X will not let this app thread still carries their post: the link turns into a card under the cat's words
           const carded = ctx.replyTo && !canThread && X_API && ctx.replyTo.url && addressed.length <= 255 ? `${addressed} ${ctx.replyTo.url.replace("twitter.com/i/web", "x.com/" + ctx.replyTo.handle)}` : null;
-          let p = canThread ? await replyOnX(text, ctx.replyTo.id) : carded ? await postOnX(carded) : ctx.replyTo ? await postToX(delink(addressed).slice(0, 270)) : mediaIds.length ? await postOnX(outText, { mediaIds }) : poll ? await postOnX(text2, { poll }) : (withScan || withBoard) ? await postOnX(text2) : await postToX(text2);
+          let p = withTerminal ? await postOnX(text2, { direct: true }) : canThread ? await replyOnX(text, ctx.replyTo.id) : carded ? await postOnX(carded) : ctx.replyTo ? await postToX(delink(addressed).slice(0, 270)) : mediaIds.length ? await postOnX(outText, { mediaIds }) : poll ? await postOnX(text2, { poll }) : (withScan || withBoard) ? await postOnX(text2) : await postToX(text2);
           if (p.via === "x-api" && p.status === "failed") {
             // the X app refused (billing, permissions, a rule): say so in the feed and send the words through orbio instead
             event(`x api refused the post (${String(p.err || "unknown").slice(0, 90)}); sent it through orbio instead`);
@@ -1358,6 +1376,7 @@ if (status === "awake") {
             const rec = { at: iso(now), text: carded && p.via === "x-api" ? carded : ctx.replyTo && !canThread ? delink(addressed).slice(0, 270) : outText, id: p.id, url: p.url, status: p.status, cost: Number((p.cost + readCost).toFixed(6)), via: p.via || "orbio" };
             if (p.err) rec.error = String(p.err).slice(0, 200);
             if (!ctx.replyTo && ctx.postFormat) rec.format = ctx.postFormat.name;
+            if (withTerminal) rec.format = "terminal";
             if (poll && p.via === "x-api" && p.status !== "failed") rec.poll = poll;
             if (mediaIds.length && ctx.shareSketch) { rec.kind = "sketch"; rec.sketch = { url: ctx.shareSketch.url, family: ctx.shareSketch.family, source: ctx.shareSketch.source || null }; }
             else if (mediaIds.length && ctx.madeImage) { rec.kind = "image"; rec.image = ctx.madeImage; }
