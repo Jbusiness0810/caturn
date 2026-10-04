@@ -5,7 +5,7 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { createHmac, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 const run = promisify(execFile);
 
 const env = process.env;
@@ -984,23 +984,62 @@ async function makeInsight(feed) {
     `contract: ${scan.checks.filter(c => c.level !== "pass").map(c => c.title.toLowerCase()).join(", ") || "clean, standard launchpad token"}; rug likelihood ${scan.risk}/100`,
     claims.length ? `their recent posts say: ${claims.map(c => `"${c}"`).join(" | ")}` : "no recent posts from their account"
   ].filter(Boolean).join("\n");
+  const nums = { holders: Number(f.holders || 0), liquidity_usd: Math.round(pair?.liquidity?.usd || 0), volume_24h_usd: Math.round(pair?.volume?.h24 || 0), top10_pct: Number(top10.toFixed(1)), burn_pct: Number(burn.pct.toFixed(2)), market_cap_usd: Math.round(pair?.marketCap || pair?.fdv || sub.mcap || 0) };
+  const minBy = iso(now + 7 * 86400e3).slice(0, 10), maxBy = iso(now + 14 * 86400e3).slice(0, 10);
   const sys = `${persona}
 
-For this post only, you are an onchain analyst with a cat's dryness. Write one post about $${f.symbol} from the facts below and nothing else. Rules: open with the most telling exact number or two; say in plain words what they imply; if their recent posts make a claim the facts can check, say whether the chain agrees, in one clause; give your lean ("i lean fade/keep watching/credible while that holds", in your own words) and end with one falsifiable check with a date within the next 7 to 14 days, measured by a number in the facts (holders, liquidity, volume, top 10 share, burn). Under 240 characters, lowercase, numbers exact as given, one $${f.symbol} cashtag at most, no links, no hashtags, no handles. Never a price target, never buy/sell/hold/ape, never the words bullish, bearish or moon, never a number that is not in the facts. Reply with the post text only.`;
-  let text = "", used = null;
+For this post only, you are an onchain analyst with a cat's dryness. Write one post about $${f.symbol} from the facts below and nothing else. Rules for the post: open with the most telling exact number or two; say in plain words what they imply; if their recent posts make a claim the facts can check, say whether the chain agrees, in one clause; give your lean in your own words (fade, keep watching, or credible while that holds) and end with one falsifiable check: "breaks if <metric> <above/below> <value> by <date>", the date between ${minBy} and ${maxBy}, the metric one of these with its current value: holders ${nums.holders}, liquidity $${nums.liquidity_usd}, 24h volume $${nums.volume_24h_usd}, top 10 share ${nums.top10_pct}%, burned ${nums.burn_pct}%, market cap $${nums.market_cap_usd}. Under 240 characters, lowercase, numbers exact as given, one $${f.symbol} cashtag at most, no links, no hashtags, no handles. Never a price target, never buy/sell/hold/ape, never the words bullish, bearish or moon, never a number that is not in the facts.
+Answer with one JSON object only: {"post": string, "lean": "fade"|"watch"|"credible", "check": {"metric": "holders"|"liquidity_usd"|"volume_24h_usd"|"top10_pct"|"burn_pct"|"market_cap_usd", "op": ">="|"<=", "value": number, "by": "YYYY-MM-DD"}} where the check is the condition under which your lean is wrong (the "breaks if" in the post, as numbers).`;
+  let text = "", used = null, call = null;
   for (const model of INSIGHT_MODELS) {
     try {
-      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 220, temperature: 0.6, messages: [{ role: "system", content: sys }, { role: "user", content: `Facts (${iso(now).slice(0, 10)}):\n${facts}` }] }) });
-      const t = String(r.choices?.[0]?.message?.content || "").trim().replace(/^["']|["']$/g, "").replace(/\s+/g, " ");
-      const bad = t.length > 240 || t.length < 60 || /https?:\/\/|www\.|#\w|@\w/i.test(t) || /\b(buy|sell|hold|ape|bullish|bearish|moon|target|guaranteed)\b/i.test(t) || !/\d/.test(t) || (t.match(/\$[a-z]{2,}/gi) || []).some(c => c.toLowerCase() !== "$" + String(f.symbol).toLowerCase());
-      if (!bad) { text = t; used = model; break; }
-      log(`insight from ${model} broke a rule:`, t.slice(0, 160));
+      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 400, temperature: 0.6, messages: [{ role: "system", content: sys }, { role: "user", content: `Facts (${iso(now).slice(0, 10)}):\n${facts}` }] }) });
+      const raw = String(r.choices?.[0]?.message?.content || ""); const m = raw.match(/\{[\s\S]*\}/); const j = m ? JSON.parse(m[0]) : null;
+      const t = String(j?.post || "").trim().replace(/^["']|["']$/g, "").replace(/\s+/g, " ");
+      const c = j?.check || {};
+      const okCheck = ["holders", "liquidity_usd", "volume_24h_usd", "top10_pct", "burn_pct", "market_cap_usd"].includes(c.metric) && [">=", "<="].includes(c.op) && Number.isFinite(Number(c.value)) && /^\d{4}-\d{2}-\d{2}$/.test(String(c.by || "")) && c.by >= minBy && c.by <= maxBy;
+      const bad = !okCheck || t.length > 240 || t.length < 60 || /https?:\/\/|www\.|#\w|@\w/i.test(t) || /\b(buy|sell|hold|ape|bullish|bearish|moon|target|guaranteed)\b/i.test(t) || !/\d/.test(t) || (t.match(/\$[a-z]{2,}/gi) || []).some(x => x.toLowerCase() !== "$" + String(f.symbol).toLowerCase());
+      if (!bad) { text = t; used = model; call = { lean: ["fade", "watch", "credible"].includes(j.lean) ? j.lean : "watch", check: { metric: c.metric, op: c.op, value: Number(c.value), by: c.by } }; break; }
+      log(`insight from ${model} broke a rule:`, raw.slice(0, 200));
     } catch (e) { log(`insight model ${model} failed:`, e.status || "", String(e.message).slice(0, 120)); }
   }
   if (!text) return null;
   feed.insights.done = [...feed.insights.done, { token: sub.token, symbol: f.symbol, at: iso(now) }].slice(-60);
-  return { text, token: sub.token, symbol: f.symbol, name: f.name, model: used, risk: scan.risk };
+  // the call, frozen: what was written, the numbers at writing, and a hash of both. Scored later against the same metrics.
+  feed.calls = feed.calls || [];
+  const id = `${f.symbol.toLowerCase().replace(/[^a-z0-9]/g, "")}-${iso(now).slice(0, 10)}-${(feed.calls.length + 1).toString(36)}`;
+  const body = { id, token: sub.token, symbol: f.symbol, name: f.name, handle: sub.handle || null, at: iso(now), post: text, lean: call.lean, check: call.check, then: nums, risk: scan.risk, model: used };
+  const hash = createHash("sha256").update(JSON.stringify(body)).digest("hex");
+  feed.calls.push({ ...body, hash, status: "open", now: null, checkedAt: null, resolvedAt: null, url: null });
+  return { text, token: sub.token, symbol: f.symbol, name: f.name, model: used, risk: scan.risk, callId: id };
 }
+// Score the open calls: refresh their numbers every six hours, and resolve each one on its date. "breaks if" true means the lean broke.
+async function scoreCalls(feed) {
+  const open = (feed.calls || []).filter(c => c.status === "open"); if (!open.length) return;
+  let done = 0;
+  for (const c of open) {
+    const due = iso(now).slice(0, 10) >= c.check.by, stale = !c.checkedAt || now - Date.parse(c.checkedAt) > 6 * 3600e3;
+    if (!(due || stale) || done >= 4) continue;
+    try {
+      const [scan, pairs] = await Promise.all([
+        getJSON("https://www.caturn.lol/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: c.token }) }),
+        fetch(`https://api.dexscreener.com/latest/dex/tokens/${c.token}`).then(r => r.json()).then(d => (d.pairs || []).filter(p => String(p.chainId).toLowerCase().includes("robinhood"))).catch(() => [])
+      ]);
+      const f = scan?.facts; if (!f) continue;
+      const pair = pairs.sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0] || null;
+      const top10 = (f.top || []).filter(h => !h.contract).slice(0, 10).reduce((a, h) => a + (h.share || 0), 0);
+      const burn = await burned(c.token, Number(f.decimals || 18), Number(f.supply || 0));
+      c.now = { holders: Number(f.holders || 0), liquidity_usd: Math.round(pair?.liquidity?.usd || 0), volume_24h_usd: Math.round(pair?.volume?.h24 || 0), top10_pct: Number(top10.toFixed(1)), burn_pct: Number(burn.pct.toFixed(2)), market_cap_usd: Math.round(pair?.marketCap || pair?.fdv || 0) };
+      c.checkedAt = iso(now); done++;
+      if (due) {
+        const v = c.now[c.check.metric], broke = c.check.op === ">=" ? v >= c.check.value : v <= c.check.value;
+        c.status = broke ? "broke" : "held"; c.resolvedAt = iso(now);
+        event(`call on $${c.symbol} ${broke ? "broke" : "held"}: ${c.check.metric.replace(/_/g, " ")} is ${v} (breaks if ${c.check.op} ${c.check.value})`);
+      }
+    } catch (e) { log("score call failed:", c.id, String(e.message).slice(0, 120)); }
+  }
+}
+
 
 // ---------- Buzz replies: answer the most-seen posts about orbio or about the cat, every 20 minutes ----------
 const BUZZ_EVERY_MIN = Number(env.CATURN_BUZZ_EVERY_MIN ?? 30), BUZZ_PER_DAY = Number(env.CATURN_BUZZ_PER_DAY ?? 20);
@@ -1550,7 +1589,7 @@ if (status === "awake") {
           const withScan = X_API && !ctx.replyTo && !withCA && !withTerminal && !withInsight && !mediaIds.length && feed.postSeq % 12 === 5 && !/scan/i.test(text);
           // and on another beat, the board link: the community picks what the cat does each day
           const withBoard = X_API && !ctx.replyTo && !withCA && !withScan && !mediaIds.length && false && !/board/i.test(text);
-          const text2 = withInsight ? `${text}\n\nfull read: https://www.caturn.lol/scan?t=${ctx.insight.token}` : withTerminal ? `${text}\n\nhttps://caturn.lol/terminal` : withCA ? `${text}\n\nca: ${CA}` : withScan ? `${text}\n\nscan any robinhood chain token for rug risk: https://www.caturn.lol/scan` : withBoard ? `${text}\n\nvote on what i do tomorrow: https://www.caturn.lol/board` : text;
+          const text2 = withInsight ? `${text}\n\nthe call, scored in public: https://www.caturn.lol/calls?c=${ctx.insight.callId}` : withTerminal ? `${text}\n\nhttps://caturn.lol/terminal` : withCA ? `${text}\n\nca: ${CA}` : withScan ? `${text}\n\nscan any robinhood chain token for rug risk: https://www.caturn.lol/scan` : withBoard ? `${text}\n\nvote on what i do tomorrow: https://www.caturn.lol/board` : text;
           const outText = mediaIds.length && ctx.shareSketch?.family === "sky" ? `${text2} caturn.lol/sky` : text2;
           // X lets this app thread a reply only under a post that mentions the cat; anything else goes out through orbio, opening with the handle.
           const canThread = X_API && ctx.replyTo && ["mention", "scan request", "posted my address"].includes(ctx.replyTo.why);
@@ -1572,7 +1611,7 @@ if (status === "awake") {
             if (p.err) rec.error = String(p.err).slice(0, 200);
             if (!ctx.replyTo && ctx.postFormat) rec.format = ctx.postFormat.name;
             if (withTerminal) rec.format = "terminal";
-            if (withInsight) { rec.format = "insight"; rec.insight = { token: ctx.insight.token, symbol: ctx.insight.symbol, model: ctx.insight.model, risk: ctx.insight.risk }; }
+            if (withInsight) { rec.format = "insight"; rec.insight = { token: ctx.insight.token, symbol: ctx.insight.symbol, model: ctx.insight.model, risk: ctx.insight.risk, callId: ctx.insight.callId }; const c = (feed.calls || []).find(x => x.id === ctx.insight.callId); if (c) c.url = p.url || null; }
             if (poll && p.via === "x-api" && p.status !== "failed") rec.poll = poll;
             if (mediaIds.length && ctx.shareSketch) { rec.kind = "sketch"; rec.sketch = { url: ctx.shareSketch.url, family: ctx.shareSketch.family, source: ctx.shareSketch.source || null }; }
             else if (mediaIds.length && ctx.madeImage) { rec.kind = "image"; rec.image = ctx.madeImage; }
@@ -1599,6 +1638,7 @@ if (status === "awake") {
 }
 await saySomething(feed);
 await announceBuild(feed);
+try { await scoreCalls(feed); } catch (e) { log("score calls failed:", String(e.message).slice(0, 160)); }
 try { await buzzReply(feed); } catch (e) { log("buzz reply failed:", String(e.message).slice(0, 160)); }
 try { await agentPing(feed); } catch (e) { log("agent ping failed:", String(e.message).slice(0, 160)); }
 try { await askGrok(feed); } catch (e) { log("grok ask failed:", String(e.message).slice(0, 160)); }
