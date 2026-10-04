@@ -620,7 +620,7 @@ async function orbioSend(text, { replyTo = null, quote = null, poll = null, medi
   const kind = replyTo ? "replies" : "posts";
   if (orbioQuota && orbioQuota[`${kind}_left`] === 0 && Date.parse(orbioQuota.resets_at || 0) > Date.now()) return { id: null, status: "failed", err: `orbio daily ${kind} allowance used`, via: "orbio" };
   // X bills a post that carries a link at $0.20 through orbio; words alone cost about 2 cents. Cards, scan links and the terminal link are worth it.
-  const body = { text, platforms: ["twitter"], max_cost: /https?:\/\//i.test(text) ? (env.CATURN_LINK_MAX_COST || "0.2500") : "0.0300" };
+  const body = { text, platforms: ["twitter"], max_cost: /https?:\/\//i.test(text) ? (env.CATURN_LINK_MAX_COST || "0.4500") : "0.0300" };
   if (replyTo) body.reply_to = String(replyTo);
   if (quote) body.quote = String(quote);
   if (media) body.media = [media];
@@ -643,9 +643,10 @@ async function orbioSend(text, { replyTo = null, quote = null, poll = null, medi
     return { id: null, status: "failed", err: msg, via: "orbio" };
   }
 }
+let xBroke = false; // the X app answered "credits depleted" this run
 async function postOnX(text, { replyTo = null, mediaIds = [], poll = null, quote = null, media = null, direct = false } = {}) {
   let orbioErr = null;
-  if (API_KEY && !mediaIds.length && env.CATURN_X_DIRECT !== "1" && !(direct && X_KEYS_SET)) {
+  if (API_KEY && !mediaIds.length && env.CATURN_X_DIRECT !== "1" && !(direct && X_KEYS_SET && !xBroke)) {
     const o = await orbioSend(text, { replyTo, quote, poll, media });
     if (o.status !== "failed") return o;
     if (!X_KEYS_SET) return o;
@@ -665,6 +666,9 @@ async function postOnX(text, { replyTo = null, mediaIds = [], poll = null, quote
   } catch (e) {
     const msg = String(e.body?.detail || e.body?.title || e.body?.errors?.[0]?.message || e.message).slice(0, 200);
     log("x post failed:", e.status || "", msg);
+    if (/credits depleted/i.test(msg)) xBroke = true;
+    // a direct post the X app refused: orbio can still carry it, link and all, at orbio's price
+    if (direct && API_KEY && orbioErr == null && !mediaIds.length) { const o = await orbioSend(text, { replyTo, quote, poll, media }); if (o.status !== "failed") return o; orbioErr = o.err; }
     return { id: null, status: "failed", url: null, err: orbioErr ? `${msg} (orbio: ${orbioErr})` : msg, cost: 0, via: "x-api" };
   }
 }
@@ -1169,7 +1173,7 @@ You are writing one post on X addressed to @${target.handle}${target.name ? ` ($
   const link = `https://x.com/${target.handle}/status/${post.id}`;
   const p = await postOnX(`${line} ${link}`);
   P.last = iso(now); P.byHandle[target.handle] = iso(now); P.pinged = [...P.pinged, String(post.id)].slice(-200);
-  if (p.status === "failed" || p.error) { log("agent ping refused:", p.err || p.error); event(`tried to ping @${target.handle} and x refused (${String(p.err || p.error || "").slice(0, 80)})`); return; }
+  if (p.status === "failed" || p.error) { log("agent ping refused:", p.err || p.error); event(`tried to ping @${target.handle} and x refused (${String(p.err || p.error || "").slice(0, 220)})`); return; }
   feed.posts.push({ at: iso(now), text: `${line} ${link}`, id: p.id, url: p.url, status: p.status, cost: Number(p.cost || 0), via: p.via || "orbio", kind: "ping", ping: { handle: target.handle, name: target.name || null, id: String(post.id), text: post.text.slice(0, 200), url: link } });
   event(`pinged @${target.handle} about their post`); log("pinged", target.handle, line);
   await persistNow(feed);
