@@ -1070,7 +1070,7 @@ For this post you are the market radar for Robinhood Chain: the cat that sees ev
       const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 1500, temperature: 0.5, messages: [{ role: "system", content: sys }, { role: "user", content: `Facts (${iso(now).slice(0, 16)} UTC):\n${facts}` }] }) });
       let t = String(r.choices?.[0]?.message?.content || "").trim().replace(/^["']|["']$/g, "").replace(/\s+/g, " ");
       if (t.length > 228) { const cut = t.slice(0, 228), i = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("; "), cut.lastIndexOf(", ")); if (i > 120) t = cut.slice(0, i + 1).replace(/[,;]$/, "."); }
-      const bad = t.length < 60 || t.length > 228 || !/^radar/i.test(t) || /https?:\/\/|#\w|@\w/i.test(t) || /\b(buy now|sell now|hold|ape|bullish|bearish|moon|target|guaranteed)\b/i.test(t) || (t.match(/\$[a-z]{2,}/gi) || []).some(c => c.toLowerCase() !== "$" + String(top.symbol).toLowerCase());
+      const bad = t.length < 60 || t.length > 228 || !/^radar/i.test(t) || /https?:\/\/|#\w|@\w/i.test(t) || /\b(buy now|sell now|hodl|hold (it|this|your|on|tight)|keep holding|ape in|bullish|bearish|moon|target|guaranteed)\b/i.test(t) || (t.match(/\$[a-z]{2,}/gi) || []).some(c => c.toLowerCase() !== "$" + String(top.symbol).toLowerCase());
       if (!bad) {
         R.cooled[top.t] = iso(now);
         const big = top.kind === "up" || top.kind === "down" ? `${n.ch1 > 0 ? "+" : ""}${n.ch1.toFixed(1)}%` : top.kind === "volume" ? `${(n.v1 / Math.max(1, n.v24 / 24)).toFixed(1)}x` : top.kind.startsWith("liquidity") ? `${n.liq > (hourAgoLiq(feed, top.t) || n.liq) ? "+" : "−"}${usdShort(Math.abs(n.liq - (hourAgoLiq(feed, top.t) || n.liq)))}` : top.kind.endsWith("pressure") ? `${n.b1}:${n.s1}` : "NEW";
@@ -1211,7 +1211,7 @@ Answer with one JSON object only: {"post": string, "lean": "${g.lean}", "check":
       const t = String(j?.post || "").trim().replace(/^["']|["']$/g, "").replace(/\s+/g, " ");
       const c = j?.check || {};
       const okCheck = ["holders", "liquidity_usd", "volume_24h_usd", "top10_pct", "burn_pct", "market_cap_usd"].includes(c.metric) && [">=", "<="].includes(c.op) && Number.isFinite(Number(c.value)) && /^\d{4}-\d{2}-\d{2}$/.test(String(c.by || "")) && c.by >= minBy && c.by <= maxBy;
-      const bad = !okCheck || t.length > 228 || t.length < 60 || /https?:\/\/|www\.|#\w|@\w/i.test(t) || /\b(buy|sell|hold|ape|bullish|bearish|moon|target|guaranteed)\b/i.test(t) || !/\d/.test(t) || (t.match(/\$[a-z]{2,}/gi) || []).some(x => x.toLowerCase() !== "$" + String(f.symbol).toLowerCase());
+      const bad = !okCheck || t.length > 228 || t.length < 60 || /https?:\/\/|www\.|#\w|@\w/i.test(t) || /\b(buy now|sell now|buy it|sell it|hodl|hold (it|this|your|on|tight)|keep holding|ape in|bullish|bearish|moon|target|guaranteed)\b/i.test(t) || !/\d/.test(t) || (t.match(/\$[a-z]{2,}/gi) || []).some(x => x.toLowerCase() !== "$" + String(f.symbol).toLowerCase());
       if (!bad) { text = t; used = model; call = { lean: g.lean, check: { metric: c.metric, op: c.op, value: Number(c.value), by: c.by } }; break; }
       log(`insight from ${model} broke a rule:`, raw.slice(0, 200));
     } catch (e) { log(`insight model ${model} failed:`, e.status || "", String(e.message).slice(0, 120)); }
@@ -1285,7 +1285,7 @@ Write today's ledger post: the cat's books, in public. Use only the numbers belo
     try {
       const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 1500, temperature: 0.5, messages: [{ role: "system", content: sys }, { role: "user", content: `Numbers (${iso(now).slice(0, 16)} UTC):\n${facts}` }] }) });
       const t = String(r.choices?.[0]?.message?.content || "").trim().replace(/^["']|["']$/g, "").replace(/\s+/g, " ");
-      if (t.length >= 60 && t.length <= 240 && /\d/.test(t) && !/https?:\/\/|#\w|@\w|\$[a-z]{2,}/i.test(t) && !/\b(buy|sell|hold|bullish|bearish|moon)\b/i.test(t)) return { text: t, model, facts };
+      if (t.length >= 60 && t.length <= 240 && /\d/.test(t) && !/https?:\/\/|#\w|@\w|\$[a-z]{2,}/i.test(t) && !/\b(buy now|sell now|hodl|hold (it|this|your|on|tight)|bullish|bearish|moon)\b/i.test(t)) return { text: t, model, facts };
       log(`books from ${model} broke a rule:`, t.slice(0, 160));
     } catch (e) { log(`books model ${model} failed:`, e.status || "", String(e.message).slice(0, 120)); }
   }
