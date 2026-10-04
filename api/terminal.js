@@ -126,6 +126,15 @@ async function saveAccount(a) {
 export default async function handler(req, res) {
   if (!SB_URL || !SB_KEY) return res.status(503).json({ error: "the terminal is not wired up yet." });
   try {
+    if (req.method === "GET" && req.query.stats != null) {
+      // public counts only: how many wallets, what came in, how much was answered. Cached a minute.
+      if (!cache.stats || now() - cache.stats.at > 60e3) {
+        const [acc, dep, use, gr] = await Promise.all([sb("terminal_accounts?select=wallet,spent"), sb("terminal_deposits?select=usd,credit"), sb("terminal_usage?select=cost"), sb("terminal_grants?select=usd").catch(() => [])]);
+        cache.stats = { at: now(), body: { wallets: acc.length, deposits: dep.length, depositedUsd: round(dep.reduce((a, d) => a + Number(d.usd || 0), 0)), creditSold: round(dep.reduce((a, d) => a + Number(d.credit || 0), 0)), grants: gr.length, grantedUsd: round(gr.reduce((a, g) => a + Number(g.usd || 0), 0)), answers: use.length, answeredUsd: round(use.reduce((a, u) => a + Number(u.cost || 0), 0)) } };
+      }
+      res.setHeader("Cache-Control", "public, max-age=60");
+      return res.status(200).json(cache.stats.body);
+    }
     if (req.method === "GET") {
       res.setHeader("Cache-Control", "no-store");
       const wallet = readToken(req.query.token, SECRET);
