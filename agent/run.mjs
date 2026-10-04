@@ -619,7 +619,8 @@ let orbioQuota = null;
 async function orbioSend(text, { replyTo = null, quote = null, poll = null, media = null } = {}) {
   const kind = replyTo ? "replies" : "posts";
   if (orbioQuota && orbioQuota[`${kind}_left`] === 0 && Date.parse(orbioQuota.resets_at || 0) > Date.now()) return { id: null, status: "failed", err: `orbio daily ${kind} allowance used`, via: "orbio" };
-  const body = { text, platforms: ["twitter"], max_cost: "0.0300" };
+  // X bills a post that carries a link at $0.20 through orbio; words alone cost about 2 cents. Cards, scan links and the terminal link are worth it.
+  const body = { text, platforms: ["twitter"], max_cost: /https?:\/\//i.test(text) ? (env.CATURN_LINK_MAX_COST || "0.2500") : "0.0300" };
   if (replyTo) body.reply_to = String(replyTo);
   if (quote) body.quote = String(quote);
   if (media) body.media = [media];
