@@ -1040,7 +1040,7 @@ async function makeRadarPost(feed) {
   let scan = null; try { scan = await getJSON("https://www.caturn.lol/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: top.t }) }); } catch {}
   if (scan?.risk != null && scan.risk >= Number(env.CATURN_RADAR_MAX_RISK || 60)) { R.cooled[top.t] = iso(now); log(`radar: skipped $${top.symbol}, rug likelihood ${scan.risk}`); return null; } // a likely rug is not news worth spreading
   const f = scan?.facts || {}, top10 = (f.top || []).filter(h => !h.contract).slice(0, 10).reduce((a, h) => a + (h.share || 0), 0);
-  const g = scan?.facts ? gradeToken({ facts: f, scan, pair: { liquidity: { usd: n.liq }, marketCap: n.mc, volume: { h24: n.v24 } } }) : null;
+  const g = scan?.facts && !scan.facts.partialHistory && scan.facts.holders ? gradeToken({ facts: f, scan, pair: { liquidity: { usd: n.liq }, marketCap: n.mc, volume: { h24: n.v24 } } }) : null;
   const facts = [...same, `market cap $${Math.round(n.mc).toLocaleString()}, liquidity $${Math.round(n.liq).toLocaleString()}, 24h volume $${Math.round(n.v24).toLocaleString()}, 24h change ${n.ch24.toFixed(1)}%`,
     f.holders != null ? `${f.holders} holders, top 10 wallets ${top10.toFixed(1)}%${f.creatorShare != null ? `, deployer holds ${Number(f.creatorShare).toFixed(1)}%` : ""}` : null,
     scan?.risk != null ? `contract: rug likelihood ${scan.risk}/100${(scan.checks || []).filter(c => c.level === "fail").length ? ", flags: " + scan.checks.filter(c => c.level === "fail").map(c => c.title.toLowerCase()).join(", ") : ""}` : null,
@@ -1134,6 +1134,7 @@ async function makeInsight(feed) {
   const sub = await pickInsightSubject(feed); if (!sub) { log("insight: no subject"); return null; }
   const scan = await getJSON("https://www.caturn.lol/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: sub.token }) });
   if (!scan?.facts) throw new Error("no scan for " + sub.symbol);
+  if (scan.facts.partialHistory || (!scan.facts.holders && scan.facts.transfers !== 0)) throw new Error(`scan of ${sub.symbol} came back without its full transfer history; not grading on half the data`);
   const f = scan.facts, decimals = Number(f.decimals || 18);
   const [burn, pairs] = await Promise.all([burned(sub.token, decimals, Number(f.supply || 0)), fetch(`https://api.dexscreener.com/latest/dex/tokens/${sub.token}`).then(r => r.json()).then(d => (d.pairs || []).filter(p => String(p.chainId).toLowerCase().includes("robinhood"))).catch(() => [])]);
   const pair = pairs.sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0] || null;

@@ -11,11 +11,18 @@ const now = () => Date.now();
 
 async function rpc(method, params) {
   const r = await fetch(RPC, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
-  const j = await r.json(); if (j.error) throw new Error(`${method}: ${j.error.message}`); return j.result;
+  if (!r.ok) throw new Error(`${method}: HTTP ${r.status}${r.status === 429 ? " too many requests" : ""}`);
+  const j = await r.json(); if (j.error) throw new Error(`${method}: ${j.error.code || ""} ${j.error.message}`); return j.result;
 }
 async function batch(calls) {
-  const r = await fetch(RPC, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(calls.map((c, i) => ({ jsonrpc: "2.0", id: i, method: c[0], params: c[1] }))) });
-  const j = await r.json(); return (Array.isArray(j) ? j : [j]).sort((a, b) => a.id - b.id).map(x => x.error ? null : x.result);
+  for (let attempt = 0; ; attempt++) {
+    const r = await fetch(RPC, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(calls.map((c, i) => ({ jsonrpc: "2.0", id: i, method: c[0], params: c[1] }))) });
+    const j = r.ok ? await r.json().catch(() => null) : null;
+    const rows = Array.isArray(j) ? j : j ? [j] : [];
+    const limited = !r.ok || !rows.length || rows.some(x => x.error && /429|too many/i.test(String(x.error.code) + x.error.message));
+    if (limited && attempt < 5) { await new Promise(res => setTimeout(res, 400 * 2 ** attempt)); continue; } // a rate-limited batch is retried, never read as "no contract"
+    return rows.sort((a, b) => a.id - b.id).map(x => x.error ? null : x.result);
+  }
 }
 const call = (to, data) => ["eth_call", [{ to, data }, "latest"]];
 const hexStr = (h) => { if (!h || h === "0x") return null; try { const off = parseInt(h.slice(2, 66), 16) * 2, len = parseInt(h.slice(2 + off, 2 + off + 64), 16) * 2; return Buffer.from(h.slice(2 + off + 64, 2 + off + 64 + len), "hex").toString("utf8").replace(/\0/g, ""); } catch { return null; } };
@@ -52,13 +59,33 @@ async function analyze(token) {
   const dexP = fetch(`https://api.dexscreener.com/latest/dex/tokens/${t}`).then(r => r.json()).then(d => (d.pairs || []).filter(p => String(p.chainId).toLowerCase().includes("robinhood")).sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))).catch(() => []);
 
   // Every transfer since launch, in wide chunks; the RPC copes with millions of blocks per call for a young token.
-  let logs = [], from = Math.max(0, latest - 12_000_000);
-  for (let start = latest; start > from && logs.length < 60000; ) {
-    const lo = Math.max(from, start - 3_000_000);
-    try { const part = await rpc("eth_getLogs", [{ fromBlock: "0x" + lo.toString(16), toBlock: "0x" + start.toString(16), address: t, topics: [TRANSFER] }]); logs = part.concat(logs); }
-    catch { for (let s2 = start; s2 > lo; s2 -= 300_000) { const l2 = Math.max(lo, s2 - 300_000); try { const part = await rpc("eth_getLogs", [{ fromBlock: "0x" + l2.toString(16), toBlock: "0x" + s2.toString(16), address: t, topics: [TRANSFER] }]); logs = part.concat(logs); } catch {} } }
-    start = lo - 1;
+  // The public node caps one log query at 10,000 results and rate-limits bursts (429). Ranges split in half until they fit,
+  // a 429 waits and retries, and the scan stops at a time budget rather than returning an empty history.
+  let logs = [], from = Math.max(0, latest - 12_000_000), partial = false;
+  const t0 = now(), BUDGET = 42e3, sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  async function getLogs(lo, hi, depth = 0) {
+    if (now() - t0 > BUDGET) { partial = true; return []; }
+    for (let attempt = 0; attempt < 6; attempt++) {
+      try { return await rpc("eth_getLogs", [{ fromBlock: "0x" + lo.toString(16), toBlock: "0x" + hi.toString(16), address: t, topics: [TRANSFER] }]); }
+      catch (e) {
+        const m = String(e.message);
+        if (/exceeds limit|too many results|range|response size/i.test(m) && hi - lo > 2000 && depth < 14) { const mid = Math.floor((lo + hi) / 2); const right = await getLogs(mid + 1, hi, depth + 1); const left = await getLogs(lo, mid, depth + 1); return left.concat(right); }
+        if (/429|too many requests|rate/i.test(m)) { await sleep(400 * 2 ** attempt); continue; }
+        if (attempt < 2) { await sleep(300); continue; }
+        partial = true; return [];
+      }
+    }
+    partial = true; return [];
   }
+  // walk back from the newest block with a window that grows on quiet stretches and shrinks on busy ones, paced to stay under the rate limit
+  let win = 1_500_000;
+  for (let start = latest; start > from && logs.length < 120000 && now() - t0 < BUDGET; ) {
+    const lo = Math.max(from, start - win);
+    const part = await getLogs(lo, start); logs = part.concat(logs);
+    win = part.length > 7000 ? Math.max(50_000, Math.floor(win * 0.6)) : part.length < 2500 ? Math.min(6_000_000, win * 2) : win;
+    start = lo - 1; await sleep(120);
+  }
+  if (logs.length >= 120000) partial = true;
   logs.sort((a, b) => parseInt(a.blockNumber, 16) - parseInt(b.blockNumber, 16) || parseInt(a.logIndex, 16) - parseInt(b.logIndex, 16));
   const bal = new Map(); let minted = 0n, firstBlock = null, firstTx = null, transfers = logs.length;
   for (const l of logs) {
@@ -136,7 +163,7 @@ async function analyze(token) {
   const risk = Math.min(100, checks.reduce((s, c) => s + c.points, 0));
   const grade = risk <= 20 ? "low" : risk <= 45 ? "moderate" : risk <= 70 ? "high" : "very high";
   const facts = { name, symbol, decimals, supply: Number(supply / 10n ** BigInt(Math.max(0, decimals - 6))) / 1e6, holders: nHolders, transfers, creator, creatorShare, top: topInfo.slice(0, 10), graduated, liquidityUsd: pair ? liq : null, volume24hUsd: pair ? vol24 : null, marketCapUsd: fdv, ageHours: ageH, pair: pair ? pair.url : null, orbio: orbio ? { agentId: orbio.agentId, name: orbio.name, symbol: orbio.symbol, graduated: !!orbio.price?.graduated, progressPct: Number(orbio.curve?.progressBps || 0) / 100, locked: !!orbio.cliff?.locked, url: `https://www.orbio.so/launchpad/${t}` } : null, templateSim: Math.round(templateSim * 100) };
-  return { token: t, name, symbol, risk, grade, checks, facts, scannedAt: new Date().toISOString() };
+  return { token: t, name, symbol, risk, grade, checks, facts: { ...facts, partialHistory: partial }, scannedAt: new Date().toISOString() };
 }
 
 async function verdict(key, r) {
@@ -160,7 +187,7 @@ export default async function handler(req, res) {
   let body = req.body; if (typeof body === "string") { try { body = JSON.parse(body); } catch { body = {}; } }
   const m = String(body?.token || "").match(/0x[a-fA-F0-9]{40}/); if (!m) return res.status(400).json({ error: "paste a token contract address (0x…)." });
   const token = m[0].toLowerCase();
-  const c = cache.get(token); if (c && now() - c.at < 5 * 60e3) return res.status(200).json(c.body);
+  const c = cache.get(token); if (c && now() - c.at < (c.body?.facts?.partialHistory ? 5 : 20) * 60e3) return res.status(200).json(c.body);
   try {
     const r = await analyze(token);
     if (r.error) return res.status(400).json(r);
