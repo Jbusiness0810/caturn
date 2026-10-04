@@ -1165,7 +1165,15 @@ async function pickInsightSubject(feed) {
   if ((feed.room?.ecosystem || []).some(e => !e.token)) { const m = await tokensBySymbol(); for (const e of feed.room.ecosystem) if (!e.token && m[e.symbol]) e.token = m[e.symbol]; }
   const eco = (feed.room?.ecosystem || []).map(e => ({ token: String(e.token || e.address || e.ca || e.contract || "").toLowerCase(), handle: (e.handle || "").toLowerCase(), name: e.name, symbol: e.symbol, mcap: e.mcap, graduated: e.graduated, hoursAgo: e.hoursAgo })).filter(e => /^0x[a-f0-9]{40}$/.test(e.token) && e.token !== CA.toLowerCase());
   const top = eco.slice(0, PING_TOP), fresh = eco.filter(e => e.hoursAgo != null && e.hoursAgo < 48 && !top.includes(e)).slice(0, 4);
-  const pool = [...top, ...fresh].filter(e => !I.done.some(d => d.token === e.token && now - Date.parse(d.at) < 24 * 3600e3));
+  const fresh24 = (e) => !I.done.some(d => d.token === e.token && now - Date.parse(d.at) < 24 * 3600e3);
+  // grade what people are trading first: orbio launches ranked by 24h volume from the latest radar read
+  const snap = feed.radar?.snaps?.[feed.radar.snaps.length - 1]?.d || {}, byTok = new Map(eco.map(e => [e.token, e]));
+  const hot = (feed.radar?.universe || []).filter(u => u.orbio && snap[u.token]?.v24 >= Number(env.CATURN_GRADE_MIN_VOL || 5000))
+    .sort((a, b) => snap[b.token].v24 - snap[a.token].v24)
+    .map(u => ({ ...(byTok.get(u.token) || {}), token: u.token, handle: (u.handle || byTok.get(u.token)?.handle || "").toLowerCase(), name: u.name, symbol: u.symbol, graduated: true, volume24h: snap[u.token].v24 }))
+    .filter(fresh24);
+  if (hot.length) { I.seq = (I.seq || 0) + 1; return hot[0]; }
+  const pool = [...top, ...fresh].filter(fresh24);
   if (!pool.length) return null;
   const pick = pool[I.seq % pool.length]; I.seq = (I.seq || 0) + 1; return pick;
 }
