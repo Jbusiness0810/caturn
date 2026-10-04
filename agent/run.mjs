@@ -1915,7 +1915,7 @@ if (status === "awake") {
     }
   } catch (e) {
     if (e.status === 402) { feed.status = "napping"; feed.reason = "out of CREDIT"; event("out of CREDIT. napping until fees refill the balance"); }
-    else { feed.status = "napping"; feed.reason = "think failed"; }
+    else { feed.status = "napping"; feed.reason = "think failed"; feed.thinkError = { at: iso(now), message: String(e.message).slice(0, 300), stack: String(e.stack || "").split("\n").slice(0, 4).join(" | ").slice(0, 600) }; event(`think failed: ${String(e.message).slice(0, 160)}`); }
     log("think failed:", e.message);
   }
 }
