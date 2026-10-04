@@ -1047,8 +1047,8 @@ async function radarRead(feed) {
   R.watched = Object.keys(snap).length; R.readAt = iso(now);
   return R.signals;
 }
-async function makeRadarPost(feed) {
-  const R = feed.radar; const top = (R?.signals || [])[0]; if (!top || top.score < Number(env.CATURN_RADAR_MIN_SCORE || 12)) { feed.radarDebug = { at: iso(now), note: top ? `top signal ${top.symbol} ${top.score.toFixed(1)} under the bar` : "no signals" }; return null; }
+async function makeRadarPost(feed, { minScore = Number(env.CATURN_RADAR_MIN_SCORE || 12) } = {}) {
+  const R = feed.radar; const top = (R?.signals || [])[0]; if (!top || top.score < minScore) { feed.radarDebug = { at: iso(now), note: top ? `top signal ${top.symbol} ${top.score.toFixed(1)} under the bar` : "no signals" }; return null; }
   const n = top.now, same = R.signals.filter(x => x.t === top.t).map(x => x.line);
   let scan = null; try { scan = await scanToken(top.t); } catch {}
   if (scan?.risk != null && scan.risk >= Number(env.CATURN_RADAR_MAX_RISK || 60)) { R.cooled[top.t] = iso(now); feed.radarDebug = { at: iso(now), note: `skipped $${top.symbol}, rug ${scan.risk}` }; log(`radar: skipped $${top.symbol}, rug likelihood ${scan.risk}`); return null; } // a likely rug is not news worth spreading
@@ -1095,7 +1095,7 @@ async function radarThread(feed) {
   const a = feed.xAllowance; if (a?.replies_left != null && a.replies_left <= 15) { log("radar thread: keeping the last replies for mentions"); feed.radarThreadNote = { at: iso(now), note: "radar thread: keeping the last replies for mentions" }; return; }
   const parent = [...feed.posts].reverse().find(p => !p.replyTo && p.kind !== "ping" && p.via !== "recovered" && /^\d{10,}$/.test(String(p.id)) && now - Date.parse(p.at) < 3 * 3600e3);
   if (!parent) { log("radar thread: no recent post of the cat's own to thread under"); feed.radarThreadNote = { at: iso(now), note: "radar thread: no recent post of the cat's own to thread under" }; return; }
-  const rd = await makeRadarPost(feed);
+  const rd = await makeRadarPost(feed, { minScore: Number(env.CATURN_THREAD_MIN_SCORE || 7) });
   if (!rd) { log("radar thread: no signal strong enough"); feed.radarThreadNote = { at: iso(now), note: "radar thread: no signal strong enough" }; return; }
   let media = null;
   if (env.CATURN_CARDS !== "0") { try { const png = await renderCard(rd.card); media = `data:image/png;base64,${png.toString("base64")}`; } catch (e) { log("radar thread card failed:", String(e.message).slice(0, 120)); } }
