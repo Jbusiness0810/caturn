@@ -620,7 +620,9 @@ async function orbioSend(text, { replyTo = null, quote = null, poll = null, medi
   const kind = replyTo ? "replies" : "posts";
   if (orbioQuota && orbioQuota[`${kind}_left`] === 0 && Date.parse(orbioQuota.resets_at || 0) > Date.now()) return { id: null, status: "failed", err: `orbio daily ${kind} allowance used`, via: "orbio" };
   // X bills a post that carries a link at $0.20 through orbio; words alone cost about 2 cents. Cards, scan links and the terminal link are worth it.
-  const body = { text, platforms: ["twitter"], max_cost: /https?:\/\//i.test(text) ? (env.CATURN_LINK_MAX_COST || "0.4500") : "0.0300" };
+  const hasLink = /https?:\/\//i.test(text);
+  const body = { text, platforms: ["twitter"], max_cost: hasLink ? (env.CATURN_LINK_MAX_COST || "0.4500") : "0.0300" };
+  if (hasLink) body.allow_links = true; // orbio refuses a link post unless told the $0.20 price is fine
   if (replyTo) body.reply_to = String(replyTo);
   if (quote) body.quote = String(quote);
   if (media) body.media = [media];
@@ -1097,7 +1099,8 @@ async function buzzReply(feed) {
     && (insiders.has(t.handle) || aboutCat(t) || (t.views || 0) >= 300 || (t.likes || 0) >= 5 || (t.followers || 0) >= 1000));
   const score = (t) => (t.views || 0) + (t.likes || 0) * 25 + (t.replies || 0) * 30 + (t.reposts || 0) * 40 + (aboutCat(t) ? 1e5 : 0) + (insiders.has(t.handle) ? 2e4 : 0);
   const t = pool.sort((a, b) => score(b) - score(a))[0];
-  if (!t) { log("buzz reply: nothing worth answering in", (feed.buzzPool?.posts || []).length, "posts"); B.last = iso(now); return; }
+  if (!t) { log("buzz reply: nothing worth answering in", (feed.buzzPool?.posts || []).length, "posts"); B.last = iso(now); B.note = `nothing worth answering in ${(feed.buzzPool?.posts || []).length} posts`; return; }
+  B.note = `answering @${t.handle}`;
   const said = t.text.replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim().slice(0, 500);
   const sys = `${persona}
 
@@ -1516,7 +1519,8 @@ if (status === "awake") {
         if (bk) { ctx.prebuiltPost = bk.text; ctx.books = bk; ctx.insightPost = false; ctx.terminalPost = false; ctx.postAngle = `you just published today's books: "${bk.text}". think about living on numbers that other people's trades decide`; ctx.postFormat = POST_FORMATS.find(x => x.name === "observation"); ctx.cashtagHint = ""; ctx.unhinged = false; ctx.wantImage = false; feed.books = { day: iso(now).slice(0, 10), facts: bk.facts }; log("books:", bk.model, bk.text); }
       }
       if (ctx.insightPost && !ctx.replyTo && !ctx.prebuiltPost && !ctx.terminalPost) {
-        const ins = await makeInsight(feed).catch(e => { log("insight failed:", String(e.message).slice(0, 160)); return null; });
+        const ins = await makeInsight(feed).catch(e => { log("insight failed:", String(e.message).slice(0, 160)); event(`insight post failed (${String(e.message).slice(0, 160)})`); return null; });
+        if (!ins) feed.debugInsight = { at: iso(now), note: "no insight this slot (no subject, a rule broken, or a model error); see run log" };
         if (ins) { ctx.prebuiltPost = ins.text; ctx.insight = ins; ctx.postAngle = `you just published a numbers-first read on $${ins.symbol}: "${ins.text}". think about what the data showed you, as a cat who reads chains`; ctx.postFormat = POST_FORMATS.find(x => x.name === "observation"); ctx.cashtagHint = ""; ctx.unhinged = false; ctx.wantImage = false; log("insight:", ins.model, ins.text); }
       }
       // Three slots in rotation: two posts of its own (the timeline is what strangers see), and one reply: someone talking to
