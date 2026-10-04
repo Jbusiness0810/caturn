@@ -1048,10 +1048,10 @@ async function radarRead(feed) {
   return R.signals;
 }
 async function makeRadarPost(feed) {
-  const R = feed.radar; const top = (R?.signals || [])[0]; if (!top || top.score < Number(env.CATURN_RADAR_MIN_SCORE || 12)) return null;
+  const R = feed.radar; const top = (R?.signals || [])[0]; if (!top || top.score < Number(env.CATURN_RADAR_MIN_SCORE || 12)) { feed.radarDebug = { at: iso(now), note: top ? `top signal ${top.symbol} ${top.score.toFixed(1)} under the bar` : "no signals" }; return null; }
   const n = top.now, same = R.signals.filter(x => x.t === top.t).map(x => x.line);
   let scan = null; try { scan = await scanToken(top.t); } catch {}
-  if (scan?.risk != null && scan.risk >= Number(env.CATURN_RADAR_MAX_RISK || 60)) { R.cooled[top.t] = iso(now); log(`radar: skipped $${top.symbol}, rug likelihood ${scan.risk}`); return null; } // a likely rug is not news worth spreading
+  if (scan?.risk != null && scan.risk >= Number(env.CATURN_RADAR_MAX_RISK || 60)) { R.cooled[top.t] = iso(now); feed.radarDebug = { at: iso(now), note: `skipped $${top.symbol}, rug ${scan.risk}` }; log(`radar: skipped $${top.symbol}, rug likelihood ${scan.risk}`); return null; } // a likely rug is not news worth spreading
   const f = scan?.facts || {}, top10 = (f.top || []).filter(h => !h.contract).slice(0, 10).reduce((a, h) => a + (h.share || 0), 0);
   const g = scan?.facts && !scan.facts.partialHistory && scan.facts.holders ? gradeToken({ facts: f, scan, pair: { liquidity: { usd: n.liq }, marketCap: n.mc, volume: { h24: n.v24 } } }) : null;
   const facts = [...same, `market cap $${Math.round(n.mc).toLocaleString()}, liquidity $${Math.round(n.liq).toLocaleString()}, 24h volume $${Math.round(n.v24).toLocaleString()}, 24h change ${n.ch24.toFixed(1)}%`,
@@ -1068,7 +1068,8 @@ For this post you are the market radar for Robinhood Chain: the cat that sees ev
   for (const model of INSIGHT_MODELS) {
     try {
       const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 220, temperature: 0.5, messages: [{ role: "system", content: sys }, { role: "user", content: `Facts (${iso(now).slice(0, 16)} UTC):\n${facts}` }] }) });
-      const t = String(r.choices?.[0]?.message?.content || "").trim().replace(/^["']|["']$/g, "").replace(/\s+/g, " ");
+      let t = String(r.choices?.[0]?.message?.content || "").trim().replace(/^["']|["']$/g, "").replace(/\s+/g, " ");
+      if (t.length > 228) { const cut = t.slice(0, 228), i = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("; "), cut.lastIndexOf(", ")); if (i > 120) t = cut.slice(0, i + 1).replace(/[,;]$/, "."); }
       const bad = t.length < 60 || t.length > 228 || !/^radar/i.test(t) || /https?:\/\/|#\w|@\w/i.test(t) || /\b(buy now|sell now|hold|ape|bullish|bearish|moon|target|guaranteed)\b/i.test(t) || (t.match(/\$[a-z]{2,}/gi) || []).some(c => c.toLowerCase() !== "$" + String(top.symbol).toLowerCase());
       if (!bad) {
         R.cooled[top.t] = iso(now);
@@ -1079,8 +1080,8 @@ For this post you are the market radar for Robinhood Chain: the cat that sees ev
         if (g) { card.stats[3] = ["grade", `${g.grade} · ${g.score}`]; card.kicker = `radar · ${top.kind} · grade ${g.grade}`; }
         return { text: t + caLine(top.t), token: top.t, symbol: top.symbol, kind: top.kind, model, card, grade: g?.grade };
       }
-      log(`radar from ${model} broke a rule:`, t.slice(0, 160));
-    } catch (e) { log(`radar model ${model} failed:`, e.status || "", String(e.message).slice(0, 120)); }
+      log(`radar from ${model} broke a rule:`, t.slice(0, 160)); feed.radarDebug = { at: iso(now), symbol: top.symbol, model, draft: t.slice(0, 300) };
+    } catch (e) { log(`radar model ${model} failed:`, e.status || "", String(e.message).slice(0, 120)); feed.radarDebug = { at: iso(now), symbol: top.symbol, model, error: String(e.message).slice(0, 200) }; }
   }
   return null;
 }
@@ -1091,11 +1092,11 @@ async function radarThread(feed) {
   if (DRY_RUN || !RADAR_ON || !API_KEY || env.CATURN_RADAR_THREAD === "0") return;
   const gapMin = Number(env.CATURN_THREAD_GAP_MIN || 14), last = feed.posts[feed.posts.length - 1];
   if (last && now - Date.parse(last.at) < gapMin * 60e3) return;
-  const a = feed.xAllowance; if (a?.replies_left != null && a.replies_left <= 15) { log("radar thread: keeping the last replies for mentions"); return; }
+  const a = feed.xAllowance; if (a?.replies_left != null && a.replies_left <= 15) { log("radar thread: keeping the last replies for mentions"); feed.radarThreadNote = { at: iso(now), note: "radar thread: keeping the last replies for mentions" }; return; }
   const parent = [...feed.posts].reverse().find(p => !p.replyTo && p.kind !== "ping" && p.via !== "recovered" && /^\d{10,}$/.test(String(p.id)) && now - Date.parse(p.at) < 3 * 3600e3);
-  if (!parent) { log("radar thread: no recent post of the cat's own to thread under"); return; }
+  if (!parent) { log("radar thread: no recent post of the cat's own to thread under"); feed.radarThreadNote = { at: iso(now), note: "radar thread: no recent post of the cat's own to thread under" }; return; }
   const rd = await makeRadarPost(feed);
-  if (!rd) { log("radar thread: no signal strong enough"); return; }
+  if (!rd) { log("radar thread: no signal strong enough"); feed.radarThreadNote = { at: iso(now), note: "radar thread: no signal strong enough" }; return; }
   let media = null;
   if (env.CATURN_CARDS !== "0") { try { const png = await renderCard(rd.card); media = `data:image/png;base64,${png.toString("base64")}`; } catch (e) { log("radar thread card failed:", String(e.message).slice(0, 120)); } }
   let p = await orbioSend(rd.text, { replyTo: parent.id, media });
@@ -1323,9 +1324,10 @@ async function buzzReply(feed) {
   if ((feed.posts || []).filter(p => p.replyTo?.why === "buzz" && Date.parse(p.at) >= dayStart.getTime()).length >= BUZZ_PER_DAY) return;
   await refreshBuzz(feed).catch(() => 0);
   const answered = new Set([...feed.posts.map(p => p.replyTo?.id).filter(Boolean), ...(feed.buzzSkipped || [])]);
+  const recentHandles = new Set(feed.posts.filter(p => p.replyTo?.why === "buzz" && now - Date.parse(p.at) < 6 * 3600e3).map(p => String(p.replyTo.handle).toLowerCase()));
   const aboutCat = (t) => /\bcats?\b|caturn|\$ctrn/i.test(t.text);
   const insiders = new Set((feed.room?.ecosystem || []).map(e => e.handle).concat(REPLY_ACCOUNTS));
-  const pool = (feed.buzzPool?.posts || []).filter(t => t.handle !== OWN_HANDLE && !NEVER_TAG.has(t.handle) && !answered.has(String(t.id)) && !/^RT @/i.test(t.text) && !scamLike(t) && !junkLike(t) && !BUZZ_SPAM.test(t.text)
+  const pool = (feed.buzzPool?.posts || []).filter(t => t.handle !== OWN_HANDLE && !NEVER_TAG.has(t.handle) && !answered.has(String(t.id)) && !recentHandles.has(String(t.handle).toLowerCase()) && !/^RT @/i.test(t.text) && !scamLike(t) && !junkLike(t) && !BUZZ_SPAM.test(t.text)
     && now - Date.parse(t.at || 0) < 36 * 3600e3 && t.text.replace(/@\w+|https?:\/\/\S+/g, "").trim().length >= 20
     && (insiders.has(t.handle) || aboutCat(t) || (t.views || 0) >= 300 || (t.likes || 0) >= 5 || (t.followers || 0) >= 1000));
   const score = (t) => (t.views || 0) + (t.likes || 0) * 25 + (t.replies || 0) * 30 + (t.reposts || 0) * 40 + (aboutCat(t) ? 1e5 : 0) + (insiders.has(t.handle) ? 2e4 : 0);
