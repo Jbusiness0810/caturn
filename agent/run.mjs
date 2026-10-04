@@ -1223,7 +1223,7 @@ Answer with one JSON object only: {"post": string, "lean": "${g.lean}", "check":
   const fmtM = (k, v) => /usd$/.test(k) ? usdShort(v) : /pct$/.test(k) ? `${Number(v).toFixed(1)}%` : Number(v).toLocaleString();
   const by = new Date(call.check.by + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).toLowerCase();
   const card = { kicker: `graded call · ${g.score}/100`, symbol: f.symbol, token: sub.token, big: `${g.grade} · ${call.lean.toUpperCase()}`, bigLabel: `breaks if ${LBL[call.check.metric]} ${call.check.op === ">=" ? ">" : "<"} ${fmtM(call.check.metric, call.check.value)} by ${by}`, tone: call.lean === "credible" ? "up" : call.lean === "fade" ? "down" : "flat", analysis: text,
-    stats: [["top 10", `${nums.top10_pct}%`], ["holders", nums.holders.toLocaleString()], ["liq / cap", nums.market_cap_usd ? `${(nums.liquidity_usd / nums.market_cap_usd * 100).toFixed(1)}%` : "—"], ["rug score", `${scan.risk}/100`]], date: iso(now).slice(0, 10), foot: "scored at caturn.lol/calls" };
+    stats: [["top 10", `${nums.top10_pct}%`], ["holders", nums.holders.toLocaleString()], ["liq / cap", nums.market_cap_usd ? `${(nums.liquidity_usd / nums.market_cap_usd * 100).toFixed(1)}%` : "—"], ["rug score", `${scan.risk}/100`]], date: iso(now).slice(0, 10) };
   return { text: text + caLine(sub.token), token: sub.token, symbol: f.symbol, name: f.name, model: used, risk: scan.risk, callId: id, card, grade: g.grade };
 }
 // Score the open calls: refresh their numbers every six hours, and resolve each one on its date. "breaks if" true means the lean broke.
@@ -1271,8 +1271,7 @@ async function composeBooks(feed) {
     `posts in the last 24h: ${posts24.length} (${posts24.filter(p => p.replyTo).length} replies, ${posts24.filter(p => p.kind === "ping").length} pings to other agents)`,
     m.stakedOrbio != null ? `ORBIO staked for me from fees: ${Math.round(m.stakedOrbio).toLocaleString()}` : null,
     E.earned != null ? `errand: ${Number(E.earned).toFixed(2)} CREDIT earned all time, ${paid24.length} mission${paid24.length === 1 ? "" : "s"} paid in the last 24h` : null,
-    term ? `terminal: ${term.wallets} wallets signed in, $${term.depositedUsd} deposited across ${term.deposits} deposit${term.deposits === 1 ? "" : "s"}, ${term.grants} holder grant${term.grants === 1 ? "" : "s"} given, ${term.answers} answers served worth $${term.answeredUsd}` : null,
-    `calls on record: ${calls.length} (${held} held, ${broke} broke, ${calls.length - held - broke} open)`
+    term ? `terminal: ${term.wallets} wallets signed in, $${term.depositedUsd} deposited across ${term.deposits} deposit${term.deposits === 1 ? "" : "s"}, ${term.grants} holder grant${term.grants === 1 ? "" : "s"} given, ${term.answers} answers served worth $${term.answeredUsd}` : null
   ].filter(Boolean).join("\n");
   const sys = `${persona}
 
