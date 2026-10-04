@@ -1043,7 +1043,7 @@ async function radarRead(feed) {
     if (m.orbio && n.created && now - n.created < 6 * 3600e3 && n.liq >= 10000) sig.push({ t, kind: "new pool", score: 8 + Math.log10(n.liq), line: `${name}: new pool ${Math.round((now - n.created) / 3600e3 * 10) / 10}h old with $${Math.round(n.liq).toLocaleString()} of liquidity` });
   }
   R.cooled = Object.fromEntries(Object.entries(R.cooled || {}).filter(([, at]) => now - Date.parse(at) < 6 * 3600e3));
-  R.signals = sig.filter(x => !R.cooled[x.t]).sort((a, b) => b.score - a.score).slice(0, 10).map(x => ({ ...x, symbol: meta.get(x.t).symbol, name: meta.get(x.t).name, handle: meta.get(x.t).handle, orbio: meta.get(x.t).orbio, now: snap[x.t], at: iso(now) }));
+  R.signals = sig.filter(x => !R.cooled[x.t] && !covered(feed, x.t)).sort((a, b) => b.score - a.score).slice(0, 10).map(x => ({ ...x, symbol: meta.get(x.t).symbol, name: meta.get(x.t).name, handle: meta.get(x.t).handle, orbio: meta.get(x.t).orbio, now: snap[x.t], at: iso(now) }));
   R.watched = Object.keys(snap).length; R.readAt = iso(now);
   return R.signals;
 }
@@ -1064,13 +1064,13 @@ async function makeRadarPost(feed, { minScore = Number(env.CATURN_RADAR_MIN_SCOR
 ${ex.length ? `
 Your posts that landed best lately, for tone and shape only (never copy them): ${ex.join(" | ")}
 ` : ""}
-For this post you are the market radar for Robinhood Chain: the cat that sees every pool move first. Write one post about $${top.symbol} from the facts below: open with "radar:" and the move in exact numbers, then whether the move has anything under it, using the scorecard grade and its main reason (for example "grade d: top 10 hold 58%, the move is a few wallets"), and end with the single thing to watch next. Under 225 characters (the contract address is added after), lowercase except the cashtag, numbers exact as given, one $${top.symbol} cashtag, no links, no hashtags, no handles. Report, never advise: no buy/sell/hold/ape, no price targets, no bullish/bearish/moon, no number that is not in the facts. Reply with the post text only.`;
+For this post you are the market radar for Robinhood Chain: the cat that sees every pool move first. Write one short post about $${top.symbol}, the way a sharp trader mentions a move to friends: what moved, and the one thing under it that matters (from the scorecard, for example "but ten wallets hold most of it" or "and the holders are spread out for once"). Under 140 characters, at most two numbers, plain conversational words, no labels, no "radar:", no list of stats and no "watch" sentence: the attached card carries the full numbers. Lowercase except the cashtag, numbers exact as given, one $${top.symbol} cashtag, no links, no hashtags, no handles. Report, never advise: no buy/sell/hold/ape, no price targets, no bullish/bearish/moon, no number that is not in the facts. Reply with the post text only.`;
   for (const model of INSIGHT_MODELS) {
     try {
       const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 1500, temperature: 0.5, messages: [{ role: "system", content: sys }, { role: "user", content: `Facts (${iso(now).slice(0, 16)} UTC):\n${facts}` }] }) });
       let t = String(r.choices?.[0]?.message?.content || "").trim().replace(/^["']|["']$/g, "").replace(/\s+/g, " ");
-      if (t.length > 228) { const cut = t.slice(0, 228), i = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("; "), cut.lastIndexOf(", ")); if (i > 120) t = cut.slice(0, i + 1).replace(/[,;]$/, "."); }
-      const bad = t.length < 60 || t.length > 228 || !/^radar/i.test(t) || /https?:\/\/|#\w|@\w/i.test(t) || /\b(buy now|sell now|hodl|hold (it|this|your|on|tight)|keep holding|ape in|bullish|bearish|moon|target|guaranteed)\b/i.test(t) || (t.match(/\$[a-z]{2,}/gi) || []).some(c => c.toLowerCase() !== "$" + String(top.symbol).toLowerCase());
+      if (t.length > 160) { const cut = t.slice(0, 160), i = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("; "), cut.lastIndexOf(", ")); if (i > 80) t = cut.slice(0, i + 1).replace(/[,;]$/, "."); }
+      const bad = t.length < 30 || t.length > 160 || !t.toLowerCase().includes("$" + String(top.symbol).toLowerCase()) || /https?:\/\/|#\w|@\w/i.test(t) || /\b(buy now|sell now|hodl|hold (it|this|your|on|tight)|keep holding|ape in|bullish|bearish|moon|target|guaranteed)\b/i.test(t) || (t.match(/\$[a-z]{2,}/gi) || []).some(c => c.toLowerCase() !== "$" + String(top.symbol).toLowerCase());
       if (!bad) {
         R.cooled[top.t] = iso(now);
         const big = top.kind === "up" || top.kind === "down" ? `${n.ch1 > 0 ? "+" : ""}${n.ch1.toFixed(1)}%` : top.kind === "volume" ? `${(n.v1 / Math.max(1, n.v24 / 24)).toFixed(1)}x` : top.kind.startsWith("liquidity") ? `${n.liq > (hourAgoLiq(feed, top.t) || n.liq) ? "+" : "−"}${usdShort(Math.abs(n.liq - (hourAgoLiq(feed, top.t) || n.liq)))}` : top.kind.endsWith("pressure") ? `${n.b1}:${n.s1}` : "NEW";
@@ -1085,6 +1085,20 @@ For this post you are the market radar for Robinhood Chain: the cat that sees ev
   }
   return null;
 }
+
+// ---------- Covered tokens: any post that carried a token's contract address (radar, grade, thesis, a manual post) marks it
+// covered; nothing analyses it again for CATURN_COVER_DAYS. Kept apart from feed.posts, which only holds the last 150 posts.
+const COVER_DAYS = Number(env.CATURN_COVER_DAYS || 7);
+function noteCovered(feed) {
+  const C = feed.covered = feed.covered || {};
+  for (const p of feed.posts || []) {
+    const t = (String(p.text || "").match(/ca:\s*(0x[a-f0-9]{40})/i)?.[1] || p.radar?.token || p.insight?.token || "").toLowerCase();
+    if (t && (!C[t] || C[t] < p.at)) C[t] = p.at;
+  }
+  for (const [t, at] of Object.entries(C)) if (now - Date.parse(at) > 30 * 86400e3) delete C[t];
+  return C;
+}
+const covered = (feed, token) => { const at = noteCovered(feed)[String(token || "").toLowerCase()]; return !!at && now - Date.parse(at) < COVER_DAYS * 86400e3; };
 
 // ---------- Radar thread: orbio allows 50 originals but 100 replies a day. Between the cat's own posts, the next radar read
 // goes out as a reply under its latest post, so the timeline moves about every 15 minutes without spending originals.
@@ -1126,7 +1140,7 @@ async function thesisPost(feed) {
   if (feed.xAllowance?.posts_left != null && feed.xAllowance.posts_left <= 1) { note("holding back, no originals left today"); return; }
   const snaps = feed.radar?.snaps || [], snap = snaps[snaps.length - 1]?.d || {};
   const orbio = (feed.radar?.universe || []).filter(u => u.orbio && snap[u.token]?.v24 > 0).sort((a, b) => snap[b.token].v24 - snap[a.token].v24);
-  const sub = orbio.find(u => !T.done.some(d => d.token === u.token && now - Date.parse(d.at) < 48 * 3600e3) && snap[u.token].v24 >= Number(env.CATURN_THESIS_MIN_VOL || 10000));
+  const sub = orbio.find(u => !covered(feed, u.token) && !T.done.some(d => d.token === u.token && now - Date.parse(d.at) < 48 * 3600e3) && snap[u.token].v24 >= Number(env.CATURN_THESIS_MIN_VOL || 10000));
   if (!sub) { note("no orbio launch busy enough"); return; }
   const scan = await scanToken(sub.token);
   if (!scan?.facts || scan.facts.partialHistory || !scan.facts.holders) { note(`scan incomplete for ${sub.symbol}`); T.done = [...T.done, { token: sub.token, symbol: sub.symbol, at: iso(now), skipped: true }].slice(-50); return; }
@@ -1157,9 +1171,9 @@ async function thesisPost(feed) {
 For this thread you are the sharpest onchain analyst on Robinhood Chain, writing a thesis on one orbio agent token, the way the best crypto research accounts do: one clear, specific, slightly contrarian idea that the numbers support, the kind of read people quote. Find the single most interesting thing in the facts (a mismatch between volume and holders, a token out-trading peers with a fraction of their cap, flow that contradicts price, concentration that the price action hides, an account whose claims the chain does or does not back) and build the thread around it.
 
 Write three posts as JSON {"hook": string, "evidence": string, "risk": string, "stance": "constructive"|"skeptical"|"mixed"}:
-- hook: under 220 characters, opens with $${sub.symbol}, states the idea plainly with one or two exact numbers. it must make a reader stop scrolling.
-- evidence: under 270 characters, the two or three numbers that carry the idea, compared against peers by name and cashtag where it sharpens the point.
-- risk: under 270 characters, what would break the thesis, stated as a concrete number to watch, and the grade from the scorecard.
+- hook: under 160 characters, opens with $${sub.symbol}, states the idea in plain words with at most one number. it must make a reader stop scrolling, and read like a person, not a dashboard.
+- evidence: under 220 characters, the two numbers that carry the idea, one comparison against a peer by cashtag if it sharpens the point. conversational, no stat lists.
+- risk: under 180 characters, what would break the thesis, as one concrete number to watch.
 Rules: lowercase except cashtags; every number exactly as given in the facts, never invented or rounded differently; no links, hashtags or handles; no financial advice of any kind: never tell anyone to buy, sell, hold, ape or exit, no price targets, no "moon", "bullish", "bearish", "undervalued", "gem" or "alpha". describe, compare, reason. a cat's dryness is allowed in at most one line.`;
   let out = null, used = null;
   for (const model of THESIS_MODELS) {
@@ -1171,7 +1185,7 @@ Rules: lowercase except cashtags; every number exactly as given in the facts, ne
       const banned = /\b(buy now|sell now|buy it|sell it|hodl|hold (it|this|your|on|tight)|keep holding|ape in|exit now|bullish|bearish|moon|price target|undervalued|gem|alpha|nfa|dyor)\b/i;
       const digits = facts.replace(/,/g, "");
       const strays = parts.join(" ").replace(/,/g, "").match(/\d+(\.\d+)?/g)?.filter(x => x.length >= 2 && !digits.includes(x)) || [];
-      const bad = !parts[0].toLowerCase().startsWith("$" + sub.symbol.toLowerCase()) || parts[0].length > 225 || parts[1].length > 275 || parts[2].length > 275 || parts.some(x => x.length < 40 || /https?:\/\/|#\w|@\w/.test(x) || banned.test(x)) || strays.length > 1;
+      const bad = !parts[0].toLowerCase().startsWith("$" + sub.symbol.toLowerCase()) || parts[0].length > 170 || parts[1].length > 230 || parts[2].length > 190 || parts.some(x => x.length < 30 || /https?:\/\/|#\w|@\w/.test(x) || banned.test(x)) || strays.length > 1;
       if (!bad) { out = { parts, stance: ["constructive", "skeptical", "mixed"].includes(j.stance) ? j.stance : "mixed" }; used = model; break; }
       note(`${model} broke a rule${strays.length ? " (numbers not in the facts: " + strays.join(", ") + ")" : ""}: ${parts.join(" || ").slice(0, 220)}`);
     } catch (e) { note(`${model} failed: ${String(e.message).slice(0, 160)}`); }
@@ -1252,7 +1266,7 @@ async function pickInsightSubject(feed) {
   if ((feed.room?.ecosystem || []).some(e => !e.token)) { const m = await tokensBySymbol(); for (const e of feed.room.ecosystem) if (!e.token && m[e.symbol]) e.token = m[e.symbol]; }
   const eco = (feed.room?.ecosystem || []).map(e => ({ token: String(e.token || e.address || e.ca || e.contract || "").toLowerCase(), handle: (e.handle || "").toLowerCase(), name: e.name, symbol: e.symbol, mcap: e.mcap, graduated: e.graduated, hoursAgo: e.hoursAgo })).filter(e => /^0x[a-f0-9]{40}$/.test(e.token) && e.token !== CA.toLowerCase());
   const top = eco.slice(0, PING_TOP), fresh = eco.filter(e => e.hoursAgo != null && e.hoursAgo < 48 && !top.includes(e)).slice(0, 4);
-  const fresh24 = (e) => !I.done.some(d => d.token === e.token && now - Date.parse(d.at) < 24 * 3600e3);
+  const fresh24 = (e) => !covered(feed, e.token) && !I.done.some(d => d.token === e.token && now - Date.parse(d.at) < 24 * 3600e3);
   // grade what people are trading first: orbio launches ranked by 24h volume from the latest radar read
   const snap = feed.radar?.snaps?.[feed.radar.snaps.length - 1]?.d || {}, byTok = new Map(eco.map(e => [e.token, e]));
   const hot = (feed.radar?.universe || []).filter(u => u.orbio && snap[u.token]?.v24 >= Number(env.CATURN_GRADE_MIN_VOL || 5000))
@@ -1296,8 +1310,8 @@ async function makeInsight(feed) {
 ${ex.length ? `
 Your posts that landed best lately, for tone and shape only (never copy them): ${ex.join(" | ")}
 ` : ""}
-For this post only, you are an onchain analyst with a cat's dryness, grading tokens on a fixed scorecard. Write one post about $${f.symbol} from the facts below and nothing else. Rules for the post: open with "$${f.symbol}: ${g.grade}" and the grade's biggest reason as exact numbers (for example "top 10 wallets hold 61%, too concentrated"); add the second reason in one clause; if their recent posts make a claim the facts can check, say whether the chain agrees, in one clause; state the lean exactly as the scorecard says (${g.lean}) and end with one falsifiable check: "breaks if <metric> <above/below> <value> by <date>", the date between ${minBy} and ${maxBy}, the metric one of these with its current value: holders ${nums.holders}, liquidity $${nums.liquidity_usd}, 24h volume $${nums.volume_24h_usd}, top 10 share ${nums.top10_pct}%, burned ${nums.burn_pct}%, market cap $${nums.market_cap_usd}. Prefer a check on ${g.worstMetric.replace(/_/g, " ")}, the metric that weighs most on the grade. Under 225 characters (the contract address is added after), lowercase except the cashtag, numbers exact as given, one $${f.symbol} cashtag at most, no links, no hashtags, no handles. Never a price target, never buy/sell/hold/ape, never the words bullish, bearish or moon, never a number that is not in the facts.
-Answer with one JSON object only: {"post": string, "lean": "${g.lean}", "check": {"metric": "holders"|"liquidity_usd"|"volume_24h_usd"|"top10_pct"|"burn_pct"|"market_cap_usd", "op": ">="|"<=", "value": number, "by": "YYYY-MM-DD"}} where the check is the condition under which your lean is wrong (the "breaks if" in the post, as numbers).`;
+For this post only, you are an onchain analyst with a cat's dryness, grading tokens on a fixed scorecard. Write one post about $${f.symbol} from the facts below and nothing else. Rules for the post: one or two short sentences a person would actually write, with the single most telling fact (one number) and your read of it in plain words, matching the scorecard's lean (${g.lean}) without naming it; no grade letter, no "lean", no "breaks if", no list of stats: the attached card shows the grade and the numbers. Separately, in the JSON only, give one falsifiable check: the date between ${minBy} and ${maxBy}, the metric one of these with its current value: holders ${nums.holders}, liquidity $${nums.liquidity_usd}, 24h volume $${nums.volume_24h_usd}, top 10 share ${nums.top10_pct}%, burned ${nums.burn_pct}%, market cap $${nums.market_cap_usd}. Prefer a check on ${g.worstMetric.replace(/_/g, " ")}, the metric that weighs most on the grade. Under 150 characters (the contract address is added after), lowercase except the cashtag, numbers exact as given, one $${f.symbol} cashtag, no links, no hashtags, no handles. Never a price target, never buy/sell/hold/ape, never the words bullish, bearish or moon, never a number that is not in the facts.
+Answer with one JSON object only: {"post": string, "lean": "${g.lean}", "check": {"metric": "holders"|"liquidity_usd"|"volume_24h_usd"|"top10_pct"|"burn_pct"|"market_cap_usd", "op": ">="|"<=", "value": number, "by": "YYYY-MM-DD"}} where the check is the condition under which your lean is wrong, as numbers (it is kept on record, not written in the post).`;
   let text = "", used = null, call = null;
   for (const model of INSIGHT_MODELS) {
     try {
@@ -1306,7 +1320,7 @@ Answer with one JSON object only: {"post": string, "lean": "${g.lean}", "check":
       const t = String(j?.post || "").trim().replace(/^["']|["']$/g, "").replace(/\s+/g, " ");
       const c = j?.check || {};
       const okCheck = ["holders", "liquidity_usd", "volume_24h_usd", "top10_pct", "burn_pct", "market_cap_usd"].includes(c.metric) && [">=", "<="].includes(c.op) && Number.isFinite(Number(c.value)) && /^\d{4}-\d{2}-\d{2}$/.test(String(c.by || "")) && c.by >= minBy && c.by <= maxBy;
-      const bad = !okCheck || t.length > 228 || t.length < 60 || /https?:\/\/|www\.|#\w|@\w/i.test(t) || /\b(buy now|sell now|buy it|sell it|hodl|hold (it|this|your|on|tight)|keep holding|ape in|bullish|bearish|moon|target|guaranteed)\b/i.test(t) || !/\d/.test(t) || (t.match(/\$[a-z]{2,}/gi) || []).some(x => x.toLowerCase() !== "$" + String(f.symbol).toLowerCase());
+      const bad = !okCheck || t.length > 165 || t.length < 30 || /https?:\/\/|www\.|#\w|@\w/i.test(t) || /\b(buy now|sell now|buy it|sell it|hodl|hold (it|this|your|on|tight)|keep holding|ape in|bullish|bearish|moon|target|guaranteed)\b/i.test(t) || !/\d/.test(t) || (t.match(/\$[a-z]{2,}/gi) || []).some(x => x.toLowerCase() !== "$" + String(f.symbol).toLowerCase());
       if (!bad) { text = t; used = model; call = { lean: g.lean, check: { metric: c.metric, op: c.op, value: Number(c.value), by: c.by } }; break; }
       log(`insight from ${model} broke a rule:`, raw.slice(0, 200));
     } catch (e) { log(`insight model ${model} failed:`, e.status || "", String(e.message).slice(0, 120)); }
