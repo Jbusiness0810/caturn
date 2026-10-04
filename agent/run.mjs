@@ -1093,8 +1093,8 @@ async function radarThread(feed) {
   const gapMin = Number(env.CATURN_THREAD_GAP_MIN || 14), last = feed.posts[feed.posts.length - 1];
   if (last && now - Date.parse(last.at) < gapMin * 60e3) return;
   const a = feed.xAllowance; if (a?.replies_left != null && a.replies_left <= 15) { log("radar thread: keeping the last replies for mentions"); feed.radarThreadNote = { at: iso(now), note: "radar thread: keeping the last replies for mentions" }; return; }
-  const parent = [...feed.posts].reverse().find(p => !p.replyTo && p.kind !== "ping" && p.via !== "recovered" && /^\d{10,}$/.test(String(p.id)) && now - Date.parse(p.at) < 3 * 3600e3);
-  if (!parent) { log("radar thread: no recent post of the cat's own to thread under"); feed.radarThreadNote = { at: iso(now), note: "radar thread: no recent post of the cat's own to thread under" }; return; }
+  const parent = [...feed.posts].reverse().find(p => ["radar", "insight"].includes(p.format) && p.via !== "recovered" && /^\d{10,}$/.test(String(p.id)) && now - Date.parse(p.at) < 6 * 3600e3);
+  if (!parent && spareOriginals(feed) <= 0) { log("radar thread: no card post to thread under and no spare originals"); feed.radarThreadNote = { at: iso(now), note: "no card post to thread under" }; return; }
   let rd = await makeRadarPost(feed, { minScore: Number(env.CATURN_THREAD_MIN_SCORE || 7) });
   if (!rd && INSIGHT_ON) { // a quiet tape: grade a token on the scorecard instead of waiting for a move
     rd = await makeInsight(feed).catch(e => { log("radar thread grade failed:", String(e.message).slice(0, 160)); return null; });
@@ -1103,10 +1103,11 @@ async function radarThread(feed) {
   if (!rd) { log("radar thread: no signal strong enough"); feed.radarThreadNote = { at: iso(now), note: "radar thread: no signal and no gradeable token" }; return; }
   let media = null;
   if (env.CATURN_CARDS !== "0") { try { const png = await renderCard(rd.card); media = `data:image/png;base64,${png.toString("base64")}`; } catch (e) { log("radar thread card failed:", String(e.message).slice(0, 120)); } }
-  let p = await orbioSend(rd.text, { replyTo: parent.id, media });
-  if (p.status === "failed" && media) p = await orbioSend(rd.text, { replyTo: parent.id });
+  // a card chains under the last card; with no card post in the last 6 hours it starts a new chain as its own post
+  let p = await orbioSend(rd.text, { replyTo: parent?.id || null, media });
+  if (p.status === "failed" && media) p = await orbioSend(rd.text, { replyTo: parent?.id || null });
   if (p.status === "failed") { log("radar thread post failed:", p.err); return; }
-  feed.posts.push({ at: iso(now), text: rd.text, id: p.id, url: p.url, status: p.status, cost: Number(p.cost || 0), via: p.via || "orbio", kind: "reply", threaded: true, format: rd.kind === "grade" ? "insight" : "radar", card: !!media, radar: { token: rd.token, symbol: rd.symbol, kind: rd.kind, grade: rd.grade || null }, replyTo: { id: String(parent.id), handle: OWN_HANDLE, name: "caturn", text: String(parent.text || "").slice(0, 200), url: parent.url, why: "radar thread" } });
+  feed.posts.push({ at: iso(now), text: rd.text, id: p.id, url: p.url, status: p.status, cost: Number(p.cost || 0), via: p.via || "orbio", kind: "reply", threaded: true, format: rd.kind === "grade" ? "insight" : "radar", card: !!media, radar: { token: rd.token, symbol: rd.symbol, kind: rd.kind, grade: rd.grade || null }, replyTo: parent ? { id: String(parent.id), handle: OWN_HANDLE, name: "caturn", text: String(parent.text || "").slice(0, 200), url: parent.url, why: "radar thread" } : null });
   event(`radar read on $${rd.symbol} under its own post`);
   log("radar thread:", rd.model, rd.text);
 }
@@ -1235,7 +1236,7 @@ Answer with one JSON object only: {"post": string, "lean": "${g.lean}", "check":
   const LBL = { holders: "holders", liquidity_usd: "liquidity", volume_24h_usd: "24h volume", top10_pct: "top 10 share", burn_pct: "burned", market_cap_usd: "market cap" };
   const fmtM = (k, v) => /usd$/.test(k) ? usdShort(v) : /pct$/.test(k) ? `${Number(v).toFixed(1)}%` : Number(v).toLocaleString();
   const by = new Date(call.check.by + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).toLowerCase();
-  const card = { kicker: `graded call · ${g.score}/100`, symbol: f.symbol, token: sub.token, big: `${g.grade} · ${call.lean.toUpperCase()}`, bigLabel: `breaks if ${LBL[call.check.metric]} ${call.check.op === ">=" ? ">" : "<"} ${fmtM(call.check.metric, call.check.value)} by ${by}`, tone: call.lean === "credible" ? "up" : call.lean === "fade" ? "down" : "flat", analysis: text,
+  const card = { kicker: `graded call · ${g.score}/100`, symbol: f.symbol, token: sub.token, big: g.grade, bigLabel: `${call.lean} · score ${g.score}/100`, tone: call.lean === "credible" ? "up" : call.lean === "fade" ? "down" : "flat", analysis: text.replace(/^\$\S+:\s*[A-F]\.?\s*/i, "").replace(/\s*breaks if[^.]*\.?/i, "").replace(/\s*lean:?\s*\w+\.?/i, "").trim(),
     stats: [["top 10", `${nums.top10_pct}%`], ["holders", nums.holders.toLocaleString()], ["liq / cap", nums.market_cap_usd ? `${(nums.liquidity_usd / nums.market_cap_usd * 100).toFixed(1)}%` : "—"], ["rug score", `${scan.risk}/100`]], date: iso(now).slice(0, 10) };
   return { text: text + caLine(sub.token), token: sub.token, symbol: f.symbol, name: f.name, model: used, risk: scan.risk, callId: id, card, grade: g.grade };
 }

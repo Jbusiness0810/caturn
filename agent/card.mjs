@@ -31,13 +31,13 @@ export function cardHtml(spec) {
   .site{font-size:30px;letter-spacing:.02em;color:#f4f6ff}
   .site small{font-size:16px;letter-spacing:.2em;text-transform:uppercase;color:${accent};margin-left:14px;vertical-align:middle}
   .rule{height:2px;background:linear-gradient(90deg,${accent}aa,transparent);margin:20px 0 22px}
-  .sym{font-size:${String(spec.symbol || "").length > 7 ? 78 : 104}px;font-weight:300;letter-spacing:.04em;color:${accent};line-height:1;text-shadow:0 0 24px ${accent}55}
+  .sym{font-size:${String(spec.symbol || "").length > 7 ? 72 : 92}px;font-weight:300;letter-spacing:.04em;color:${accent};line-height:1;text-shadow:0 0 24px ${accent}55}
   .ca{font-family:"DejaVu Sans Mono",ui-monospace,Menlo,monospace;font-size:19px;color:#cfd6f5;margin-top:12px}
-  .big{display:flex;align-items:baseline;gap:18px;margin-top:22px}
-  .big b{font-size:${big.length > 9 ? 70 : 96}px;font-weight:800;color:${accent};line-height:1;text-shadow:0 0 28px ${accent}66}
+  .big{display:flex;align-items:center;gap:18px;margin-top:20px}
+  .big b{white-space:nowrap;font-size:${big.length > 6 ? 56 : 84}px;font-weight:800;color:${accent};line-height:1;text-shadow:0 0 28px ${accent}66}
   .big span{font-size:19px;letter-spacing:.14em;text-transform:uppercase;color:#cfd6f5;max-width:300px;line-height:1.3}
-  .an{font-size:23px;line-height:1.38;color:#eef2ff;margin-top:18px;max-width:640px}
-  .stats{display:grid;grid-template-columns:repeat(${Math.min(4, Math.max(1, stats.length))},auto);gap:10px 36px;margin-top:24px;justify-content:start}
+  .an{font-size:22px;line-height:1.36;color:#eef2ff;margin-top:16px;max-width:640px;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .stats{position:absolute;left:70px;bottom:150px;margin-top:0 !important;display:grid;grid-template-columns:repeat(${Math.min(4, Math.max(1, stats.length))},auto);gap:10px 36px;margin-top:24px;justify-content:start}
   .st span{display:block;font-size:15px;letter-spacing:.14em;text-transform:uppercase;color:#aab4dd}
   .st b{display:block;font-size:30px;font-weight:600;color:${accent};margin-top:4px}
   .meta{position:absolute;left:70px;bottom:104px;font-size:21px;letter-spacing:.06em;color:#dfe6ff}
@@ -54,8 +54,8 @@ export function cardHtml(spec) {
     ${spec.token ? `<div class="ca">${esc(spec.token)}</div>` : ""}
     ${big ? `<div class="big"><b>${esc(big)}</b>${spec.bigLabel ? `<span>${esc(spec.bigLabel)}</span>` : ""}</div>` : ""}
     ${analysis ? `<div class="an">${esc(analysis)}</div>` : ""}
-    ${statHtml ? `<div class="stats">${statHtml}</div>` : ""}
   </div>
+  ${statHtml ? `<div class="stats">${statHtml}</div>` : ""}
   <div class="meta">${esc(date)} &nbsp;•&nbsp; ROBINHOOD CHAIN${spec.foot ? ` &nbsp;•&nbsp; ${esc(spec.foot)}` : ""}</div>
   <div class="foot">ANALYSIS BY <b>CATURN</b> &nbsp;|&nbsp; <b>@caturn_rh</b> &nbsp;|&nbsp; NOT ADVICE</div>
   </body></html>`;
