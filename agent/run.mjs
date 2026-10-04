@@ -1112,6 +1112,90 @@ async function radarThread(feed) {
   log("radar thread:", rd.model, rd.text);
 }
 
+// ---------- Theses: every few hours, the busiest orbio launch gets a full read from the strongest model available
+// (Fable first, Opus when Fable is down): the subject against its peers, its holder structure, its flow over the last
+// hours and what its own account claims. Posted as a three-part thread with a card: a hook, the evidence, the risk.
+const THESIS_MODELS = (env.CATURN_THESIS_MODELS || "anthropic/claude-fable-5.1,anthropic/claude-opus-5.5,anthropic/claude-sonnet-5.5").split(",").map(x => x.trim()).filter(Boolean);
+async function thesisPost(feed) {
+  if (DRY_RUN || !API_KEY || env.CATURN_THESIS === "0") return;
+  const T = feed.thesis = feed.thesis || { last: null, done: [] };
+  const everyH = Number(env.CATURN_THESIS_EVERY_H || 3);
+  if (T.last && now - Date.parse(T.last) < everyH * 3600e3) return;
+  if (feed.xAllowance?.posts_left != null && feed.xAllowance.posts_left <= 4) { log("thesis: holding back, the last originals are kept"); return; }
+  const snaps = feed.radar?.snaps || [], snap = snaps[snaps.length - 1]?.d || {};
+  const orbio = (feed.radar?.universe || []).filter(u => u.orbio && snap[u.token]?.v24 > 0).sort((a, b) => snap[b.token].v24 - snap[a.token].v24);
+  const sub = orbio.find(u => !T.done.some(d => d.token === u.token && now - Date.parse(d.at) < 48 * 3600e3) && snap[u.token].v24 >= Number(env.CATURN_THESIS_MIN_VOL || 10000));
+  if (!sub) { log("thesis: no orbio launch busy enough"); T.last = iso(now); return; }
+  T.last = iso(now);
+  const scan = await scanToken(sub.token);
+  if (!scan?.facts || scan.facts.partialHistory || !scan.facts.holders) { log("thesis: scan incomplete for", sub.symbol); return; }
+  const f = scan.facts, n = snap[sub.token];
+  const pairs = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${sub.token}`).then(r => r.json()).then(d => (d.pairs || []).filter(p => String(p.chainId).toLowerCase().includes("robinhood"))).catch(() => []);
+  const pair = pairs.sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0] || null;
+  const burn = await burned(sub.token, Number(f.decimals || 18), Number(f.supply || 0)).catch(() => ({ amount: 0, pct: 0 }));
+  const g = gradeToken({ facts: f, scan, pair, burnPct: burn.pct });
+  const eoa = (f.top || []).filter(h => !h.contract), top10 = eoa.slice(0, 10).reduce((a, h) => a + (h.share || 0), 0);
+  const rank = orbio.findIndex(u => u.token === sub.token) + 1;
+  const peers = orbio.slice(0, 8).map((u, i) => `#${i + 1} $${u.symbol}: 24h volume $${Math.round(snap[u.token].v24).toLocaleString()}, market cap $${Math.round(snap[u.token].mc || 0).toLocaleString()}, liquidity $${Math.round(snap[u.token].liq || 0).toLocaleString()}, 24h ${snap[u.token].ch24 > 0 ? "+" : ""}${Number(snap[u.token].ch24 || 0).toFixed(1)}%`);
+  const trail = snaps.slice(-8).map(x => x.d?.[sub.token]).filter(Boolean);
+  const trend = trail.length >= 3 ? `over the last ${trail.length} radar reads (about ${Math.round((Date.parse(snaps[snaps.length - 1].at) - Date.parse(snaps[snaps.length - trail.length].at)) / 3600e3)}h): price ${trail[0].px} to ${trail[trail.length - 1].px}, liquidity $${Math.round(trail[0].liq).toLocaleString()} to $${Math.round(trail[trail.length - 1].liq).toLocaleString()}, hourly volume ${trail.map(x => "$" + Math.round(x.v1 || 0).toLocaleString()).join(", ")}` : null;
+  let claims = []; if (sub.handle) { try { claims = (await readX({ handle: sub.handle, limit: 4 })).filter(t => t.handle === sub.handle && !/^RT @/i.test(t.text)).slice(0, 4).map(t => t.text.replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim().slice(0, 200)); } catch {} }
+  const facts = [
+    `subject: ${sub.name} ($${sub.symbol}), an orbio agent launch, #${rank} of ${orbio.length} orbio launches by 24h volume`,
+    `now: market cap $${Math.round(n.mc || 0).toLocaleString()}, liquidity $${Math.round(n.liq || 0).toLocaleString()} (${n.mc ? (n.liq / n.mc * 100).toFixed(1) : "0"}% of the cap), 24h volume $${Math.round(n.v24).toLocaleString()} (${n.liq ? (n.v24 / n.liq).toFixed(1) : "0"}x liquidity), last hour $${Math.round(n.v1 || 0).toLocaleString()} with ${n.b1} buys and ${n.s1} sells, 1h ${n.ch1 > 0 ? "+" : ""}${Number(n.ch1 || 0).toFixed(1)}%, 24h ${n.ch24 > 0 ? "+" : ""}${Number(n.ch24 || 0).toFixed(1)}%`,
+    pair?.txns?.h24 ? `24h trades: ${pair.txns.h24.buys} buys, ${pair.txns.h24.sells} sells; 6h volume $${Math.round(pair.volume?.h6 || 0).toLocaleString()}` : null,
+    `holders ${f.holders}, top 10 wallets ${top10.toFixed(1)}%, largest wallet ${(eoa[0]?.share || 0).toFixed(1)}%${f.creatorShare != null ? `, deployer ${Number(f.creatorShare).toFixed(1)}%` : ""}${burn.pct > 0 ? `, ${burn.pct.toFixed(1)}% of supply burned` : ""}`,
+    `contract: rug likelihood ${scan.risk}/100${(scan.checks || []).filter(c => c.level === "fail").length ? ", flags: " + scan.checks.filter(c => c.level === "fail").map(c => c.title.toLowerCase()).join(", ") : ", no failed checks"}`,
+    `scorecard: grade ${g.grade}, ${g.score}/100; biggest factors: ${g.reasons.slice(0, 4).map(r => r.text).join("; ")}`,
+    trend,
+    `peers (orbio launches by 24h volume):\n${peers.join("\n")}`,
+    claims.length ? `what their own account posted lately: ${claims.map(c => `"${c}"`).join(" | ")}` : "their account posted nothing readable lately"
+  ].filter(Boolean).join("\n");
+  const sys = `${persona}
+
+For this thread you are the sharpest onchain analyst on Robinhood Chain, writing a thesis on one orbio agent token, the way the best crypto research accounts do: one clear, specific, slightly contrarian idea that the numbers support, the kind of read people quote. Find the single most interesting thing in the facts (a mismatch between volume and holders, a token out-trading peers with a fraction of their cap, flow that contradicts price, concentration that the price action hides, an account whose claims the chain does or does not back) and build the thread around it.
+
+Write three posts as JSON {"hook": string, "evidence": string, "risk": string, "stance": "constructive"|"skeptical"|"mixed"}:
+- hook: under 220 characters, opens with $${sub.symbol}, states the idea plainly with one or two exact numbers. it must make a reader stop scrolling.
+- evidence: under 270 characters, the two or three numbers that carry the idea, compared against peers by name and cashtag where it sharpens the point.
+- risk: under 270 characters, what would break the thesis, stated as a concrete number to watch, and the grade from the scorecard.
+Rules: lowercase except cashtags; every number exactly as given in the facts, never invented or rounded differently; no links, hashtags or handles; no financial advice of any kind: never tell anyone to buy, sell, hold, ape or exit, no price targets, no "moon", "bullish", "bearish", "undervalued", "gem" or "alpha". describe, compare, reason. a cat's dryness is allowed in at most one line.`;
+  let out = null, used = null;
+  for (const model of THESIS_MODELS) {
+    try {
+      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 4000, temperature: 0.7, messages: [{ role: "system", content: sys }, { role: "user", content: `Facts (${iso(now).slice(0, 16)} UTC):\n${facts}` }] }) });
+      const raw = String(r.choices?.[0]?.message?.content || "").replace(/^```(json)?|```$/gm, "").trim();
+      const j = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1));
+      const parts = [j.hook, j.evidence, j.risk].map(x => String(x || "").replace(/\s+/g, " ").trim());
+      const banned = /\b(buy now|sell now|buy it|sell it|hodl|hold (it|this|your|on|tight)|keep holding|ape in|exit now|bullish|bearish|moon|price target|undervalued|gem|alpha|nfa|dyor)\b/i;
+      const digits = facts.replace(/,/g, "");
+      const strays = parts.join(" ").replace(/,/g, "").match(/\d+(\.\d+)?/g)?.filter(x => x.length >= 2 && !digits.includes(x)) || [];
+      const bad = !parts[0].toLowerCase().startsWith("$" + sub.symbol.toLowerCase()) || parts[0].length > 225 || parts[1].length > 275 || parts[2].length > 275 || parts.some(x => x.length < 40 || /https?:\/\/|#\w|@\w/.test(x) || banned.test(x)) || strays.length > 1;
+      if (!bad) { out = { parts, stance: ["constructive", "skeptical", "mixed"].includes(j.stance) ? j.stance : "mixed" }; used = model; break; }
+      log(`thesis from ${model} broke a rule${strays.length ? " (numbers not in the facts: " + strays.join(", ") + ")" : ""}:`, parts[0].slice(0, 140));
+    } catch (e) { log(`thesis model ${model} failed:`, String(e.message).slice(0, 140)); }
+  }
+  if (!out) return;
+  const card = { kicker: `thesis · ${out.stance}`, symbol: sub.symbol, token: sub.token, big: g.grade, bigLabel: `${out.stance} · score ${g.score}/100`, tone: out.stance === "constructive" ? "up" : out.stance === "skeptical" ? "down" : "flat",
+    analysis: out.parts[0].replace(/^\$\S+[:,]?\s*/i, ""), stats: [["24h volume", usdShort(n.v24)], ["holders", Number(f.holders).toLocaleString()], ["top 10", `${top10.toFixed(1)}%`], ["orbio rank", `#${rank}`]], date: iso(now).slice(0, 10) };
+  let media = null; try { media = `data:image/png;base64,${(await renderCard(card)).toString("base64")}`; } catch (e) { log("thesis card failed:", String(e.message).slice(0, 120)); }
+  let p = await orbioSend(out.parts[0] + caLine(sub.token), { media });
+  if (p.status === "failed" && media) p = await orbioSend(out.parts[0] + caLine(sub.token));
+  if (p.status === "failed" || !p.id) { log("thesis post failed:", p.err); return; }
+  const recs = [{ at: iso(now), text: out.parts[0] + caLine(sub.token), id: p.id, url: p.url, status: p.status, cost: Number(p.cost || 0), via: p.via || "orbio", format: "thesis", card: !!media, insight: { token: sub.token, symbol: sub.symbol, model: used, grade: g.grade, stance: out.stance } }];
+  let parent = p.id;
+  for (const text of out.parts.slice(1)) {
+    const q = await orbioSend(text, { replyTo: parent });
+    if (q.status === "failed" || !q.id) { log("thesis reply failed:", q.err); break; }
+    recs.push({ at: iso(now), text, id: q.id, url: q.url, status: q.status, cost: Number(q.cost || 0), via: q.via || "orbio", kind: "reply", threaded: true, format: "thesis", replyTo: { id: String(parent), handle: OWN_HANDLE, name: "caturn", text: recs[recs.length - 1].text.slice(0, 200), url: recs[recs.length - 1].url, why: "thesis thread" } });
+    parent = q.id;
+  }
+  feed.posts.push(...recs);
+  T.done = [...T.done, { token: sub.token, symbol: sub.symbol, at: iso(now), url: p.url, model: used }].slice(-50);
+  event(`wrote a thesis thread on $${sub.symbol} (${used.split("/").pop()})`);
+  log("thesis:", used, out.parts.join(" || "));
+}
+
 // ---------- The grade: one fixed scorecard for every token, so the lean comes from the numbers, not the mood ----------
 // Starts at 100 and moves with concentration, depth, holders, flow and the contract. A/B lean credible, C watch, D/F fade.
 function gradeToken({ facts: f = {}, scan = null, pair = null, burnPct = 0 }) {
@@ -1964,6 +2048,7 @@ await saySomething(feed);
 await announceBuild(feed);
 try { await scoreCalls(feed); } catch (e) { log("score calls failed:", String(e.message).slice(0, 160)); }
 try { await measureFormats(feed); } catch (e) { log("measure formats failed:", String(e.message).slice(0, 160)); }
+try { await thesisPost(feed); } catch (e) { log("thesis failed:", String(e.message).slice(0, 160)); }
 try { await radarThread(feed); } catch (e) { log("radar thread failed:", String(e.message).slice(0, 160)); }
 try { await buzzReply(feed); } catch (e) { log("buzz reply failed:", String(e.message).slice(0, 160)); }
 try { await agentPing(feed); } catch (e) { log("agent ping failed:", String(e.message).slice(0, 160)); }
