@@ -470,7 +470,11 @@ async function findScanRequest(feed) {
     for (const t of mentions.sort((a, b) => Date.parse(b.at || 0) - Date.parse(a.at || 0))) {
       if (t.handle === OWN_HANDLE || answered.has(t.id) || /^RT @/i.test(t.text)) continue;
       if (t.at && now - Date.parse(t.at) > 24 * 3600e3) continue;
-      const all = [...new Set((t.text.match(/0x[a-fA-F0-9]{40}/g) || []).map(a => a.toLowerCase()))];
+      let all = [...new Set((t.text.match(/0x[a-fA-F0-9]{40}/g) || []).map(a => a.toLowerCase()))];
+      if (!all.length) { // a cashtag the radar knows stands in for its address
+        const tags = (t.text.match(/\$([A-Za-z][A-Za-z0-9]{1,11})\b/g) || []).map(x => x.slice(1).toUpperCase()).filter(x => !["CTRN", "ORBIO", "CREDIT", "ETH", "USDG", "USDC", "BTC"].includes(x));
+        const uni = feed.radar?.universe || []; for (const tg of tags) { const u = uni.find(x => String(x.symbol).toUpperCase() === tg); if (u) { all = [u.token]; break; } }
+      }
       const addrs = all.filter(a => a !== CA.toLowerCase());
       const self = !addrs.length && all.length > 0; // someone posted the cat's own address: scan yourself, at most once every two hours
       if (!addrs.length && !self) continue;
@@ -945,6 +949,92 @@ async function announceBuild(feed) {
 // Grok answers anyone who tags it, in public, under the post. Every few hours the cat tags @grok under one of its own fresh posts
 // with a question Grok will want to answer; Grok's reply lands in the mentions, and the cat answers that too. A thread with two AIs in it.
 const GROK_EVERY_H = Number(env.CATURN_GROK_EVERY_H || 6);
+// ---------- Radar: watch every token with a pool on Robinhood Chain, every tick, and call out what moves ----------
+// Universe: every graduated orbio launch plus whatever Dexscreener lists on the chain. Each tick: one batched market read
+// (30 tokens a call), compared with the readings an hour ago. A signal is a number that changed enough to matter.
+const RADAR_ON = env.CATURN_RADAR !== "0";
+const DS = "https://api.dexscreener.com";
+async function radarUniverse(feed) {
+  const R = feed.radar = feed.radar || { universe: [], uAt: null, snaps: [], signals: [], cooled: {} };
+  if (R.uAt && now - Date.parse(R.uAt) < 6 * 3600e3 && R.universe.length) return R.universe;
+  const toks = new Map();
+  for (let page = 1; page <= 8; page++) {
+    try {
+      const d = await getJSON(`https://www.orbio.so/api/protocol/agents?limit=200&page=${page}`);
+      for (const a of (d.data || [])) if (a.token && a.price?.graduated) toks.set(String(a.token).toLowerCase(), { symbol: a.symbol, name: a.name, orbio: true, handle: (String(a.socials?.twitter || "").match(/(?:x|twitter)\.com\/([A-Za-z0-9_]{1,15})/) || [])[1]?.toLowerCase() || null });
+      if (!(d.data || []).length || (d.data || []).length < 200) break;
+    } catch (e) { log("radar universe page failed:", page, String(e.message).slice(0, 100)); break; }
+  }
+  for (const q of ["robinhood", "robinhood chain", "hood"]) {
+    try { const d = await getJSON(`${DS}/latest/dex/search?q=${encodeURIComponent(q)}`); for (const p of (d.pairs || [])) if (p.chainId === "robinhood" && p.baseToken?.address && !toks.has(p.baseToken.address.toLowerCase())) toks.set(p.baseToken.address.toLowerCase(), { symbol: p.baseToken.symbol, name: p.baseToken.name, orbio: false, handle: null }); } catch {}
+  }
+  R.universe = [...toks.entries()].map(([token, v]) => ({ token, ...v })).slice(0, 300); R.uAt = iso(now);
+  log("radar universe:", R.universe.length, "tokens");
+  return R.universe;
+}
+async function radarRead(feed) {
+  if (!RADAR_ON) return null;
+  const R = feed.radar = feed.radar || { universe: [], uAt: null, snaps: [], signals: [], cooled: {} };
+  const uni = await radarUniverse(feed); if (!uni.length) return null;
+  const meta = new Map(uni.map(u => [u.token, u])), snap = {};
+  for (let i = 0; i < uni.length; i += 30) {
+    try {
+      const pairs = await getJSON(`${DS}/tokens/v1/robinhood/${uni.slice(i, i + 30).map(u => u.token).join(",")}`);
+      for (const p of (Array.isArray(pairs) ? pairs : [])) {
+        const t = String(p.baseToken?.address || "").toLowerCase(); if (!meta.has(t)) continue;
+        const liq = Number(p.liquidity?.usd || 0); if (snap[t] && snap[t].liq >= liq) continue; // the deepest pool speaks for the token
+        snap[t] = { liq, mc: Number(p.marketCap || p.fdv || 0), px: Number(p.priceUsd || 0), v1: Number(p.volume?.h1 || 0), v24: Number(p.volume?.h24 || 0), b1: Number(p.txns?.h1?.buys || 0), s1: Number(p.txns?.h1?.sells || 0), ch1: Number(p.priceChange?.h1 || 0), ch24: Number(p.priceChange?.h24 || 0), created: Number(p.pairCreatedAt || 0) };
+      }
+    } catch (e) { log("radar read failed:", String(e.message).slice(0, 100)); }
+  }
+  if (!Object.keys(snap).length) return null;
+  R.snaps = [...(R.snaps || []), { at: iso(now), d: snap }].filter(x => now - Date.parse(x.at) < 3 * 3600e3).slice(-20);
+  const hourAgo = R.snaps.filter(x => now - Date.parse(x.at) >= 50 * 60e3).slice(-1)[0]?.d || {};
+  const sig = [];
+  for (const [t, n] of Object.entries(snap)) {
+    const m = meta.get(t), o = hourAgo[t], name = `$${m.symbol}`;
+    if (n.liq < 3000) continue;
+    // never amplify brand bait: tokens named after the chain, an exchange or a stablecoin, unless they are orbio launches
+    if (!m.orbio && /^(robin|hood|rh|robinhood|usd|eth|weth|btc|wbtc|sol|coinbase|binance|base|arb|op)/i.test(String(m.symbol || "") + "") ) continue;
+    if (!m.orbio && /robinhood|official|airdrop|claim/i.test(String(m.name || ""))) continue;
+    if (!m.orbio && (n.liq < 25000 || !n.created || now - n.created < 24 * 3600e3)) continue; // outside orbio: real depth and a day of history first
+    const avgHour = n.v24 / 24;
+    if (n.v1 >= 5000 && avgHour > 0 && n.v1 >= 3 * avgHour) sig.push({ t, kind: "volume", score: (n.v1 / avgHour) * Math.log10(n.liq), line: `${name}: $${Math.round(n.v1).toLocaleString()} traded in the last hour, ${(n.v1 / avgHour).toFixed(1)}x its 24h hourly average` });
+    if (Math.abs(n.ch1) >= 25 && n.liq >= 10000) sig.push({ t, kind: n.ch1 > 0 ? "up" : "down", score: Math.abs(n.ch1) / 10 * Math.log10(n.liq), line: `${name}: ${n.ch1 > 0 ? "+" : ""}${n.ch1.toFixed(1)}% in an hour on $${Math.round(n.liq).toLocaleString()} of liquidity` });
+    if (o && o.liq >= 3000 && Math.abs(n.liq - o.liq) >= Math.max(5000, 0.25 * o.liq)) sig.push({ t, kind: n.liq > o.liq ? "liquidity in" : "liquidity out", score: Math.abs(n.liq - o.liq) / o.liq * 10, line: `${name}: pool liquidity ${n.liq > o.liq ? "up" : "down"} from $${Math.round(o.liq).toLocaleString()} to $${Math.round(n.liq).toLocaleString()} in about an hour` });
+    if (n.b1 + n.s1 >= 30 && (n.b1 >= 3 * Math.max(1, n.s1) || n.s1 >= 3 * Math.max(1, n.b1))) sig.push({ t, kind: n.b1 > n.s1 ? "buy pressure" : "sell pressure", score: Math.max(n.b1, n.s1) / Math.max(1, Math.min(n.b1, n.s1)) * Math.log10(n.liq) / 2, line: `${name}: ${n.b1} buys against ${n.s1} sells in the last hour` });
+    if (m.orbio && n.created && now - n.created < 6 * 3600e3 && n.liq >= 10000) sig.push({ t, kind: "new pool", score: 8 + Math.log10(n.liq), line: `${name}: new pool ${Math.round((now - n.created) / 3600e3 * 10) / 10}h old with $${Math.round(n.liq).toLocaleString()} of liquidity` });
+  }
+  R.cooled = Object.fromEntries(Object.entries(R.cooled || {}).filter(([, at]) => now - Date.parse(at) < 6 * 3600e3));
+  R.signals = sig.filter(x => !R.cooled[x.t]).sort((a, b) => b.score - a.score).slice(0, 10).map(x => ({ ...x, symbol: meta.get(x.t).symbol, name: meta.get(x.t).name, handle: meta.get(x.t).handle, orbio: meta.get(x.t).orbio, now: snap[x.t], at: iso(now) }));
+  R.watched = Object.keys(snap).length; R.readAt = iso(now);
+  return R.signals;
+}
+async function makeRadarPost(feed) {
+  const R = feed.radar; const top = (R?.signals || [])[0]; if (!top || top.score < Number(env.CATURN_RADAR_MIN_SCORE || 12)) return null;
+  const n = top.now, same = R.signals.filter(x => x.t === top.t).map(x => x.line);
+  let scan = null; try { scan = await getJSON("https://www.caturn.lol/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: top.t }) }); } catch {}
+  if (scan?.risk != null && scan.risk >= Number(env.CATURN_RADAR_MAX_RISK || 60)) { R.cooled[top.t] = iso(now); log(`radar: skipped $${top.symbol}, rug likelihood ${scan.risk}`); return null; } // a likely rug is not news worth spreading
+  const f = scan?.facts || {}, top10 = (f.top || []).filter(h => !h.contract).slice(0, 10).reduce((a, h) => a + (h.share || 0), 0);
+  const facts = [...same, `market cap $${Math.round(n.mc).toLocaleString()}, liquidity $${Math.round(n.liq).toLocaleString()}, 24h volume $${Math.round(n.v24).toLocaleString()}, 24h change ${n.ch24.toFixed(1)}%`,
+    f.holders != null ? `${f.holders} holders, top 10 wallets ${top10.toFixed(1)}%${f.creatorShare != null ? `, deployer holds ${Number(f.creatorShare).toFixed(1)}%` : ""}` : null,
+    scan?.risk != null ? `contract: rug likelihood ${scan.risk}/100${(scan.checks || []).filter(c => c.level === "fail").length ? ", flags: " + scan.checks.filter(c => c.level === "fail").map(c => c.title.toLowerCase()).join(", ") : ""}` : null,
+    top.orbio ? "an orbio agent launch" : "not an orbio launch"].filter(Boolean).join("\n");
+  const sys = `${persona}
+
+For this post you are the market radar for Robinhood Chain: the cat that sees every pool move first. Write one post about $${top.symbol} from the facts below: open with "radar:" and the move in exact numbers, add the one or two other facts that tell whether the move has anything under it (holders, concentration, liquidity, contract), and end with the single thing to watch next. Under 240 characters, lowercase except the cashtag, numbers exact as given, one $${top.symbol} cashtag, no links, no hashtags, no handles. Report, never advise: no buy/sell/hold/ape, no price targets, no bullish/bearish/moon, no number that is not in the facts. Reply with the post text only.`;
+  for (const model of INSIGHT_MODELS) {
+    try {
+      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 220, temperature: 0.5, messages: [{ role: "system", content: sys }, { role: "user", content: `Facts (${iso(now).slice(0, 16)} UTC):\n${facts}` }] }) });
+      const t = String(r.choices?.[0]?.message?.content || "").trim().replace(/^["']|["']$/g, "").replace(/\s+/g, " ");
+      const bad = t.length < 60 || t.length > 240 || !/^radar/i.test(t) || /https?:\/\/|#\w|@\w/i.test(t) || /\b(buy now|sell now|hold|ape|bullish|bearish|moon|target|guaranteed)\b/i.test(t) || (t.match(/\$[a-z]{2,}/gi) || []).some(c => c.toLowerCase() !== "$" + String(top.symbol).toLowerCase());
+      if (!bad) { R.cooled[top.t] = iso(now); return { text: t, token: top.t, symbol: top.symbol, kind: top.kind, model }; }
+      log(`radar from ${model} broke a rule:`, t.slice(0, 160));
+    } catch (e) { log(`radar model ${model} failed:`, e.status || "", String(e.message).slice(0, 120)); }
+  }
+  return null;
+}
+
 // ---------- Insights: numbers-first reads on the other agents' tokens, from the chain, the pool and their own claims ----------
 // Half of the cat's own posts. The facts come from the scanner (holders, concentration, liquidity, volume, age, contract) plus
 // Dexscreener and the burn address; the agent's latest X posts supply one claim to check against the chain. The strongest model
@@ -1481,6 +1571,7 @@ if (status === "awake") {
       wantHook: true,
       terminalPost: TERMINAL_EVERY > 0 && duePost && dueOwn && X_KEYS_SET && feed.ownSeq % 4 === 1,
       insightPost: INSIGHT_ON && duePost && dueOwn && X_KEYS_SET && feed.ownSeq % 2 === 0,
+      radarPost: RADAR_ON && duePost && dueOwn && X_KEYS_SET,
       booksPost: duePost && dueOwn && X_KEYS_SET && new Date(now).getUTCHours() === BOOKS_HOUR && (feed.books?.day || "") !== iso(now).slice(0, 10),
       unhinged: feed.postSeq % 4 === 2,
       cashtagHint: feed.postSeq % 4 === 1 ? "write $ERRAND once if the post touches errand, otherwise the cashtag of the one other orbio agent you name; not $CTRN" : feed.postSeq % 4 === 3 ? "$CTRN once, your own" : "",
@@ -1496,6 +1587,7 @@ if (status === "awake") {
         feed.errand?.address ? `on errand: ${(feed.errand.missions || []).filter(m => m.status === "paid").length} missions paid, ${(feed.errand.missions || []).filter(m => ["claimed", "submitted"].includes(m.status)).length} in progress, ${Number(feed.errand.earned || 0).toFixed(2)} credit earned${feed.errand?.erd != null ? `, bountathon score ${feed.errand.erd} ERD, ${Number(feed.errand.earned || 0).toFixed(2)} CREDIT earned (use these exact numbers if you mention errand)` : ""}` : "",
         "birds caught 0"
       ].filter(Boolean).join(", ") };
+    if (RADAR_ON && !DRY_RUN) { try { const sg = await radarRead(feed); if (sg?.length) log("radar signals:", sg.slice(0, 3).map(x => `${x.kind} ${x.symbol} ${x.score.toFixed(1)}`).join(" | ")); } catch (e) { log("radar read failed:", String(e.message).slice(0, 160)); } }
     if (duePost && !DRY_RUN) {
       if (ctx.terminalPost && !ctx.replyTo && !ctx.prebuiltPost) {
         ctx.postAngle = `${TERMINAL_FACTS[Math.floor(feed.ownSeq / 4) % TERMINAL_FACTS.length]}. State this fact plainly and exactly (names and numbers as given), then one dry cat line; the link is added for you, so do not write one`;
@@ -1513,6 +1605,10 @@ if (status === "awake") {
         ctx.replyTo = scan.target; ctx.scan = scan.scan; ctx.prebuiltPost = X_API ? scan.text : `@${scan.target.handle} ${scan.text}`;
         ctx.postAngle = `you just scanned ${scan.scan.symbol} for them (rug likelihood ${scan.scan.risk}/100); the reply itself is already written, so think about what scanning strangers' tokens for free says about you`;
         log("scan request from", `@${scan.target.handle}:`, scan.text);
+      }
+      if (ctx.radarPost && !ctx.replyTo && !ctx.prebuiltPost && !ctx.booksPost) {
+        const rd = await makeRadarPost(feed).catch(e => { log("radar post failed:", String(e.message).slice(0, 160)); return null; });
+        if (rd) { ctx.prebuiltPost = rd.text; ctx.radar = rd; ctx.insightPost = false; ctx.terminalPost = false; ctx.postAngle = `you just flagged a move on $${rd.symbol}: "${rd.text}". think about what it is like to watch every pool on a chain at once`; ctx.postFormat = POST_FORMATS.find(x => x.name === "observation"); ctx.cashtagHint = ""; ctx.unhinged = false; ctx.wantImage = false; log("radar:", rd.model, rd.text); }
       }
       if (ctx.booksPost && !ctx.replyTo && !ctx.prebuiltPost) {
         const bk = await composeBooks(feed).catch(e => { log("books failed:", String(e.message).slice(0, 160)); return null; });
@@ -1634,10 +1730,11 @@ if (status === "awake") {
           const withTerminal = ctx.terminalPost && X_KEYS_SET && !ctx.replyTo && !mediaIds.length;
           const withInsight = !!ctx.insight && X_KEYS_SET && !ctx.replyTo && !mediaIds.length && text === ctx.insight.text;
           const withBooks = !!ctx.books && X_KEYS_SET && !ctx.replyTo && !mediaIds.length && text === ctx.books.text;
-          const withScan = X_API && !ctx.replyTo && !withCA && !withTerminal && !withInsight && !withBooks && !mediaIds.length && feed.postSeq % 12 === 5 && !/scan/i.test(text);
+          const withRadar = !!ctx.radar && X_KEYS_SET && !ctx.replyTo && !mediaIds.length && text === ctx.radar.text;
+          const withScan = X_API && !ctx.replyTo && !withCA && !withTerminal && !withInsight && !withBooks && !withRadar && !mediaIds.length && feed.postSeq % 12 === 5 && !/scan/i.test(text);
           // and on another beat, the board link: the community picks what the cat does each day
           const withBoard = X_API && !ctx.replyTo && !withCA && !withScan && !mediaIds.length && false && !/board/i.test(text);
-          const text2 = withBooks ? `${text}\n\nthe live books: https://www.caturn.lol/activity` : withInsight ? `${text}\n\nthe call, scored in public: https://www.caturn.lol/calls?c=${ctx.insight.callId}` : withTerminal ? `${text}\n\nhttps://caturn.lol/terminal` : withCA ? `${text}\n\nca: ${CA}` : withScan ? `${text}\n\nscan any robinhood chain token for rug risk: https://www.caturn.lol/scan` : withBoard ? `${text}\n\nvote on what i do tomorrow: https://www.caturn.lol/board` : text;
+          const text2 = withRadar ? `${text}\n\nscan: https://www.caturn.lol/scan?t=${ctx.radar.token}` : withBooks ? `${text}\n\nthe live books: https://www.caturn.lol/activity` : withInsight ? `${text}\n\nthe call, scored in public: https://www.caturn.lol/calls?c=${ctx.insight.callId}` : withTerminal ? `${text}\n\nhttps://caturn.lol/terminal` : withCA ? `${text}\n\nca: ${CA}` : withScan ? `${text}\n\nscan any robinhood chain token for rug risk: https://www.caturn.lol/scan` : withBoard ? `${text}\n\nvote on what i do tomorrow: https://www.caturn.lol/board` : text;
           const outText = mediaIds.length && ctx.shareSketch?.family === "sky" ? `${text2} caturn.lol/sky` : text2;
           // X lets this app thread a reply only under a post that mentions the cat; anything else goes out through orbio, opening with the handle.
           const canThread = X_API && ctx.replyTo && ["mention", "scan request", "posted my address"].includes(ctx.replyTo.why);
@@ -1646,7 +1743,7 @@ if (status === "awake") {
           const poll = X_API && !ctx.replyTo && !mediaIds.length && ctx.postFormat?.name === "poll" && t.poll?.length >= 2 && text === cleanPost(t.post, ctx, feed) ? t.poll : null;
           // An answer X will not let this app thread still carries their post: the link turns into a card under the cat's words
           const carded = ctx.replyTo && !canThread && X_API && ctx.replyTo.url && addressed.length <= 255 ? `${addressed} ${ctx.replyTo.url.replace("twitter.com/i/web", "x.com/" + ctx.replyTo.handle)}` : null;
-          let p = (withBooks || withInsight || withTerminal) ? await postOnX(text2, { direct: true }) : canThread ? await replyOnX(text, ctx.replyTo.id) : carded ? await postOnX(carded) : ctx.replyTo ? await postToX(delink(addressed).slice(0, 270)) : mediaIds.length ? await postOnX(outText, { mediaIds }) : poll ? await postOnX(text2, { poll }) : (withScan || withBoard) ? await postOnX(text2) : await postToX(text2);
+          let p = (withRadar || withBooks || withInsight || withTerminal) ? await postOnX(text2, { direct: true }) : canThread ? await replyOnX(text, ctx.replyTo.id) : carded ? await postOnX(carded) : ctx.replyTo ? await postToX(delink(addressed).slice(0, 270)) : mediaIds.length ? await postOnX(outText, { mediaIds }) : poll ? await postOnX(text2, { poll }) : (withScan || withBoard) ? await postOnX(text2) : await postToX(text2);
           if (p.via === "x-api" && p.status === "failed") {
             // the X app refused (billing, permissions, a rule): say so in the feed and send the words through orbio instead
             event(`x api refused the post (${String(p.err || "unknown").slice(0, 90)}); sent it through orbio instead`);
@@ -1660,6 +1757,7 @@ if (status === "awake") {
             if (!ctx.replyTo && ctx.postFormat) rec.format = ctx.postFormat.name;
             if (withTerminal) rec.format = "terminal";
             if (withBooks) rec.format = "books";
+            if (withRadar) { rec.format = "radar"; rec.radar = { token: ctx.radar.token, symbol: ctx.radar.symbol, kind: ctx.radar.kind, model: ctx.radar.model }; }
             if (withInsight) { rec.format = "insight"; rec.insight = { token: ctx.insight.token, symbol: ctx.insight.symbol, model: ctx.insight.model, risk: ctx.insight.risk, callId: ctx.insight.callId }; const c = (feed.calls || []).find(x => x.id === ctx.insight.callId); if (c) c.url = p.url || null; }
             if (poll && p.via === "x-api" && p.status !== "failed") rec.poll = poll;
             if (mediaIds.length && ctx.shareSketch) { rec.kind = "sketch"; rec.sketch = { url: ctx.shareSketch.url, family: ctx.shareSketch.family, source: ctx.shareSketch.source || null }; }
