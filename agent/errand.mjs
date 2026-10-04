@@ -478,6 +478,8 @@ async function verifyXPost(content, mustMatch = null) {
     const posts = r.tweets || r.result?.tweets || [];
     const p = posts.find(t => String(t.id_str || t.id) === id);
     if (!p) return { ok: false, why: `post ${id} not found on @${handle}` };
+    const followers = Number(p.user?.followers_count ?? p.user?.followers ?? 0), MINF = Number(env.ERRAND_XPOST_MIN_FOLLOWERS || 100);
+    if (followers < MINF) return { ok: false, why: `@${handle} has ${followers} followers; a paid post needs an account with at least ${MINF}, so that the post is seen by someone` };
     if (!/caturn_rh/i.test(String(p.full_text || p.text || ""))) return { ok: false, why: "the post does not mention @caturn_rh" };
     if (mustMatch && !new RegExp(mustMatch, "i").test(String(p.full_text || p.text || ""))) return { ok: false, why: `the post does not mention the ${mustMatch}` };
     return { ok: true, handle, id, url: `https://x.com/${handle}/status/${id}` };
