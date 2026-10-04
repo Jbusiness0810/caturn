@@ -971,6 +971,7 @@ function spareOriginals(feed) {
 const canSpendOriginal = (feed, what) => { const s = spareOriginals(feed); if (s > 0) return true; log(`${what}: holding back, ${feed.xAllowance?.posts_left} originals left today are kept for the cat's own posts`); return false; };
 
 const usdShort = (v) => v == null || !Number.isFinite(Number(v)) ? "—" : v >= 1e6 ? "$" + (v / 1e6).toFixed(2) + "m" : v >= 1e3 ? "$" + (v / 1e3).toFixed(1) + "k" : "$" + Math.round(v);
+const hourAgoLiq = (feed, token) => (feed.radar?.snaps || []).filter(x => now - Date.parse(x.at) >= 50 * 60e3).slice(-1)[0]?.d?.[token]?.liq;
 const priceSeries = (feed, token) => (feed.radar?.snaps || []).map(x => x.d?.[token]?.px).filter(v => Number.isFinite(v) && v > 0);
 // ---------- Radar: watch every token with a pool on Robinhood Chain, every tick, and call out what moves ----------
 // Universe: every graduated orbio launch plus whatever Dexscreener lists on the chain. Each tick: one batched market read
@@ -1056,9 +1057,10 @@ For this post you are the market radar for Robinhood Chain: the cat that sees ev
       const bad = t.length < 60 || t.length > 240 || !/^radar/i.test(t) || /https?:\/\/|#\w|@\w/i.test(t) || /\b(buy now|sell now|hold|ape|bullish|bearish|moon|target|guaranteed)\b/i.test(t) || (t.match(/\$[a-z]{2,}/gi) || []).some(c => c.toLowerCase() !== "$" + String(top.symbol).toLowerCase());
       if (!bad) {
         R.cooled[top.t] = iso(now);
-        const card = { kicker: `caturn radar · ${top.kind}`, symbol: top.symbol, name: top.name || "", headline: top.line.replace(/^\$\S+:\s*/, ""), sub: [f.holders != null ? `${f.holders} holders` : null, f.holders != null ? `top 10 wallets ${top10.toFixed(1)}%` : null, scan?.risk != null ? `rug likelihood ${scan.risk}/100` : null].filter(Boolean).join(" · "),
-          rows: [["market cap", usdShort(n.mc)], ["liquidity", usdShort(n.liq)], ["24h volume", usdShort(n.v24)], ["1h buys / sells", `${n.b1} / ${n.s1}`], ["24h change", `${n.ch24 > 0 ? "+" : ""}${n.ch24.toFixed(1)}%`], ["rug score", scan?.risk != null ? `${scan.risk}/100` : "—"]],
-          series: priceSeries(feed, top.t), seriesLabel: "price, last hours", foot: `not advice · read ${iso(now).slice(11, 16)} utc · scan it at caturn.lol/scan` };
+        const big = top.kind === "up" || top.kind === "down" ? `${n.ch1 > 0 ? "+" : ""}${n.ch1.toFixed(1)}%` : top.kind === "volume" ? `${(n.v1 / Math.max(1, n.v24 / 24)).toFixed(1)}x` : top.kind.startsWith("liquidity") ? `${n.liq > (hourAgoLiq(feed, top.t) || n.liq) ? "+" : "−"}${usdShort(Math.abs(n.liq - (hourAgoLiq(feed, top.t) || n.liq)))}` : top.kind.endsWith("pressure") ? `${n.b1}:${n.s1}` : "NEW";
+        const bigLabel = { up: "in 1 hour", down: "in 1 hour", volume: "hourly volume vs normal", "liquidity in": "liquidity in an hour", "liquidity out": "liquidity in an hour", "buy pressure": "buys to sells, 1 hour", "sell pressure": "buys to sells, 1 hour", "new pool": `pool, ${usdShort(n.liq)} deep` }[top.kind] || "";
+        const card = { kicker: `radar · ${top.kind}`, symbol: top.symbol, token: top.t, big, bigLabel, tone: ["up", "buy pressure", "liquidity in", "volume", "new pool"].includes(top.kind) ? "up" : "down", analysis: t.replace(/^radar:\s*/i, ""),
+          stats: [["liquidity", usdShort(n.liq)], ["holders", f.holders != null ? Number(f.holders).toLocaleString() : "—"], ["top 10", f.holders != null ? `${top10.toFixed(1)}%` : "—"], ["rug score", scan?.risk != null ? `${scan.risk}/100` : "—"]], date: iso(now).slice(0, 10) };
         return { text: t, token: top.t, symbol: top.symbol, kind: top.kind, model, card };
       }
       log(`radar from ${model} broke a rule:`, t.slice(0, 160));
@@ -1144,10 +1146,9 @@ Answer with one JSON object only: {"post": string, "lean": "fade"|"watch"|"credi
   feed.calls.push({ ...body, hash, status: "open", now: null, checkedAt: null, resolvedAt: null, url: null });
   const LBL = { holders: "holders", liquidity_usd: "liquidity", volume_24h_usd: "24h volume", top10_pct: "top 10 share", burn_pct: "burned", market_cap_usd: "market cap" };
   const fmtM = (k, v) => /usd$/.test(k) ? usdShort(v) : /pct$/.test(k) ? `${Number(v).toFixed(1)}%` : Number(v).toLocaleString();
-  const card = { kicker: `caturn call · lean ${call.lean}`, symbol: f.symbol, name: f.name, headline: `breaks if ${LBL[call.check.metric]} ${call.check.op === ">=" ? "above" : "below"} ${fmtM(call.check.metric, call.check.value)} by ${new Date(call.check.by + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}`,
-    sub: `now ${fmtM(call.check.metric, nums[call.check.metric])}. frozen at writing, scored on its date by code.`,
-    rows: [["holders", nums.holders.toLocaleString()], ["top 10", `${nums.top10_pct}%`], ["liquidity", usdShort(nums.liquidity_usd)], ["24h volume", usdShort(nums.volume_24h_usd)], ["market cap", usdShort(nums.market_cap_usd)], ["rug score", `${scan.risk}/100`]],
-    series: priceSeries(feed, sub.token), seriesLabel: "price, last hours", foot: `not advice · the record: caturn.lol/calls · ${hash.slice(0, 10)}` };
+  const by = new Date(call.check.by + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).toLowerCase();
+  const card = { kicker: `call · lean ${call.lean}`, symbol: f.symbol, token: sub.token, big: call.lean.toUpperCase(), bigLabel: `breaks if ${LBL[call.check.metric]} ${call.check.op === ">=" ? ">" : "<"} ${fmtM(call.check.metric, call.check.value)} by ${by}`, tone: call.lean === "credible" ? "up" : call.lean === "fade" ? "down" : "flat", analysis: text,
+    stats: [["holders", nums.holders.toLocaleString()], ["top 10", `${nums.top10_pct}%`], ["liquidity", usdShort(nums.liquidity_usd)], ["market cap", usdShort(nums.market_cap_usd)]], date: iso(now).slice(0, 10), foot: "scored at caturn.lol/calls" };
   return { text, token: sub.token, symbol: f.symbol, name: f.name, model: used, risk: scan.risk, callId: id, card };
 }
 // Score the open calls: refresh their numbers every six hours, and resolve each one on its date. "breaks if" true means the lean broke.

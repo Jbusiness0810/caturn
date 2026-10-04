@@ -1,49 +1,64 @@
-// A data card for a post: the move in big numbers, a small table and a sparkline, rendered to PNG in headless Chrome.
-// An image post costs orbio about 3.5 cents against 22 for a link, and a chart stops a scroll where a link card does not.
+// A data card for each token read the cat posts: the analysis on the left in big type, the mascot on the right, over the
+// space background. Rendered to PNG in headless Chrome. An image post costs orbio about 3.5 cents against 22 for a link,
+// and a card stops a scroll where a link card does not.
 import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
 const require = createRequire(import.meta.url);
 
 const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" }[c]));
+const asset = (name, mime) => { try { return `data:${mime};base64,${readFileSync(new URL(`../public/${name}`, import.meta.url)).toString("base64")}`; } catch { return ""; } };
+let BG = null, CAT = null;
 
-function spark(points, w = 520, h = 120) {
-  const ys = points.filter(Number.isFinite); if (ys.length < 2) return "";
-  const lo = Math.min(...ys), hi = Math.max(...ys), span = hi - lo || hi || 1;
-  const xy = ys.map((y, i) => [Math.round(i / (ys.length - 1) * w), Math.round(h - 8 - (y - lo) / span * (h - 16))]);
-  const up = ys[ys.length - 1] >= ys[0], color = up ? "#3f8f4f" : "#b4533c";
-  const line = xy.map(([x, y], i) => `${i ? "L" : "M"}${x},${y}`).join(" ");
-  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><path d="${line} L${w},${h} L0,${h} Z" fill="${color}" opacity=".12"/><path d="${line}" fill="none" stroke="${color}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/><circle cx="${xy[xy.length - 1][0]}" cy="${xy[xy.length - 1][1]}" r="5" fill="${color}"/></svg>`;
-}
-
-// spec: { kicker, symbol, name, headline, sub, rows: [[label, value]], series: [numbers], seriesLabel, foot }
+// spec: { kicker, symbol, name, token, big, bigLabel, analysis, stats: [[label, value]] (up to 4), date, tone: "up"|"down"|"flat", foot }
+// Older specs (headline, sub, rows) are still understood.
 export function cardHtml(spec) {
-  const rows = (spec.rows || []).slice(0, 6).map(([k, v]) => `<div class="r"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("");
+  BG = BG ?? asset("card-bg.jpg", "image/jpeg"); CAT = CAT ?? asset("card-mascot.png", "image/png");
+  const stats = (spec.stats || spec.rows || []).slice(0, 4);
+  const tone = spec.tone || "flat", accent = tone === "up" ? "#7dffb2" : tone === "down" ? "#ff9a7a" : "#ffd98a";
+  const big = spec.big || "", analysis = spec.analysis || spec.headline || "";
+  const date = spec.date || new Date().toISOString().slice(0, 10);
+  const statHtml = stats.map(([k, v]) => `<div class="st"><span>${esc(k)}</span><b>${esc(v)}</b></div>`).join("");
   return `<!doctype html><html><head><meta charset="utf-8"><style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{width:1200px;height:675px;background:#f6f1e8;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:#1d1a16;display:flex}
-  .card{margin:36px;flex:1;background:#fffdf8;border:1px solid #e6dccb;border-radius:28px;padding:44px 52px;display:flex;flex-direction:column;position:relative;overflow:hidden}
-  .k{font-size:20px;letter-spacing:.22em;text-transform:uppercase;color:#9a7b3c}
-  .t{display:flex;align-items:baseline;gap:18px;margin-top:14px}
-  .sym{font-family:Georgia,"Times New Roman",serif;font-size:72px;line-height:1}
-  .nm{font-size:26px;color:#8a8070}
-  .h{font-family:Georgia,"Times New Roman",serif;font-size:50px;line-height:1.1;margin-top:20px;max-width:1000px}
-  .s{font-size:24px;color:#6f665a;margin-top:12px;max-width:1000px}
-  .mid{display:flex;gap:40px;margin-top:auto;align-items:flex-end}
-  .grid{display:grid;grid-template-columns:repeat(3,auto);gap:14px 34px}
-  .r span{display:block;font-size:15px;letter-spacing:.14em;text-transform:uppercase;color:#9b917f}
-  .r b{display:block;font-size:30px;font-weight:600;margin-top:2px}
-  .sp{margin-left:auto;text-align:right}
-  .sp small{display:block;font-size:15px;letter-spacing:.14em;text-transform:uppercase;color:#9b917f;margin-bottom:6px}
-  .f{display:flex;justify-content:space-between;align-items:center;margin-top:26px;padding-top:18px;border-top:1px solid #eee4d3;font-size:19px;color:#8a8070}
-  .f b{color:#1d1a16;font-weight:600}
-  .ring{position:absolute;right:-90px;top:-90px;width:320px;height:320px;border-radius:50%;border:14px solid #e9dcbf;opacity:.55}
-  </style></head><body><div class="card"><div class="ring"></div>
-  <div class="k">${esc(spec.kicker || "caturn radar · robinhood chain")}</div>
-  <div class="t"><span class="sym">$${esc(spec.symbol)}</span><span class="nm">${esc(spec.name || "")}</span></div>
-  <div class="h">${esc(spec.headline)}</div>
-  ${spec.sub ? `<div class="s">${esc(spec.sub)}</div>` : ""}
-  <div class="mid"><div class="grid">${rows}</div>${(spec.series || []).length >= 2 ? `<div class="sp"><small>${esc(spec.seriesLabel || "price, last hours")}</small>${spark(spec.series)}</div>` : ""}</div>
-  <div class="f"><span>${esc(spec.foot || "")}</span><span><b>@caturn_rh</b> · caturn.lol</span></div>
-  </div></body></html>`;
+  body{width:1200px;height:728px;font-family:"DejaVu Sans",Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;color:#eef2ff;background:#0b0f2a}
+  .bg{position:absolute;inset:0;background:url(${BG}) center/cover no-repeat}
+  .shade{position:absolute;inset:0;background:linear-gradient(90deg,rgba(8,10,34,.94) 0%,rgba(8,10,34,.86) 52%,rgba(8,10,34,.35) 78%,rgba(8,10,34,.15) 100%)}
+  .frame{position:absolute;inset:22px;border:2px solid ${accent}55;border-radius:26px;box-shadow:inset 0 0 60px ${accent}14}
+  .cat{position:absolute;right:18px;bottom:30px;width:470px;filter:drop-shadow(0 0 34px ${accent}55) drop-shadow(0 18px 30px rgba(0,0,0,.55))}
+  .badge{position:absolute;right:56px;top:52px;text-align:center;font-size:15px;letter-spacing:.16em;color:#dfe6ff}
+  .badge i{display:block;width:62px;height:62px;margin:0 auto 8px;border-radius:14px;background:#d6ff3a;color:#0b0f2a;font-style:normal;font-weight:800;font-size:26px;line-height:62px;letter-spacing:0}
+  .l{position:absolute;left:70px;top:56px;width:690px}
+  .site{font-size:30px;letter-spacing:.02em;color:#f4f6ff}
+  .site small{font-size:16px;letter-spacing:.2em;text-transform:uppercase;color:${accent};margin-left:14px;vertical-align:middle}
+  .rule{height:2px;background:linear-gradient(90deg,${accent}aa,transparent);margin:20px 0 22px}
+  .sym{font-size:${String(spec.symbol || "").length > 7 ? 78 : 104}px;font-weight:300;letter-spacing:.04em;color:${accent};line-height:1;text-shadow:0 0 24px ${accent}55}
+  .ca{font-family:"DejaVu Sans Mono",ui-monospace,Menlo,monospace;font-size:19px;color:#cfd6f5;margin-top:12px}
+  .big{display:flex;align-items:baseline;gap:18px;margin-top:22px}
+  .big b{font-size:${big.length > 9 ? 70 : 96}px;font-weight:800;color:${accent};line-height:1;text-shadow:0 0 28px ${accent}66}
+  .big span{font-size:19px;letter-spacing:.14em;text-transform:uppercase;color:#cfd6f5;max-width:300px;line-height:1.3}
+  .an{font-size:23px;line-height:1.38;color:#eef2ff;margin-top:18px;max-width:680px}
+  .stats{display:grid;grid-template-columns:repeat(${Math.min(4, Math.max(1, stats.length))},auto);gap:10px 36px;margin-top:24px;justify-content:start}
+  .st span{display:block;font-size:15px;letter-spacing:.14em;text-transform:uppercase;color:#aab4dd}
+  .st b{display:block;font-size:30px;font-weight:600;color:${accent};margin-top:4px}
+  .meta{position:absolute;left:70px;bottom:104px;font-size:21px;letter-spacing:.06em;color:#dfe6ff}
+  .foot{position:absolute;left:70px;right:520px;bottom:52px;padding-top:16px;border-top:2px solid ${accent}55;font-size:19px;letter-spacing:.08em;color:#dfe6ff;white-space:nowrap}
+  .foot b{color:${accent};font-weight:700}
+  </style></head><body>
+  <div class="bg"></div><div class="shade"></div><div class="frame"></div>
+  ${CAT ? `<img class="cat" src="${CAT}">` : ""}
+  <div class="badge"><i>RH</i>ROBINHOOD</div>
+  <div class="l">
+    <div class="site">caturn.lol<small>${esc(spec.kicker || "radar")}</small></div>
+    <div class="rule"></div>
+    <div class="sym">${esc(spec.symbol || "")}</div>
+    ${spec.token ? `<div class="ca">${esc(spec.token)}</div>` : ""}
+    ${big ? `<div class="big"><b>${esc(big)}</b>${spec.bigLabel ? `<span>${esc(spec.bigLabel)}</span>` : ""}</div>` : ""}
+    ${analysis ? `<div class="an">${esc(analysis)}</div>` : ""}
+    ${statHtml ? `<div class="stats">${statHtml}</div>` : ""}
+  </div>
+  <div class="meta">${esc(date)} &nbsp;•&nbsp; ROBINHOOD CHAIN${spec.foot ? ` &nbsp;•&nbsp; ${esc(spec.foot)}` : ""}</div>
+  <div class="foot">ANALYSIS BY <b>CATURN</b> &nbsp;|&nbsp; <b>@caturn_rh</b> &nbsp;|&nbsp; NOT ADVICE</div>
+  </body></html>`;
 }
 
 export async function renderCard(spec) {
@@ -51,7 +66,7 @@ export async function renderCard(spec) {
   const launch = process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: "chrome" };
   const browser = await chromium.launch(launch).catch(() => chromium.launch());
   try {
-    const page = await browser.newPage({ viewport: { width: 1200, height: 675 }, deviceScaleFactor: 1 });
+    const page = await browser.newPage({ viewport: { width: 1200, height: 728 }, deviceScaleFactor: 1 });
     await page.setContent(cardHtml(spec), { waitUntil: "load" });
     return await page.screenshot({ type: "png" });
   } finally { await browser.close(); }
