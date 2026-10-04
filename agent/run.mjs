@@ -1202,7 +1202,22 @@ async function sayOne(feed) {
   feed.said.push(next.id);
   try {
     // Through the X app when the keys exist (real links allowed); otherwise through orbio, with links spelled out in words.
-    const rt = next.replyTo?.id ? { id: String(next.replyTo.id), handle: String(next.replyTo.handle || "").toLowerCase() } : null;
+    let rt = next.replyTo?.id ? { id: String(next.replyTo.id), handle: String(next.replyTo.handle || "").toLowerCase() } : null;
+    // replyFrom: answer that account's newest mention of the cat (the id is looked up here, so a reply can be queued without it)
+    if (!rt && next.replyFrom) {
+      const h = String(next.replyFrom).toLowerCase().replace(/^@/, "");
+      let m = null;
+      try { m = (await readX({ mentions_of: OWN_HANDLE })).filter(t => t.handle === h).sort((a, b) => Date.parse(b.at || 0) - Date.parse(a.at || 0))[0]; }
+      catch (e) { log("replyFrom read failed:", String(e.message).slice(0, 120)); }
+      if (!m) {
+        feed.sayTries = feed.sayTries || {}; const tries = (feed.sayTries[next.id] = (feed.sayTries[next.id] || 0) + 1);
+        feed.said = feed.said.filter(x => x !== next.id);
+        if (tries >= 4) { feed.said.push(next.id); event(`could not find a mention from @${h} to answer`); }
+        await persistNow(feed); return;
+      }
+      rt = { id: String(m.id), handle: h }; next.replyText = m.text;
+    }
+    if (rt && feed.posts.some(p => String(p.replyTo?.id) === rt.id)) { log("say: already answered", rt.id); return; } // the rotation got there first
     // never cut a queued post: X counts every link as 23 characters, so a long URL is fine as long as the counted length fits
     let text = String(next.text);
     const xLen = (t) => t.replace(/https?:\/\/\S+/g, "x".repeat(23)).length;
