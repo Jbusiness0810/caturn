@@ -77,7 +77,7 @@ const auth = { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/
 // ---------- 1. Market and flywheel state ----------
 async function readAgent() {
   if (!AGENT_ID) return null;
-  try { return await getJSON(`${ORBIO_PROTOCOL}/agents/${AGENT_ID}`); }
+  try { return await getJSON(`${ORBIO_PROTOCOL}/agents/${AGENT_ID}`, { signal: AbortSignal.timeout(15000) }); }
   catch (e) { log("agent read failed:", e.message); return null; }
 }
 async function readVolume(token) {
@@ -1597,7 +1597,11 @@ feed.sketches = (feed.sketches || []).filter(s => s.url || s.seed).filter(s => !
 feed.thoughts.forEach(t => { if (t.sketch?.source && !(t.sketch.source.hearts >= 1)) delete t.sketch; }); // one without an address is re-rendered later (see repairSketches); one without a seed is lost
 feed.posts = (feed.posts || []).slice(-150);
 
-const agent = await readAgent();
+// Orbio's agent read can stall; the last good copy keeps the cat posting (the numbers in it are at most a few hours old)
+let agent = await readAgent();
+if (agent) feed.agentCache = { at: iso(now), data: agent };
+else if (feed.agentCache?.data && now - Date.parse(feed.agentCache.at) < 24 * 3600e3) { agent = feed.agentCache.data; log("agent read failed; using the copy from", feed.agentCache.at); }
+else if (AGENT_ID) { agent = { agentId: String(AGENT_ID), token: CA.toLowerCase(), symbol: "CTRN", price: { graduated: true }, stale: true }; log("agent read failed and no copy yet; posting on the known identity"); }
 let balanceCredit = null;
 if (API_KEY) { try { const k = await getJSON(`${ORBIO_API}/key`, { headers: auth }); balanceCredit = Number(BigInt(k.balance?.available_micro_usd || "0")) / 1e6; } catch (e) { log("balance read failed:", e.message); } }
 const token = agent?.token || null;
