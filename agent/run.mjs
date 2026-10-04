@@ -1121,14 +1121,15 @@ async function thesisPost(feed) {
   const T = feed.thesis = feed.thesis || { last: null, done: [] };
   const everyH = Number(env.CATURN_THESIS_EVERY_H || 3);
   if (T.last && now - Date.parse(T.last) < everyH * 3600e3) return;
+  if (T.tried && now - Date.parse(T.tried) < 30 * 60e3) return;
+  T.tried = iso(now); const note = (m) => { T.note = { at: iso(now), m: String(m).slice(0, 300) }; log("thesis:", m); };
   if (feed.xAllowance?.posts_left != null && feed.xAllowance.posts_left <= 4) { log("thesis: holding back, the last originals are kept"); return; }
   const snaps = feed.radar?.snaps || [], snap = snaps[snaps.length - 1]?.d || {};
   const orbio = (feed.radar?.universe || []).filter(u => u.orbio && snap[u.token]?.v24 > 0).sort((a, b) => snap[b.token].v24 - snap[a.token].v24);
   const sub = orbio.find(u => !T.done.some(d => d.token === u.token && now - Date.parse(d.at) < 48 * 3600e3) && snap[u.token].v24 >= Number(env.CATURN_THESIS_MIN_VOL || 10000));
-  if (!sub) { log("thesis: no orbio launch busy enough"); T.last = iso(now); return; }
-  T.last = iso(now);
+  if (!sub) { note("no orbio launch busy enough"); return; }
   const scan = await scanToken(sub.token);
-  if (!scan?.facts || scan.facts.partialHistory || !scan.facts.holders) { log("thesis: scan incomplete for", sub.symbol); return; }
+  if (!scan?.facts || scan.facts.partialHistory || !scan.facts.holders) { note(`scan incomplete for ${sub.symbol}`); T.done = [...T.done, { token: sub.token, symbol: sub.symbol, at: iso(now), skipped: true }].slice(-50); return; }
   const f = scan.facts, n = snap[sub.token];
   const pairs = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${sub.token}`).then(r => r.json()).then(d => (d.pairs || []).filter(p => String(p.chainId).toLowerCase().includes("robinhood"))).catch(() => []);
   const pair = pairs.sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0] || null;
@@ -1172,8 +1173,8 @@ Rules: lowercase except cashtags; every number exactly as given in the facts, ne
       const strays = parts.join(" ").replace(/,/g, "").match(/\d+(\.\d+)?/g)?.filter(x => x.length >= 2 && !digits.includes(x)) || [];
       const bad = !parts[0].toLowerCase().startsWith("$" + sub.symbol.toLowerCase()) || parts[0].length > 225 || parts[1].length > 275 || parts[2].length > 275 || parts.some(x => x.length < 40 || /https?:\/\/|#\w|@\w/.test(x) || banned.test(x)) || strays.length > 1;
       if (!bad) { out = { parts, stance: ["constructive", "skeptical", "mixed"].includes(j.stance) ? j.stance : "mixed" }; used = model; break; }
-      log(`thesis from ${model} broke a rule${strays.length ? " (numbers not in the facts: " + strays.join(", ") + ")" : ""}:`, parts[0].slice(0, 140));
-    } catch (e) { log(`thesis model ${model} failed:`, String(e.message).slice(0, 140)); }
+      note(`${model} broke a rule${strays.length ? " (numbers not in the facts: " + strays.join(", ") + ")" : ""}: ${parts.join(" || ").slice(0, 220)}`);
+    } catch (e) { note(`${model} failed: ${String(e.message).slice(0, 160)}`); }
   }
   if (!out) return;
   const card = { kicker: `thesis · ${out.stance}`, symbol: sub.symbol, token: sub.token, big: g.grade, bigLabel: `${out.stance} · score ${g.score}/100`, tone: out.stance === "constructive" ? "up" : out.stance === "skeptical" ? "down" : "flat",
@@ -1181,7 +1182,8 @@ Rules: lowercase except cashtags; every number exactly as given in the facts, ne
   let media = null; try { media = `data:image/png;base64,${(await renderCard(card)).toString("base64")}`; } catch (e) { log("thesis card failed:", String(e.message).slice(0, 120)); }
   let p = await orbioSend(out.parts[0] + caLine(sub.token), { media });
   if (p.status === "failed" && media) p = await orbioSend(out.parts[0] + caLine(sub.token));
-  if (p.status === "failed" || !p.id) { log("thesis post failed:", p.err); return; }
+  if (p.status === "failed" || !p.id) { note(`post failed: ${p.err}`); return; }
+  T.last = iso(now);
   const recs = [{ at: iso(now), text: out.parts[0] + caLine(sub.token), id: p.id, url: p.url, status: p.status, cost: Number(p.cost || 0), via: p.via || "orbio", format: "thesis", card: !!media, insight: { token: sub.token, symbol: sub.symbol, model: used, grade: g.grade, stance: out.stance } }];
   let parent = p.id;
   for (const text of out.parts.slice(1)) {
