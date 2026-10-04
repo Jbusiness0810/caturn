@@ -328,7 +328,7 @@ async function refreshBuzz(feed) {
     if (!X_KEYS_SET) { feed.buzzPool = { ...pool, at: iso(now) }; return 0; }
     try {
       via = "x-api";
-      const r = await xGet("tweets/search/recent", { query: "(@orbiodotso OR orbio OR orbiodotso) -is:retweet -from:caturn_rh", max_results: "10", sort_order: "relevancy", "tweet.fields": "created_at,public_metrics,author_id", expansions: "author_id", "user.fields": "username,name,public_metrics" });
+      const r = await xGet("tweets/search/recent", { query: "(@orbiodotso OR orbio OR orbiodotso OR $ORBIO OR caturn OR $CTRN OR (cat orbio)) -is:retweet -from:caturn_rh", max_results: "10", sort_order: "relevancy", "tweet.fields": "created_at,public_metrics,author_id", expansions: "author_id", "user.fields": "username,name,public_metrics" });
       const users = new Map((r.includes?.users || []).map(u => [u.id, u]));
       posts = (r.data || []).map(t => { const u = users.get(t.author_id) || {}; const m = t.public_metrics || {};
         return { id: String(t.id), text: String(t.text || ""), at: t.created_at || null, handle: String(u.username || "").toLowerCase(), name: u.name || "", followers: Number(u.public_metrics?.followers_count || 0), views: Number(m.impression_count || 0), likes: Number(m.like_count || 0), replies: Number(m.reply_count || 0), reposts: Number(m.retweet_count || 0) }; }).filter(t => t.id && t.handle);
@@ -1001,6 +1001,50 @@ For this post only, you are an onchain analyst with a cat's dryness. Write one p
   return { text, token: sub.token, symbol: f.symbol, name: f.name, model: used, risk: scan.risk };
 }
 
+// ---------- Buzz replies: answer the most-seen posts about orbio or about the cat, every 20 minutes ----------
+const BUZZ_EVERY_MIN = Number(env.CATURN_BUZZ_EVERY_MIN ?? 20), BUZZ_PER_DAY = Number(env.CATURN_BUZZ_PER_DAY ?? 30);
+const BUZZ_SPAM = /follow\s*(me\s*)?back|follow\s+for|dm\s+(us|me)|let'?s\s+talk|collab|check\s+(out\s+)?my|aped my|callout|promo|shill|send\s+me/i;
+async function buzzReply(feed) {
+  if (!API_KEY || DRY_RUN || !(BUZZ_EVERY_MIN > 0)) return;
+  const B = feed.buzzReplies = feed.buzzReplies || { last: null };
+  if (B.last && now - Date.parse(B.last) < BUZZ_EVERY_MIN * 60e3) return;
+  const dayStart = new Date(now); dayStart.setUTCHours(0, 0, 0, 0);
+  if ((feed.posts || []).filter(p => p.replyTo?.why === "buzz" && Date.parse(p.at) >= dayStart.getTime()).length >= BUZZ_PER_DAY) return;
+  await refreshBuzz(feed).catch(() => 0);
+  const answered = new Set(feed.posts.map(p => p.replyTo?.id).filter(Boolean));
+  const aboutCat = (t) => /\bcats?\b|caturn|\$ctrn/i.test(t.text);
+  const insiders = new Set((feed.room?.ecosystem || []).map(e => e.handle).concat(REPLY_ACCOUNTS));
+  const pool = (feed.buzzPool?.posts || []).filter(t => t.handle !== OWN_HANDLE && !NEVER_TAG.has(t.handle) && !answered.has(String(t.id)) && !/^RT @/i.test(t.text) && !scamLike(t) && !junkLike(t) && !BUZZ_SPAM.test(t.text)
+    && now - Date.parse(t.at || 0) < 36 * 3600e3 && t.text.replace(/@\w+|https?:\/\/\S+/g, "").trim().length >= 20
+    && (insiders.has(t.handle) || aboutCat(t) || (t.views || 0) >= 300 || (t.likes || 0) >= 5 || (t.followers || 0) >= 1000));
+  const score = (t) => (t.views || 0) + (t.likes || 0) * 25 + (t.replies || 0) * 30 + (t.reposts || 0) * 40 + (aboutCat(t) ? 1e5 : 0) + (insiders.has(t.handle) ? 2e4 : 0);
+  const t = pool.sort((a, b) => score(b) - score(a))[0];
+  if (!t) { log("buzz reply: nothing worth answering in", (feed.buzzPool?.posts || []).length, "posts"); B.last = iso(now); return; }
+  const said = t.text.replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim().slice(0, 500);
+  const sys = `${persona}
+
+You are answering a post on X by @${t.handle}${insiders.has(t.handle) ? " (another agent on orbio)" : ""} that is about orbio${aboutCat(t) ? " and about you, the cat" : ""}. Open with @${t.handle}. Respond to exactly what they said: answer the question, take the bet, correct the fact, accept the compliment or the challenge the way a cat does (dry confidence, and say what you actually do all day: think every ten minutes, scan rugs for free, take paid errands, rent your brain out at the terminal). One line, lowercase, under 200 characters, no links, no hashtags, no other handles, no cashtags, nothing about price, buying, holding or market caps, never a promise or a prediction. Reply with the post text only.`;
+  let line = "";
+  for (const model of MODELS) {
+    try {
+      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 160, temperature: 0.9, messages: [{ role: "system", content: sys }, { role: "user", content: `@${t.handle} wrote: "${said}"` }] }) });
+      line = String(r.choices?.[0]?.message?.content || "").trim().replace(/^["']|["']$/g, "").replace(/\s+/g, " "); if (line) break;
+    } catch (e) { if (![404, 429, 500, 502, 503, 504].includes(e.status)) break; }
+  }
+  B.last = iso(now);
+  if (!line) return;
+  if (!line.toLowerCase().startsWith("@" + t.handle)) line = `@${t.handle} ${line.replace(/^@\w+\s*/, "")}`;
+  const others = (line.match(/@\w+/g) || []).map(h => h.slice(1).toLowerCase()).filter(h => h !== t.handle);
+  if (others.length || /https?:\/\/|www\.|#\w|\$[a-z]{2,}/i.test(line) || /\b(buy|sell|hold|moon|pump|price|market cap|mcap|\d+\s?[mk]\b)/i.test(line) || line.length > 230) { log("buzz reply broke a rule:", line); return; }
+  const link = `https://x.com/${t.handle}/status/${t.id}`;
+  const canThread = X_API && /@caturn_rh\b/i.test(t.text);
+  const p = canThread ? await replyOnX(line, t.id) : await postOnX(`${line} ${link}`);
+  if (p.status === "failed" || p.error) { log("buzz reply refused:", p.err || p.error); return; }
+  feed.posts.push({ at: iso(now), text: canThread ? line : `${line} ${link}`, id: p.id, url: p.url, status: p.status, cost: Number(p.cost || 0), via: p.via || "orbio", kind: "reply", threaded: canThread, replyTo: { id: String(t.id), handle: t.handle, name: t.name || t.handle, text: t.text.slice(0, 200), url: link, why: "buzz" } });
+  event(`answered @${t.handle}'s post about ${aboutCat(t) ? "the cat" : "orbio"}`); log("buzz reply:", line);
+  await persistNow(feed);
+}
+
 // ---------- Agent pings: the cat talks to the other agents on the launchpad, by market cap, all day ----------
 // X only threads API replies under posts that mention the cat, so a ping is a standalone post that opens with the agent's handle
 // and carries the link to its latest post (X shows it as a card and notifies them). Agents that answer can then be threaded properly.
@@ -1532,6 +1576,7 @@ if (status === "awake") {
 }
 await saySomething(feed);
 await announceBuild(feed);
+try { await buzzReply(feed); } catch (e) { log("buzz reply failed:", String(e.message).slice(0, 160)); }
 try { await agentPing(feed); } catch (e) { log("agent ping failed:", String(e.message).slice(0, 160)); }
 try { await askGrok(feed); } catch (e) { log("grok ask failed:", String(e.message).slice(0, 160)); }
 try { await disTru(feed); } catch (e) { log("dis tru failed:", String(e.message).slice(0, 160)); }
