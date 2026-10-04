@@ -10,17 +10,17 @@ const cache = new Map(); const hits = new Map(); let refCode = null;
 const now = () => Date.now();
 
 async function rpc(method, params) {
-  const r = await fetch(RPC, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
+  const r = await fetch(RPC, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }), signal: AbortSignal.timeout(12000) });
   if (!r.ok) throw new Error(`${method}: HTTP ${r.status}${r.status === 429 ? " too many requests" : ""}`);
   const j = await r.json(); if (j.error) throw new Error(`${method}: ${j.error.code || ""} ${j.error.message}`); return j.result;
 }
 async function batch(calls) {
   for (let attempt = 0; ; attempt++) {
-    const r = await fetch(RPC, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(calls.map((c, i) => ({ jsonrpc: "2.0", id: i, method: c[0], params: c[1] }))) });
+    const r = await fetch(RPC, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(calls.map((c, i) => ({ jsonrpc: "2.0", id: i, method: c[0], params: c[1] }))), signal: AbortSignal.timeout(12000) }).catch(() => ({ ok: false, status: 0 }));
     const j = r.ok ? await r.json().catch(() => null) : null;
     const rows = Array.isArray(j) ? j : j ? [j] : [];
     const limited = !r.ok || !rows.length || rows.some(x => x.error && /429|too many/i.test(String(x.error.code) + x.error.message));
-    if (limited && attempt < 5) { await new Promise(res => setTimeout(res, 400 * 2 ** attempt)); continue; } // a rate-limited batch is retried, never read as "no contract"
+    if (limited && attempt < 3) { await new Promise(res => setTimeout(res, 500 * 2 ** attempt)); continue; } // a rate-limited batch is retried, never read as "no contract"
     return rows.sort((a, b) => a.id - b.id).map(x => x.error ? null : x.result);
   }
 }
@@ -36,7 +36,7 @@ const SELECTORS = {
   owner: ["8da5cb5b"], renounce: ["715018a6"], transferOwnership: ["f2fde38b"]
 };
 
-async function analyze(token) {
+export async function analyze(token) {
   const t = token.toLowerCase();
   const [code, nameH, symH, decH, supH, ownH, implSlot, latestH] = await batch([
     ["eth_getCode", [t, "latest"]], call(t, "0x06fdde03"), call(t, "0x95d89b41"), call(t, "0x313ce567"), call(t, "0x18160ddd"), call(t, "0x8da5cb5b"),
@@ -62,7 +62,7 @@ async function analyze(token) {
   // The public node caps one log query at 10,000 results and rate-limits bursts (429). Ranges split in half until they fit,
   // a 429 waits and retries, and the scan stops at a time budget rather than returning an empty history.
   let logs = [], from = Math.max(0, latest - 12_000_000), partial = false;
-  const t0 = now(), BUDGET = 42e3, sleep = (ms) => new Promise(r => setTimeout(r, ms));
+  const t0 = now(), BUDGET = Number(process.env.SCAN_BUDGET_MS || 34e3), sleep = (ms) => new Promise(r => setTimeout(r, ms));
   async function getLogs(lo, hi, depth = 0) {
     if (now() - t0 > BUDGET) { partial = true; return []; }
     for (let attempt = 0; attempt < 6; attempt++) {
@@ -70,7 +70,7 @@ async function analyze(token) {
       catch (e) {
         const m = String(e.message);
         if (/exceeds limit|too many results|range|response size/i.test(m) && hi - lo > 2000 && depth < 14) { const mid = Math.floor((lo + hi) / 2); const right = await getLogs(mid + 1, hi, depth + 1); const left = await getLogs(lo, mid, depth + 1); return left.concat(right); }
-        if (/429|too many requests|rate/i.test(m)) { await sleep(400 * 2 ** attempt); continue; }
+        if (/429|too many requests|rate/i.test(m)) { if (now() - t0 > BUDGET) { partial = true; return []; } await sleep(Math.min(3000, 400 * 2 ** attempt)); continue; }
         if (attempt < 2) { await sleep(300); continue; }
         partial = true; return [];
       }

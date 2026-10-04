@@ -973,6 +973,13 @@ const canSpendOriginal = (feed, what) => { const s = spareOriginals(feed); if (s
 const usdShort = (v) => v == null || !Number.isFinite(Number(v)) ? "—" : v >= 1e6 ? "$" + (v / 1e6).toFixed(2) + "m" : v >= 1e3 ? "$" + (v / 1e3).toFixed(1) + "k" : "$" + Math.round(v);
 const hourAgoLiq = (feed, token) => (feed.radar?.snaps || []).filter(x => now - Date.parse(x.at) >= 50 * 60e3).slice(-1)[0]?.d?.[token]?.liq;
 const priceSeries = (feed, token) => (feed.radar?.snaps || []).map(x => x.d?.[token]?.px).filter(v => Number.isFinite(v) && v > 0);
+// Token scans run inside the agent (the same code as caturn.lol/scan, without the site's 60-second limit), cached per run.
+const scanCache = new Map();
+async function scanToken(token) {
+  const t = String(token).toLowerCase(); if (scanCache.has(t)) return scanCache.get(t);
+  const p = (async () => { try { process.env.SCAN_BUDGET_MS = process.env.SCAN_BUDGET_MS || "150000"; const { analyze } = await import("../api/analyze.js"); return await analyze(t); } catch (e) { log("local scan failed, asking the site:", String(e.message).slice(0, 120)); return getJSON("https://www.caturn.lol/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: t }) }); } })();
+  scanCache.set(t, p); return p;
+}
 // ---------- Radar: watch every token with a pool on Robinhood Chain, every tick, and call out what moves ----------
 // Universe: every graduated orbio launch plus whatever Dexscreener lists on the chain. Each tick: one batched market read
 // (30 tokens a call), compared with the readings an hour ago. A signal is a number that changed enough to matter.
@@ -1037,7 +1044,7 @@ async function radarRead(feed) {
 async function makeRadarPost(feed) {
   const R = feed.radar; const top = (R?.signals || [])[0]; if (!top || top.score < Number(env.CATURN_RADAR_MIN_SCORE || 12)) return null;
   const n = top.now, same = R.signals.filter(x => x.t === top.t).map(x => x.line);
-  let scan = null; try { scan = await getJSON("https://www.caturn.lol/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: top.t }) }); } catch {}
+  let scan = null; try { scan = await scanToken(top.t); } catch {}
   if (scan?.risk != null && scan.risk >= Number(env.CATURN_RADAR_MAX_RISK || 60)) { R.cooled[top.t] = iso(now); log(`radar: skipped $${top.symbol}, rug likelihood ${scan.risk}`); return null; } // a likely rug is not news worth spreading
   const f = scan?.facts || {}, top10 = (f.top || []).filter(h => !h.contract).slice(0, 10).reduce((a, h) => a + (h.share || 0), 0);
   const g = scan?.facts && !scan.facts.partialHistory && scan.facts.holders ? gradeToken({ facts: f, scan, pair: { liquidity: { usd: n.liq }, marketCap: n.mc, volume: { h24: n.v24 } } }) : null;
@@ -1132,7 +1139,7 @@ async function pickInsightSubject(feed) {
 }
 async function makeInsight(feed) {
   const sub = await pickInsightSubject(feed); if (!sub) { log("insight: no subject"); return null; }
-  const scan = await getJSON("https://www.caturn.lol/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: sub.token }) });
+  const scan = await scanToken(sub.token);
   if (!scan?.facts) throw new Error("no scan for " + sub.symbol);
   if (scan.facts.partialHistory || (!scan.facts.holders && scan.facts.transfers !== 0)) throw new Error(`scan of ${sub.symbol} came back without its full transfer history; not grading on half the data`);
   const f = scan.facts, decimals = Number(f.decimals || 18);
@@ -1201,7 +1208,7 @@ async function scoreCalls(feed) {
     if (!(due || stale) || done >= 4) continue;
     try {
       const [scan, pairs] = await Promise.all([
-        getJSON("https://www.caturn.lol/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: c.token }) }),
+        scanToken(c.token),
         fetch(`https://api.dexscreener.com/latest/dex/tokens/${c.token}`).then(r => r.json()).then(d => (d.pairs || []).filter(p => String(p.chainId).toLowerCase().includes("robinhood"))).catch(() => [])
       ]);
       const f = scan?.facts; if (!f) continue;
