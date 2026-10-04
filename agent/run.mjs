@@ -1120,7 +1120,7 @@ async function thesisPost(feed) {
   if (DRY_RUN || !API_KEY || env.CATURN_THESIS === "0") return;
   const T = feed.thesis = feed.thesis || { last: null, done: [] };
   const everyH = Number(env.CATURN_THESIS_EVERY_H || 3);
-  if (T.last && now - Date.parse(T.last) < everyH * 3600e3) return;
+  if (T.lastOk && now - Date.parse(T.lastOk) < everyH * 3600e3) return;
   if (T.tried && now - Date.parse(T.tried) < 30 * 60e3) return;
   T.tried = iso(now); const note = (m) => { T.note = { at: iso(now), m: String(m).slice(0, 300) }; log("thesis:", m); };
   if (feed.xAllowance?.posts_left != null && feed.xAllowance.posts_left <= 4) { log("thesis: holding back, the last originals are kept"); return; }
@@ -1183,7 +1183,7 @@ Rules: lowercase except cashtags; every number exactly as given in the facts, ne
   let p = await orbioSend(out.parts[0] + caLine(sub.token), { media });
   if (p.status === "failed" && media) p = await orbioSend(out.parts[0] + caLine(sub.token));
   if (p.status === "failed" || !p.id) { note(`post failed: ${p.err}`); return; }
-  T.last = iso(now);
+  T.lastOk = iso(now);
   const recs = [{ at: iso(now), text: out.parts[0] + caLine(sub.token), id: p.id, url: p.url, status: p.status, cost: Number(p.cost || 0), via: p.via || "orbio", format: "thesis", card: !!media, insight: { token: sub.token, symbol: sub.symbol, model: used, grade: g.grade, stance: out.stance } }];
   let parent = p.id;
   for (const text of out.parts.slice(1)) {
