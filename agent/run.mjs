@@ -1123,7 +1123,7 @@ async function thesisPost(feed) {
   if (T.lastOk && now - Date.parse(T.lastOk) < everyH * 3600e3) return;
   if (T.tried && now - Date.parse(T.tried) < 30 * 60e3) return;
   T.tried = iso(now); const note = (m) => { T.note = { at: iso(now), m: String(m).slice(0, 300) }; log("thesis:", m); };
-  if (feed.xAllowance?.posts_left != null && feed.xAllowance.posts_left <= 4) { log("thesis: holding back, the last originals are kept"); return; }
+  if (feed.xAllowance?.posts_left != null && feed.xAllowance.posts_left <= 1) { note("holding back, no originals left today"); return; }
   const snaps = feed.radar?.snaps || [], snap = snaps[snaps.length - 1]?.d || {};
   const orbio = (feed.radar?.universe || []).filter(u => u.orbio && snap[u.token]?.v24 > 0).sort((a, b) => snap[b.token].v24 - snap[a.token].v24);
   const sub = orbio.find(u => !T.done.some(d => d.token === u.token && now - Date.parse(d.at) < 48 * 3600e3) && snap[u.token].v24 >= Number(env.CATURN_THESIS_MIN_VOL || 10000));
