@@ -1095,14 +1095,18 @@ async function radarThread(feed) {
   const a = feed.xAllowance; if (a?.replies_left != null && a.replies_left <= 15) { log("radar thread: keeping the last replies for mentions"); feed.radarThreadNote = { at: iso(now), note: "radar thread: keeping the last replies for mentions" }; return; }
   const parent = [...feed.posts].reverse().find(p => !p.replyTo && p.kind !== "ping" && p.via !== "recovered" && /^\d{10,}$/.test(String(p.id)) && now - Date.parse(p.at) < 3 * 3600e3);
   if (!parent) { log("radar thread: no recent post of the cat's own to thread under"); feed.radarThreadNote = { at: iso(now), note: "radar thread: no recent post of the cat's own to thread under" }; return; }
-  const rd = await makeRadarPost(feed, { minScore: Number(env.CATURN_THREAD_MIN_SCORE || 7) });
-  if (!rd) { log("radar thread: no signal strong enough"); feed.radarThreadNote = { at: iso(now), note: "radar thread: no signal strong enough" }; return; }
+  let rd = await makeRadarPost(feed, { minScore: Number(env.CATURN_THREAD_MIN_SCORE || 7) });
+  if (!rd && INSIGHT_ON) { // a quiet tape: grade a token on the scorecard instead of waiting for a move
+    rd = await makeInsight(feed).catch(e => { log("radar thread grade failed:", String(e.message).slice(0, 160)); return null; });
+    if (rd) rd.kind = "grade";
+  }
+  if (!rd) { log("radar thread: no signal strong enough"); feed.radarThreadNote = { at: iso(now), note: "radar thread: no signal and no gradeable token" }; return; }
   let media = null;
   if (env.CATURN_CARDS !== "0") { try { const png = await renderCard(rd.card); media = `data:image/png;base64,${png.toString("base64")}`; } catch (e) { log("radar thread card failed:", String(e.message).slice(0, 120)); } }
   let p = await orbioSend(rd.text, { replyTo: parent.id, media });
   if (p.status === "failed" && media) p = await orbioSend(rd.text, { replyTo: parent.id });
   if (p.status === "failed") { log("radar thread post failed:", p.err); return; }
-  feed.posts.push({ at: iso(now), text: rd.text, id: p.id, url: p.url, status: p.status, cost: Number(p.cost || 0), via: p.via || "orbio", kind: "reply", threaded: true, format: "radar", card: !!media, radar: { token: rd.token, symbol: rd.symbol, kind: rd.kind, grade: rd.grade || null }, replyTo: { id: String(parent.id), handle: OWN_HANDLE, name: "caturn", text: String(parent.text || "").slice(0, 200), url: parent.url, why: "radar thread" } });
+  feed.posts.push({ at: iso(now), text: rd.text, id: p.id, url: p.url, status: p.status, cost: Number(p.cost || 0), via: p.via || "orbio", kind: "reply", threaded: true, format: rd.kind === "grade" ? "insight" : "radar", card: !!media, radar: { token: rd.token, symbol: rd.symbol, kind: rd.kind, grade: rd.grade || null }, replyTo: { id: String(parent.id), handle: OWN_HANDLE, name: "caturn", text: String(parent.text || "").slice(0, 200), url: parent.url, why: "radar thread" } });
   event(`radar read on $${rd.symbol} under its own post`);
   log("radar thread:", rd.model, rd.text);
 }
