@@ -962,10 +962,16 @@ async function readAllowance(feed) {
   } catch (e) { log("allowance read failed:", String(e.message).slice(0, 120)); }
   return feed.xAllowance || null;
 }
+function ownIntervalMin(feed) {
+  if (env.CATURN_OWN_INTERVAL_MIN) return Number(env.CATURN_OWN_INTERVAL_MIN);
+  const a = feed.xAllowance; if (!a || a.posts_left == null || Date.parse(a.resets_at || 0) < now) return 30;
+  const minsLeft = Math.max(0, (Date.parse(a.resets_at) - now) / 60e3);
+  return Math.max(15, Math.min(45, Math.round(minsLeft / Math.max(1, a.posts_left - 3))));
+}
 function spareOriginals(feed) {
   const a = feed.xAllowance; if (!a || a.posts_left == null) return 99;
   const minsLeft = (Date.parse(a.resets_at || iso(now + 3600e3)) - now) / 60e3;
-  const ownReserve = Math.ceil(Math.max(0, minsLeft) / Number(env.CATURN_OWN_INTERVAL_MIN || 30)) + 2; // the rest of today's own slots, plus two for queued posts
+  const ownReserve = Math.ceil(Math.max(0, minsLeft) / ownIntervalMin(feed)) + 2; // the rest of today's own slots, plus two for queued posts
   return a.posts_left - ownReserve;
 }
 const canSpendOriginal = (feed, what) => { const s = spareOriginals(feed); if (s > 0) return true; log(`${what}: holding back, ${feed.xAllowance?.posts_left} originals left today are kept for the cat's own posts`); return false; };
@@ -1077,6 +1083,27 @@ For this post you are the market radar for Robinhood Chain: the cat that sees ev
     } catch (e) { log(`radar model ${model} failed:`, e.status || "", String(e.message).slice(0, 120)); }
   }
   return null;
+}
+
+// ---------- Radar thread: orbio allows 50 originals but 100 replies a day. Between the cat's own posts, the next radar read
+// goes out as a reply under its latest post, so the timeline moves about every 15 minutes without spending originals.
+async function radarThread(feed) {
+  if (DRY_RUN || !RADAR_ON || !API_KEY || env.CATURN_RADAR_THREAD === "0") return;
+  const gapMin = Number(env.CATURN_THREAD_GAP_MIN || 14), last = feed.posts[feed.posts.length - 1];
+  if (last && now - Date.parse(last.at) < gapMin * 60e3) return;
+  const a = feed.xAllowance; if (a?.replies_left != null && a.replies_left <= 15) { log("radar thread: keeping the last replies for mentions"); return; }
+  const parent = [...feed.posts].reverse().find(p => !p.replyTo && p.kind !== "ping" && p.via !== "recovered" && /^\d{10,}$/.test(String(p.id)) && now - Date.parse(p.at) < 3 * 3600e3);
+  if (!parent) { log("radar thread: no recent post of the cat's own to thread under"); return; }
+  const rd = await makeRadarPost(feed);
+  if (!rd) { log("radar thread: no signal strong enough"); return; }
+  let media = null;
+  if (env.CATURN_CARDS !== "0") { try { const png = await renderCard(rd.card); media = `data:image/png;base64,${png.toString("base64")}`; } catch (e) { log("radar thread card failed:", String(e.message).slice(0, 120)); } }
+  let p = await orbioSend(rd.text, { replyTo: parent.id, media });
+  if (p.status === "failed" && media) p = await orbioSend(rd.text, { replyTo: parent.id });
+  if (p.status === "failed") { log("radar thread post failed:", p.err); return; }
+  feed.posts.push({ at: iso(now), text: rd.text, id: p.id, url: p.url, status: p.status, cost: Number(p.cost || 0), via: p.via || "orbio", kind: "reply", threaded: true, format: "radar", card: !!media, radar: { token: rd.token, symbol: rd.symbol, kind: rd.kind, grade: rd.grade || null }, replyTo: { id: String(parent.id), handle: OWN_HANDLE, name: "caturn", text: String(parent.text || "").slice(0, 200), url: parent.url, why: "radar thread" } });
+  event(`radar read on $${rd.symbol} under its own post`);
+  log("radar thread:", rd.model, rd.text);
 }
 
 // ---------- The grade: one fixed scorecard for every token, so the lean comes from the numbers, not the mood ----------
@@ -1634,7 +1661,7 @@ const interval = thoughtsPerDay > 0 ? 86400e3 / thoughtsPerDay : Infinity;
 const lastPostAt = feed.posts.length ? Date.parse(feed.posts[feed.posts.length - 1].at) : 0;
 let duePost = !!agent && !!API_KEY && spentToday < DAILY_CREDIT_CAP && now - lastPostAt >= POST_INTERVAL_MIN * 60e3 - 60e3;
 // The cat's own timeline posts run on a slower clock than replies: fewer, better. Mentions are still answered every tick.
-const OWN_INTERVAL_MIN = Number(env.CATURN_OWN_INTERVAL_MIN || 30);
+const OWN_INTERVAL_MIN = ownIntervalMin(feed);
 const isOwn = (p) => !p.replyTo && p.kind !== "ping" && p.kind !== "quote" && !p.grok && p.via !== "recovered";
 const lastOwnAt = Math.max(0, ...feed.posts.filter(isOwn).map(p => Date.parse(p.at)));
 const dueOwn = now - lastOwnAt >= OWN_INTERVAL_MIN * 60e3 - 60e3;
@@ -1923,6 +1950,7 @@ await saySomething(feed);
 await announceBuild(feed);
 try { await scoreCalls(feed); } catch (e) { log("score calls failed:", String(e.message).slice(0, 160)); }
 try { await measureFormats(feed); } catch (e) { log("measure formats failed:", String(e.message).slice(0, 160)); }
+try { await radarThread(feed); } catch (e) { log("radar thread failed:", String(e.message).slice(0, 160)); }
 try { await buzzReply(feed); } catch (e) { log("buzz reply failed:", String(e.message).slice(0, 160)); }
 try { await agentPing(feed); } catch (e) { log("agent ping failed:", String(e.message).slice(0, 160)); }
 try { await askGrok(feed); } catch (e) { log("grok ask failed:", String(e.message).slice(0, 160)); }
