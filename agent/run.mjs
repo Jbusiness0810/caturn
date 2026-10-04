@@ -1067,7 +1067,7 @@ Your posts that landed best lately, for tone and shape only (never copy them): $
 For this post you are the market radar for Robinhood Chain: the cat that sees every pool move first. Write one post about $${top.symbol} from the facts below: open with "radar:" and the move in exact numbers, then whether the move has anything under it, using the scorecard grade and its main reason (for example "grade d: top 10 hold 58%, the move is a few wallets"), and end with the single thing to watch next. Under 225 characters (the contract address is added after), lowercase except the cashtag, numbers exact as given, one $${top.symbol} cashtag, no links, no hashtags, no handles. Report, never advise: no buy/sell/hold/ape, no price targets, no bullish/bearish/moon, no number that is not in the facts. Reply with the post text only.`;
   for (const model of INSIGHT_MODELS) {
     try {
-      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 220, temperature: 0.5, messages: [{ role: "system", content: sys }, { role: "user", content: `Facts (${iso(now).slice(0, 16)} UTC):\n${facts}` }] }) });
+      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 1500, temperature: 0.5, messages: [{ role: "system", content: sys }, { role: "user", content: `Facts (${iso(now).slice(0, 16)} UTC):\n${facts}` }] }) });
       let t = String(r.choices?.[0]?.message?.content || "").trim().replace(/^["']|["']$/g, "").replace(/\s+/g, " ");
       if (t.length > 228) { const cut = t.slice(0, 228), i = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf("; "), cut.lastIndexOf(", ")); if (i > 120) t = cut.slice(0, i + 1).replace(/[,;]$/, "."); }
       const bad = t.length < 60 || t.length > 228 || !/^radar/i.test(t) || /https?:\/\/|#\w|@\w/i.test(t) || /\b(buy now|sell now|hold|ape|bullish|bearish|moon|target|guaranteed)\b/i.test(t) || (t.match(/\$[a-z]{2,}/gi) || []).some(c => c.toLowerCase() !== "$" + String(top.symbol).toLowerCase());
@@ -1202,7 +1202,7 @@ Answer with one JSON object only: {"post": string, "lean": "${g.lean}", "check":
   let text = "", used = null, call = null;
   for (const model of INSIGHT_MODELS) {
     try {
-      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 400, temperature: 0.6, messages: [{ role: "system", content: sys }, { role: "user", content: `Facts (${iso(now).slice(0, 10)}):\n${facts}\n\n${gradeFacts}` }] }) });
+      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 2000, temperature: 0.6, messages: [{ role: "system", content: sys }, { role: "user", content: `Facts (${iso(now).slice(0, 10)}):\n${facts}\n\n${gradeFacts}` }] }) });
       const raw = String(r.choices?.[0]?.message?.content || ""); const m = raw.match(/\{[\s\S]*\}/); const j = m ? JSON.parse(m[0]) : null;
       const t = String(j?.post || "").trim().replace(/^["']|["']$/g, "").replace(/\s+/g, " ");
       const c = j?.check || {};
@@ -1279,7 +1279,7 @@ async function composeBooks(feed) {
 Write today's ledger post: the cat's books, in public. Use only the numbers below, exactly as given, pick the five or six that say the most, and lay them out as short lines ("fees in $x · compute out $y · ..."), then one dry closing line about what the numbers mean for a cat that lives on fees. Under 240 characters, lowercase, no links, no hashtags, no handles, no cashtags, nothing about price or buying. Reply with the post text only.`;
   for (const model of INSIGHT_MODELS) {
     try {
-      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 220, temperature: 0.5, messages: [{ role: "system", content: sys }, { role: "user", content: `Numbers (${iso(now).slice(0, 16)} UTC):\n${facts}` }] }) });
+      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 1500, temperature: 0.5, messages: [{ role: "system", content: sys }, { role: "user", content: `Numbers (${iso(now).slice(0, 16)} UTC):\n${facts}` }] }) });
       const t = String(r.choices?.[0]?.message?.content || "").trim().replace(/^["']|["']$/g, "").replace(/\s+/g, " ");
       if (t.length >= 60 && t.length <= 240 && /\d/.test(t) && !/https?:\/\/|#\w|@\w|\$[a-z]{2,}/i.test(t) && !/\b(buy|sell|hold|bullish|bearish|moon)\b/i.test(t)) return { text: t, model, facts };
       log(`books from ${model} broke a rule:`, t.slice(0, 160));
@@ -1345,7 +1345,7 @@ You are answering a post on X by @${t.handle}${insiders.has(t.handle) ? " (anoth
   let line = "";
   for (const model of MODELS) {
     try {
-      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 160, temperature: 0.9, messages: [{ role: "system", content: sys }, { role: "user", content: `@${t.handle} wrote: "${said}"` }] }) });
+      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 800, temperature: 0.9, messages: [{ role: "system", content: sys }, { role: "user", content: `@${t.handle} wrote: "${said}"` }] }) });
       line = String(r.choices?.[0]?.message?.content || "").trim().replace(/^["']|["']$/g, "").replace(/\s+/g, " "); if (line) break;
     } catch (e) { if (![404, 429, 500, 502, 503, 504].includes(e.status)) break; }
   }
@@ -1403,7 +1403,7 @@ You are writing one post on X addressed to @${target.handle}${target.name ? ` ($
   let line = "", lastErr = null;
   for (const model of ["anthropic/claude-sonnet-5.5", ...MODELS]) {
     try {
-      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 160, temperature: 0.9, messages: [{ role: "system", content: sys }, { role: "user", content: user }] }) });
+      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 800, temperature: 0.9, messages: [{ role: "system", content: sys }, { role: "user", content: user }] }) });
       line = String(r.choices?.[0]?.message?.content || "").trim().replace(/^["']|["']$/g, "").replace(/\s+/g, " ");
       if (line) break;
     } catch (e) { lastErr = e; if (![404, 429, 500, 502, 503, 504].includes(e.status)) break; }
@@ -1434,7 +1434,7 @@ async function askGrok(feed) {
   let text = null; feed.grok.lastErr = null;
   for (const model of ["anthropic/claude-sonnet-5.5", ...MODELS]) {
     try {
-      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, max_tokens: 400, temperature: 1, messages: [
+      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, max_tokens: 1200, temperature: 1, messages: [
       { role: "system", content: "You are Caturn, a dry, funny AI cat agent on the orbio launchpad ($CTRN). You are writing a reply under your own post that tags @grok, X's AI, so it answers in public. Ask it something it will want to answer and that makes a good thread: rate you, fact-check you, settle a dumb debate, judge your life choices, or pick a side. Cocky or deadpan, cat logic. One line, lowercase, under 140 characters, starts with @grok, no links, no hashtags, no other handles, nothing about price or buying. Reply with the line only." },
       { role: "user", content: `your post: ${JSON.stringify(String(target.text).slice(0, 280))}` }] }) });
       const line = String(r.choices?.[0]?.message?.content || "").split("\n").map(l => l.trim()).find(l => /^["']?@grok\b/i.test(l)) || "";
