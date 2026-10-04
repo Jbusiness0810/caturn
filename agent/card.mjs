@@ -36,7 +36,7 @@ export function cardHtml(spec) {
   .big{display:flex;align-items:baseline;gap:18px;margin-top:22px}
   .big b{font-size:${big.length > 9 ? 70 : 96}px;font-weight:800;color:${accent};line-height:1;text-shadow:0 0 28px ${accent}66}
   .big span{font-size:19px;letter-spacing:.14em;text-transform:uppercase;color:#cfd6f5;max-width:300px;line-height:1.3}
-  .an{font-size:23px;line-height:1.38;color:#eef2ff;margin-top:18px;max-width:680px}
+  .an{font-size:23px;line-height:1.38;color:#eef2ff;margin-top:18px;max-width:640px}
   .stats{display:grid;grid-template-columns:repeat(${Math.min(4, Math.max(1, stats.length))},auto);gap:10px 36px;margin-top:24px;justify-content:start}
   .st span{display:block;font-size:15px;letter-spacing:.14em;text-transform:uppercase;color:#aab4dd}
   .st b{display:block;font-size:30px;font-weight:600;color:${accent};margin-top:4px}

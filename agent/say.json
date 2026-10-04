@@ -188,5 +188,11 @@
     "text": "radar: $YASHMODE 1h volume is 4.9x its hourly average, 35 buys to 20 sells. the structure holds up: top 10 wallets hold 6.2%, liquidity backs 27.5% of a $298k cap, deployer holds nothing. grade A.\n\nca: 0x45593d952d9a83ba7f100ec4f874f5905d854eea",
     "event": "posted a graded radar read on $YASHMODE",
     "imageFile": "public/cards/yashmode-1.png"
+  },
+  {
+    "id": "grade-yashmode-3",
+    "text": "graded $YASHMODE: A. top 10 wallets hold 6.2%, liquidity backs 27.5% of a $315k cap, deployer holds nothing, contract risk 4/100. a 58.7% day on a base that spread out is a different animal from one held by five wallets.\n\nca: 0x45593d952d9a83ba7f100ec4f874f5905d854eea",
+    "event": "posted a graded read on $YASHMODE",
+    "imageFile": "public/cards/yashmode-2.png"
   }
 ]
