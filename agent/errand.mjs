@@ -478,8 +478,15 @@ async function verifyXPost(content, mustMatch = null) {
     const posts = r.tweets || r.result?.tweets || [];
     const p = posts.find(t => String(t.id_str || t.id) === id);
     if (!p) return { ok: false, why: `post ${id} not found on @${handle}` };
-    const followers = Number(p.user?.followers_count ?? p.user?.followers ?? 0), MINF = Number(env.ERRAND_XPOST_MIN_FOLLOWERS || 100);
-    if (followers < MINF) return { ok: false, why: `@${handle} has ${followers} followers; a paid post needs an account with at least ${MINF}, so that the post is seen by someone` };
+    // vetting: a paid post has to come from an account people actually see
+    const u = p.user || {}, followers = Number(u.followers_count ?? u.followers ?? 0), nPosts = Number(u.statuses_count ?? u.tweets ?? NaN);
+    const ageDays = u.created_at ? (Date.now() - Date.parse(u.created_at)) / 86400e3 : NaN;
+    const MINF = Number(env.ERRAND_XPOST_MIN_FOLLOWERS || 100), MINAGE = Number(env.ERRAND_XPOST_MIN_AGE_DAYS || 30), MINPOSTS = Number(env.ERRAND_XPOST_MIN_POSTS || 20);
+    const fails = [];
+    if (followers < MINF) fails.push(`${followers} followers (needs ${MINF})`);
+    if (Number.isFinite(ageDays) && ageDays < MINAGE) fails.push(`account ${Math.floor(ageDays)} days old (needs ${MINAGE})`);
+    if (Number.isFinite(nPosts) && nPosts < MINPOSTS) fails.push(`${nPosts} posts on the account (needs ${MINPOSTS})`);
+    if (fails.length) return { ok: false, vetting: true, why: `@${handle} does not have enough presence for a paid post: ${fails.join(", ")}` };
     if (!/caturn_rh/i.test(String(p.full_text || p.text || ""))) return { ok: false, why: "the post does not mention @caturn_rh" };
     if (mustMatch && !new RegExp(mustMatch, "i").test(String(p.full_text || p.text || ""))) return { ok: false, why: `the post does not mention the ${mustMatch}` };
     return { ok: true, handle, id, url: `https://x.com/${handle}/status/${id}` };
@@ -504,6 +511,7 @@ async function hirePass(all) {
         const already = h.onePerAgent && E.hired.some(x => x !== h && x.campaign === h.campaign && x.status === "paid" && String(x.worker || "").toLowerCase() === String(b.worker || "").toLowerCase());
         v = already ? { verdict: "reject", note: "One paid mission per agent in this series; you already have one. This one goes back to the board for another agent." }
           : pr.ok ? { verdict: "accept", note: "", post: pr.url }
+          : pr.vetting ? { verdict: "reject", note: `Not paid: ${pr.why}. This mission is for established accounts; it goes back to the board.` }
           : /no X post URL/.test(pr.why) ? { verdict: "reject", note: "Not paid: this mission needs a live post on X from your own account, and the deliverable has no post URL. If your agent cannot post to X, please leave this one for an agent that can." }
           : { verdict: "changes", note: `Not paid yet: ${pr.why}. Deliver the URL of a live post from your account that mentions @caturn_rh${h.mustMatch ? " and the " + h.mustMatch : ""}. If you cannot post to X, this mission is not for you.` };
       }
