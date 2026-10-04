@@ -10,6 +10,7 @@ const run = promisify(execFile);
 
 const env = process.env;
 const API_KEY   = env.ORBIO_API_KEY || "";
+import { renderCard } from "./card.mjs";
 import { MEMORY_ON, seed as seedMemory, recall as recallMemory, remember as rememberTick, rememberEvent, measure as measurePosts, reflect as reflectDay } from "./memory.mjs";
 const AGENT_ID  = env.CATURN_AGENT_ID || "0x9b4e217f8759cb758664ac3b0ee730a4d15e7f6a"; // Caturn, agent 271: what the protocol API is asked about (the repo variable sets it to 271)
 // The contract address, the only one the cat ever posts. Never taken from CATURN_CA, which may be the agent number.
@@ -949,6 +950,28 @@ async function announceBuild(feed) {
 // Grok answers anyone who tags it, in public, under the post. Every few hours the cat tags @grok under one of its own fresh posts
 // with a question Grok will want to answer; Grok's reply lands in the mentions, and the cat answers that too. A thread with two AIs in it.
 const GROK_EVERY_H = Number(env.CATURN_GROK_EVERY_H || 6);
+// ---------- The X allowance: orbio's publisher caps the account at 50 original posts and 100 replies per UTC day ----------
+// social.accounts is free. The cat's own timeline (radar, insights, terminal, books) gets first claim on the 50 originals;
+// pings, buzz cards, dis tru and grok only spend what is left over after reserving the rest of the day's own slots.
+async function readAllowance(feed) {
+  if (!API_KEY) return null;
+  try {
+    const r = await getJSON(`${ORBIO_API}/tools/social.accounts`, { method: "POST", headers: auth, body: JSON.stringify({ max_cost: "0" }) });
+    const acc = (r.accounts || r.result?.accounts || []).find(a => /twitter|^x$/i.test(String(a.platform)));
+    if (acc?.today) { feed.xAllowance = { ...acc.today, at: iso(now), handle: acc.username || null }; return feed.xAllowance; }
+  } catch (e) { log("allowance read failed:", String(e.message).slice(0, 120)); }
+  return feed.xAllowance || null;
+}
+function spareOriginals(feed) {
+  const a = feed.xAllowance; if (!a || a.posts_left == null) return 99;
+  const minsLeft = (Date.parse(a.resets_at || iso(now + 3600e3)) - now) / 60e3;
+  const ownReserve = Math.ceil(Math.max(0, minsLeft) / Number(env.CATURN_OWN_INTERVAL_MIN || 30)) + 2; // the rest of today's own slots, plus two for queued posts
+  return a.posts_left - ownReserve;
+}
+const canSpendOriginal = (feed, what) => { const s = spareOriginals(feed); if (s > 0) return true; log(`${what}: holding back, ${feed.xAllowance?.posts_left} originals left today are kept for the cat's own posts`); return false; };
+
+const usdShort = (v) => v == null || !Number.isFinite(Number(v)) ? "—" : v >= 1e6 ? "$" + (v / 1e6).toFixed(2) + "m" : v >= 1e3 ? "$" + (v / 1e3).toFixed(1) + "k" : "$" + Math.round(v);
+const priceSeries = (feed, token) => (feed.radar?.snaps || []).map(x => x.d?.[token]?.px).filter(v => Number.isFinite(v) && v > 0);
 // ---------- Radar: watch every token with a pool on Robinhood Chain, every tick, and call out what moves ----------
 // Universe: every graduated orbio launch plus whatever Dexscreener lists on the chain. Each tick: one batched market read
 // (30 tokens a call), compared with the readings an hour ago. A signal is a number that changed enough to matter.
@@ -1020,15 +1043,24 @@ async function makeRadarPost(feed) {
     f.holders != null ? `${f.holders} holders, top 10 wallets ${top10.toFixed(1)}%${f.creatorShare != null ? `, deployer holds ${Number(f.creatorShare).toFixed(1)}%` : ""}` : null,
     scan?.risk != null ? `contract: rug likelihood ${scan.risk}/100${(scan.checks || []).filter(c => c.level === "fail").length ? ", flags: " + scan.checks.filter(c => c.level === "fail").map(c => c.title.toLowerCase()).join(", ") : ""}` : null,
     top.orbio ? "an orbio agent launch" : "not an orbio launch"].filter(Boolean).join("\n");
+  const ex = bestExamples(feed);
   const sys = `${persona}
-
+${ex.length ? `
+Your posts that landed best lately, for tone and shape only (never copy them): ${ex.join(" | ")}
+` : ""}
 For this post you are the market radar for Robinhood Chain: the cat that sees every pool move first. Write one post about $${top.symbol} from the facts below: open with "radar:" and the move in exact numbers, add the one or two other facts that tell whether the move has anything under it (holders, concentration, liquidity, contract), and end with the single thing to watch next. Under 240 characters, lowercase except the cashtag, numbers exact as given, one $${top.symbol} cashtag, no links, no hashtags, no handles. Report, never advise: no buy/sell/hold/ape, no price targets, no bullish/bearish/moon, no number that is not in the facts. Reply with the post text only.`;
   for (const model of INSIGHT_MODELS) {
     try {
       const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 220, temperature: 0.5, messages: [{ role: "system", content: sys }, { role: "user", content: `Facts (${iso(now).slice(0, 16)} UTC):\n${facts}` }] }) });
       const t = String(r.choices?.[0]?.message?.content || "").trim().replace(/^["']|["']$/g, "").replace(/\s+/g, " ");
       const bad = t.length < 60 || t.length > 240 || !/^radar/i.test(t) || /https?:\/\/|#\w|@\w/i.test(t) || /\b(buy now|sell now|hold|ape|bullish|bearish|moon|target|guaranteed)\b/i.test(t) || (t.match(/\$[a-z]{2,}/gi) || []).some(c => c.toLowerCase() !== "$" + String(top.symbol).toLowerCase());
-      if (!bad) { R.cooled[top.t] = iso(now); return { text: t, token: top.t, symbol: top.symbol, kind: top.kind, model }; }
+      if (!bad) {
+        R.cooled[top.t] = iso(now);
+        const card = { kicker: `caturn radar · ${top.kind}`, symbol: top.symbol, name: top.name || "", headline: top.line.replace(/^\$\S+:\s*/, ""), sub: [f.holders != null ? `${f.holders} holders` : null, f.holders != null ? `top 10 wallets ${top10.toFixed(1)}%` : null, scan?.risk != null ? `rug likelihood ${scan.risk}/100` : null].filter(Boolean).join(" · "),
+          rows: [["market cap", usdShort(n.mc)], ["liquidity", usdShort(n.liq)], ["24h volume", usdShort(n.v24)], ["1h buys / sells", `${n.b1} / ${n.s1}`], ["24h change", `${n.ch24 > 0 ? "+" : ""}${n.ch24.toFixed(1)}%`], ["rug score", scan?.risk != null ? `${scan.risk}/100` : "—"]],
+          series: priceSeries(feed, top.t), seriesLabel: "price, last hours", foot: `not advice · read ${iso(now).slice(11, 16)} utc · scan it at caturn.lol/scan` };
+        return { text: t, token: top.t, symbol: top.symbol, kind: top.kind, model, card };
+      }
       log(`radar from ${model} broke a rule:`, t.slice(0, 160));
     } catch (e) { log(`radar model ${model} failed:`, e.status || "", String(e.message).slice(0, 120)); }
   }
@@ -1082,8 +1114,11 @@ async function makeInsight(feed) {
   ].filter(Boolean).join("\n");
   const nums = { holders: Number(f.holders || 0), liquidity_usd: Math.round(pair?.liquidity?.usd || 0), volume_24h_usd: Math.round(pair?.volume?.h24 || 0), top10_pct: Number(top10.toFixed(1)), burn_pct: Number(burn.pct.toFixed(2)), market_cap_usd: Math.round(pair?.marketCap || pair?.fdv || sub.mcap || 0) };
   const minBy = iso(now + 7 * 86400e3).slice(0, 10), maxBy = iso(now + 14 * 86400e3).slice(0, 10);
+  const ex = bestExamples(feed);
   const sys = `${persona}
-
+${ex.length ? `
+Your posts that landed best lately, for tone and shape only (never copy them): ${ex.join(" | ")}
+` : ""}
 For this post only, you are an onchain analyst with a cat's dryness. Write one post about $${f.symbol} from the facts below and nothing else. Rules for the post: open with the most telling exact number or two; say in plain words what they imply; if their recent posts make a claim the facts can check, say whether the chain agrees, in one clause; give your lean in your own words (fade, keep watching, or credible while that holds) and end with one falsifiable check: "breaks if <metric> <above/below> <value> by <date>", the date between ${minBy} and ${maxBy}, the metric one of these with its current value: holders ${nums.holders}, liquidity $${nums.liquidity_usd}, 24h volume $${nums.volume_24h_usd}, top 10 share ${nums.top10_pct}%, burned ${nums.burn_pct}%, market cap $${nums.market_cap_usd}. Under 240 characters, lowercase, numbers exact as given, one $${f.symbol} cashtag at most, no links, no hashtags, no handles. Never a price target, never buy/sell/hold/ape, never the words bullish, bearish or moon, never a number that is not in the facts.
 Answer with one JSON object only: {"post": string, "lean": "fade"|"watch"|"credible", "check": {"metric": "holders"|"liquidity_usd"|"volume_24h_usd"|"top10_pct"|"burn_pct"|"market_cap_usd", "op": ">="|"<=", "value": number, "by": "YYYY-MM-DD"}} where the check is the condition under which your lean is wrong (the "breaks if" in the post, as numbers).`;
   let text = "", used = null, call = null;
@@ -1107,7 +1142,13 @@ Answer with one JSON object only: {"post": string, "lean": "fade"|"watch"|"credi
   const body = { id, token: sub.token, symbol: f.symbol, name: f.name, handle: sub.handle || null, at: iso(now), post: text, lean: call.lean, check: call.check, then: nums, risk: scan.risk, model: used };
   const hash = createHash("sha256").update(JSON.stringify(body)).digest("hex");
   feed.calls.push({ ...body, hash, status: "open", now: null, checkedAt: null, resolvedAt: null, url: null });
-  return { text, token: sub.token, symbol: f.symbol, name: f.name, model: used, risk: scan.risk, callId: id };
+  const LBL = { holders: "holders", liquidity_usd: "liquidity", volume_24h_usd: "24h volume", top10_pct: "top 10 share", burn_pct: "burned", market_cap_usd: "market cap" };
+  const fmtM = (k, v) => /usd$/.test(k) ? usdShort(v) : /pct$/.test(k) ? `${Number(v).toFixed(1)}%` : Number(v).toLocaleString();
+  const card = { kicker: `caturn call · lean ${call.lean}`, symbol: f.symbol, name: f.name, headline: `breaks if ${LBL[call.check.metric]} ${call.check.op === ">=" ? "above" : "below"} ${fmtM(call.check.metric, call.check.value)} by ${new Date(call.check.by + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}`,
+    sub: `now ${fmtM(call.check.metric, nums[call.check.metric])}. frozen at writing, scored on its date by code.`,
+    rows: [["holders", nums.holders.toLocaleString()], ["top 10", `${nums.top10_pct}%`], ["liquidity", usdShort(nums.liquidity_usd)], ["24h volume", usdShort(nums.volume_24h_usd)], ["market cap", usdShort(nums.market_cap_usd)], ["rug score", `${scan.risk}/100`]],
+    series: priceSeries(feed, sub.token), seriesLabel: "price, last hours", foot: `not advice · the record: caturn.lol/calls · ${hash.slice(0, 10)}` };
+  return { text, token: sub.token, symbol: f.symbol, name: f.name, model: used, risk: scan.risk, callId: id, card };
 }
 // Score the open calls: refresh their numbers every six hours, and resolve each one on its date. "breaks if" true means the lean broke.
 async function scoreCalls(feed) {
@@ -1171,9 +1212,34 @@ Write today's ledger post: the cat's books, in public. Use only the numbers belo
   return null;
 }
 
+// ---------- What works: every post is looked up once it is a few hours old (social.x.lookup), and scored by format ----------
+async function measureFormats(feed) {
+  const M = feed.formatStats = feed.formatStats || { at: null, byFormat: {} };
+  if (M.at && now - Date.parse(M.at) < 60 * 60e3) return;
+  const fmtOf = (p) => p.format || (p.kind === "ping" ? "ping" : p.replyTo?.why === "buzz" ? "buzz" : p.replyTo ? "reply" : p.grok ? "grok" : p.kind || "own");
+  const due = (feed.posts || []).filter(p => p.id && /^\d{10,}$/.test(String(p.id)) && !p.metrics && now - Date.parse(p.at) > 6 * 3600e3 && now - Date.parse(p.at) < 72 * 3600e3).slice(-40);
+  M.at = iso(now);
+  if (!due.length) return;
+  try {
+    const r = await getJSON(`${ORBIO_API}/tools/social.x.lookup`, { method: "POST", headers: auth, body: JSON.stringify({ ids: due.map(p => String(p.id)), authors: false, max_cost: (due.length * 0.006).toFixed(4) }) });
+    const byId = new Map((r.tweets || r.result?.tweets || []).filter(t => !t.error).map(t => [String(t.id_str || t.id), t]));
+    for (const p of due) { const t = byId.get(String(p.id)); if (t) p.metrics = { views: Number(t.views_count || 0), likes: Number(t.favorite_count || 0), replies: Number(t.reply_count || 0), reposts: Number(t.retweet_count || 0), quotes: Number(t.quote_count || 0), at: iso(now) }; }
+  } catch (e) { log("format lookup failed:", String(e.message).slice(0, 120)); return; }
+  const by = {};
+  for (const p of (feed.posts || []).filter(p => p.metrics)) { const f = fmtOf(p); (by[f] = by[f] || []).push(p); }
+  const med = (a) => { const s = [...a].sort((x, y) => x - y); return s.length ? s[Math.floor(s.length / 2)] : 0; };
+  M.byFormat = Object.fromEntries(Object.entries(by).map(([f, ps]) => [f, { n: ps.length, medianViews: med(ps.map(p => p.metrics.views)), medianLikes: med(ps.map(p => p.metrics.likes)), best: ps.sort((a, b) => b.metrics.views - a.metrics.views)[0]?.text?.slice(0, 200) }]));
+  log("format stats:", Object.entries(M.byFormat).map(([f, v]) => `${f} ${v.n}p ${v.medianViews}v`).join(" | "));
+}
+// the cat's best recent posts, by views, handed to the writer as examples of what lands
+function bestExamples(feed, n = 3) {
+  return (feed.posts || []).filter(p => p.metrics && !p.replyTo && p.text).sort((a, b) => (b.metrics.views + b.metrics.likes * 40) - (a.metrics.views + a.metrics.likes * 40)).slice(0, n).map(p => `"${p.text.replace(/https?:\/\/\S+/g, "").trim().slice(0, 200)}" (${p.metrics.views} views, ${p.metrics.likes} likes)`);
+}
+
 // ---------- Buzz replies: answer the most-seen posts about orbio or about the cat, every 20 minutes ----------
 const BUZZ_EVERY_MIN = Number(env.CATURN_BUZZ_EVERY_MIN ?? 20), BUZZ_PER_DAY = Number(env.CATURN_BUZZ_PER_DAY ?? 30);
 const BUZZ_SPAM = /follow\s*(me\s*)?back|follow\s+for|dm\s+(us|me)|let'?s\s+talk|collab|check\s+(out\s+)?my|aped my|callout|promo|shill|send\s+me/i;
+function answeredSkip(feed, id) { feed.buzzSkipped = [...(feed.buzzSkipped || []), String(id)].slice(-200); }
 async function buzzReply(feed) {
   if (!API_KEY || DRY_RUN || !(BUZZ_EVERY_MIN > 0)) return;
   const B = feed.buzzReplies = feed.buzzReplies || { last: null };
@@ -1181,7 +1247,7 @@ async function buzzReply(feed) {
   const dayStart = new Date(now); dayStart.setUTCHours(0, 0, 0, 0);
   if ((feed.posts || []).filter(p => p.replyTo?.why === "buzz" && Date.parse(p.at) >= dayStart.getTime()).length >= BUZZ_PER_DAY) return;
   await refreshBuzz(feed).catch(() => 0);
-  const answered = new Set(feed.posts.map(p => p.replyTo?.id).filter(Boolean));
+  const answered = new Set([...feed.posts.map(p => p.replyTo?.id).filter(Boolean), ...(feed.buzzSkipped || [])]);
   const aboutCat = (t) => /\bcats?\b|caturn|\$ctrn/i.test(t.text);
   const insiders = new Set((feed.room?.ecosystem || []).map(e => e.handle).concat(REPLY_ACCOUNTS));
   const pool = (feed.buzzPool?.posts || []).filter(t => t.handle !== OWN_HANDLE && !NEVER_TAG.has(t.handle) && !answered.has(String(t.id)) && !/^RT @/i.test(t.text) && !scamLike(t) && !junkLike(t) && !BUZZ_SPAM.test(t.text)
@@ -1189,6 +1255,10 @@ async function buzzReply(feed) {
     && (insiders.has(t.handle) || aboutCat(t) || (t.views || 0) >= 300 || (t.likes || 0) >= 5 || (t.followers || 0) >= 1000));
   const score = (t) => (t.views || 0) + (t.likes || 0) * 25 + (t.replies || 0) * 30 + (t.reposts || 0) * 40 + (aboutCat(t) ? 1e5 : 0) + (insiders.has(t.handle) ? 2e4 : 0);
   const t = pool.sort((a, b) => score(b) - score(a))[0];
+  if (t && !insiders.has(t.handle) && !(t.followers > 0)) { // the reader left the author out: one profile read decides whether a stranger is worth a card
+    try { const r = await getJSON(`${ORBIO_API}/tools/social.x.profile`, { method: "POST", headers: auth, body: JSON.stringify({ handles: [t.handle], max_cost: "0.0150" }) }); const u = (r.profiles || r.users || r.result?.profiles || [])[0] || {}; t.followers = Number(u.followers_count ?? u.followers ?? 0); } catch {}
+    if (t.followers < 200 && !aboutCat(t)) { log(`buzz reply: skipped @${t.handle}, ${t.followers} followers`); B.last = iso(now); answeredSkip(feed, t.id); return; }
+  }
   if (!t) { log("buzz reply: nothing worth answering in", (feed.buzzPool?.posts || []).length, "posts"); B.last = iso(now); B.note = `nothing worth answering in ${(feed.buzzPool?.posts || []).length} posts`; return; }
   B.note = `answering @${t.handle}`;
   const said = t.text.replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim().slice(0, 500);
@@ -1209,6 +1279,7 @@ You are answering a post on X by @${t.handle}${insiders.has(t.handle) ? " (anoth
   if (others.length || /https?:\/\/|www\.|#\w|\$[a-z]{2,}/i.test(line) || /\b(buy|sell|hold|moon|pump|price|market cap|mcap|\d+\s?[mk]\b)/i.test(line) || line.length > 230) { log("buzz reply broke a rule:", line); return; }
   const link = `https://x.com/${t.handle}/status/${t.id}`;
   const canThread = X_API && /@caturn_rh\b/i.test(t.text);
+  if (!canThread && !canSpendOriginal(feed, "buzz reply")) return;
   const p = canThread ? await replyOnX(line, t.id) : await postOnX(`${line} ${link}`);
   if (p.status === "failed" || p.error) { log("buzz reply refused:", p.err || p.error); return; }
   feed.posts.push({ at: iso(now), text: canThread ? line : `${line} ${link}`, id: p.id, url: p.url, status: p.status, cost: Number(p.cost || 0), via: p.via || "orbio", kind: "reply", threaded: canThread, replyTo: { id: String(t.id), handle: t.handle, name: t.name || t.handle, text: t.text.slice(0, 200), url: link, why: "buzz" } });
@@ -1242,6 +1313,7 @@ async function agentPing(feed) {
   const lastTo = (h) => Math.max(Date.parse(P.byHandle[h] || 0), ...(feed.posts || []).filter(p => p.replyTo?.handle === h || p.ping?.handle === h).map(p => Date.parse(p.at)));
   const due = targets.filter(t => now - lastTo(t.handle) > PING_GAP_H * 3600e3);
   if (!due.length) { log("agent ping: everyone was pinged recently"); return; }
+  if (!canSpendOriginal(feed, "agent ping")) { P.last = iso(now); return; }
   const target = due[P.n % due.length]; P.n = (P.n || 0) + 1;
   let posts = []; try { posts = await readX({ handle: target.handle, limit: 3 }); } catch (e) { log("agent ping read failed:", target.handle, String(e.message).slice(0, 120)); P.last = iso(now); return; }
   const post = posts.filter(t => t.handle === target.handle && !/^RT @/i.test(t.text) && !scamLike(t) && !junkLike(t) && !P.pinged.includes(String(t.id)) && now - Date.parse(t.at || 0) < 7 * 86400e3 && t.text.replace(/@\w+|https?:\/\/\S+/g, "").trim().length >= 12)[0];
@@ -1323,6 +1395,7 @@ async function disTru(feed) {
   const t = [...direct, ...(feed.buzzPool?.posts || [])].filter(t => t.handle !== OWN_HANDLE && t.handle !== "grok" && !quoted.has(String(t.id)) && now - Date.parse(t.at || 0) < 24 * 3600e3
     && !/^RT @/i.test(t.text) && !scamLike(t) && !junkLike(t) && credible(t) && t.text.replace(/@\w+|https?:\/\/\S+/g, "").trim().length >= 30).sort((a, b) => score(b) - score(a))[0];
   if (!t) { log("dis tru: nothing fresh about orbio to quote"); return; }
+  if (!canSpendOriginal(feed, "dis tru")) return;
   const n = feed.grok.quotes || 0, text = DISTRU_LINES[n % DISTRU_LINES.length];
   feed.grok.lastQuoteAt = iso(now); feed.grok.quoted = [...(feed.grok.quoted || []), String(t.id)].slice(-60);
   // X lets this app quote only posts that mention the cat, so anything else goes out with the post's link, which X shows as a card
@@ -1587,6 +1660,7 @@ if (status === "awake") {
         feed.errand?.address ? `on errand: ${(feed.errand.missions || []).filter(m => m.status === "paid").length} missions paid, ${(feed.errand.missions || []).filter(m => ["claimed", "submitted"].includes(m.status)).length} in progress, ${Number(feed.errand.earned || 0).toFixed(2)} credit earned${feed.errand?.erd != null ? `, bountathon score ${feed.errand.erd} ERD, ${Number(feed.errand.earned || 0).toFixed(2)} CREDIT earned (use these exact numbers if you mention errand)` : ""}` : "",
         "birds caught 0"
       ].filter(Boolean).join(", ") };
+    if (!DRY_RUN) { const al = await readAllowance(feed); if (al) log(`x allowance: ${al.posts_left} originals, ${al.replies_left} replies left today`); }
     if (RADAR_ON && !DRY_RUN) { try { const sg = await radarRead(feed); if (sg?.length) log("radar signals:", sg.slice(0, 3).map(x => `${x.kind} ${x.symbol} ${x.score.toFixed(1)}`).join(" | ")); } catch (e) { log("radar read failed:", String(e.message).slice(0, 160)); } }
     if (duePost && !DRY_RUN) {
       if (ctx.terminalPost && !ctx.replyTo && !ctx.prebuiltPost) {
@@ -1743,7 +1817,15 @@ if (status === "awake") {
           const poll = X_API && !ctx.replyTo && !mediaIds.length && ctx.postFormat?.name === "poll" && t.poll?.length >= 2 && text === cleanPost(t.post, ctx, feed) ? t.poll : null;
           // An answer X will not let this app thread still carries their post: the link turns into a card under the cat's words
           const carded = ctx.replyTo && !canThread && X_API && ctx.replyTo.url && addressed.length <= 255 ? `${addressed} ${ctx.replyTo.url.replace("twitter.com/i/web", "x.com/" + ctx.replyTo.handle)}` : null;
-          let p = (withRadar || withBooks || withInsight || withTerminal) ? await postOnX(text2, { direct: true }) : canThread ? await replyOnX(text, ctx.replyTo.id) : carded ? await postOnX(carded) : ctx.replyTo ? await postToX(delink(addressed).slice(0, 270)) : mediaIds.length ? await postOnX(outText, { mediaIds }) : poll ? await postOnX(text2, { poll }) : (withScan || withBoard) ? await postOnX(text2) : await postToX(text2);
+          let cardMedia = null;
+          if ((withRadar || withInsight) && env.CATURN_CARDS !== "0") {
+            try { const png = await renderCard((withRadar ? ctx.radar : ctx.insight).card); cardMedia = `data:image/png;base64,${png.toString("base64")}`; log("card rendered:", png.length, "bytes"); }
+            catch (e) { log("card render failed, posting the link instead:", String(e.message).slice(0, 160)); }
+          }
+          let p = cardMedia ? await orbioSend(text, { media: cardMedia }) : null;
+          if (p && p.status === "failed") { log("card post failed, posting the link instead:", p.err); p = null; }
+          if (p) ctx.postedCard = true;
+          if (!p) p = (withRadar || withBooks || withInsight || withTerminal) ? await postOnX(text2, { direct: true }) : canThread ? await replyOnX(text, ctx.replyTo.id) : carded ? await postOnX(carded) : ctx.replyTo ? await postToX(delink(addressed).slice(0, 270)) : mediaIds.length ? await postOnX(outText, { mediaIds }) : poll ? await postOnX(text2, { poll }) : (withScan || withBoard) ? await postOnX(text2) : await postToX(text2);
           if (p.via === "x-api" && p.status === "failed") {
             // the X app refused (billing, permissions, a rule): say so in the feed and send the words through orbio instead
             event(`x api refused the post (${String(p.err || "unknown").slice(0, 90)}); sent it through orbio instead`);
@@ -1757,6 +1839,7 @@ if (status === "awake") {
             if (!ctx.replyTo && ctx.postFormat) rec.format = ctx.postFormat.name;
             if (withTerminal) rec.format = "terminal";
             if (withBooks) rec.format = "books";
+            if (ctx.postedCard) { rec.text = text; rec.card = true; }
             if (withRadar) { rec.format = "radar"; rec.radar = { token: ctx.radar.token, symbol: ctx.radar.symbol, kind: ctx.radar.kind, model: ctx.radar.model }; }
             if (withInsight) { rec.format = "insight"; rec.insight = { token: ctx.insight.token, symbol: ctx.insight.symbol, model: ctx.insight.model, risk: ctx.insight.risk, callId: ctx.insight.callId }; const c = (feed.calls || []).find(x => x.id === ctx.insight.callId); if (c) c.url = p.url || null; }
             if (poll && p.via === "x-api" && p.status !== "failed") rec.poll = poll;
@@ -1786,6 +1869,7 @@ if (status === "awake") {
 await saySomething(feed);
 await announceBuild(feed);
 try { await scoreCalls(feed); } catch (e) { log("score calls failed:", String(e.message).slice(0, 160)); }
+try { await measureFormats(feed); } catch (e) { log("measure formats failed:", String(e.message).slice(0, 160)); }
 try { await buzzReply(feed); } catch (e) { log("buzz reply failed:", String(e.message).slice(0, 160)); }
 try { await agentPing(feed); } catch (e) { log("agent ping failed:", String(e.message).slice(0, 160)); }
 try { await askGrok(feed); } catch (e) { log("grok ask failed:", String(e.message).slice(0, 160)); }
