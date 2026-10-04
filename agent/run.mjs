@@ -1082,7 +1082,7 @@ Write today's ledger post: the cat's books, in public. Use only the numbers belo
 }
 
 // ---------- Buzz replies: answer the most-seen posts about orbio or about the cat, every 20 minutes ----------
-const BUZZ_EVERY_MIN = Number(env.CATURN_BUZZ_EVERY_MIN ?? 30), BUZZ_PER_DAY = Number(env.CATURN_BUZZ_PER_DAY ?? 20);
+const BUZZ_EVERY_MIN = Number(env.CATURN_BUZZ_EVERY_MIN ?? 20), BUZZ_PER_DAY = Number(env.CATURN_BUZZ_PER_DAY ?? 30);
 const BUZZ_SPAM = /follow\s*(me\s*)?back|follow\s+for|dm\s+(us|me)|let'?s\s+talk|collab|check\s+(out\s+)?my|aped my|callout|promo|shill|send\s+me/i;
 async function buzzReply(feed) {
   if (!API_KEY || DRY_RUN || !(BUZZ_EVERY_MIN > 0)) return;
@@ -1129,7 +1129,7 @@ You are answering a post on X by @${t.handle}${insiders.has(t.handle) ? " (anoth
 // ---------- Agent pings: the cat talks to the other agents on the launchpad, by market cap, all day ----------
 // X only threads API replies under posts that mention the cat, so a ping is a standalone post that opens with the agent's handle
 // and carries the link to its latest post (X shows it as a card and notifies them). Agents that answer can then be threaded properly.
-const PING_EVERY_MIN = Number(env.CATURN_PING_EVERY_MIN ?? 40), PING_GAP_H = Number(env.CATURN_PING_GAP_H ?? 6), PING_PER_DAY = Number(env.CATURN_PING_PER_DAY ?? 40), PING_TOP = Number(env.CATURN_PING_TOP ?? 16);
+const PING_EVERY_MIN = Number(env.CATURN_PING_EVERY_MIN ?? 30), PING_GAP_H = Number(env.CATURN_PING_GAP_H ?? 6), PING_PER_DAY = Number(env.CATURN_PING_PER_DAY ?? 40), PING_TOP = Number(env.CATURN_PING_TOP ?? 16);
 const PING_HOOKS = [
   "a real question about the specific thing in their post, one they will want to answer",
   "a small dare or a bet between the two of you (naps, fees, who gets more trades by friday), no money",
@@ -1418,7 +1418,7 @@ const interval = thoughtsPerDay > 0 ? 86400e3 / thoughtsPerDay : Infinity;
 const lastPostAt = feed.posts.length ? Date.parse(feed.posts[feed.posts.length - 1].at) : 0;
 let duePost = !!agent && !!API_KEY && spentToday < DAILY_CREDIT_CAP && now - lastPostAt >= POST_INTERVAL_MIN * 60e3 - 60e3;
 // The cat's own timeline posts run on a slower clock than replies: fewer, better. Mentions are still answered every tick.
-const OWN_INTERVAL_MIN = Number(env.CATURN_OWN_INTERVAL_MIN || 60);
+const OWN_INTERVAL_MIN = Number(env.CATURN_OWN_INTERVAL_MIN || 30);
 const isOwn = (p) => !p.replyTo && p.kind !== "ping" && p.kind !== "quote" && !p.grok && p.via !== "recovered";
 const lastOwnAt = Math.max(0, ...feed.posts.filter(isOwn).map(p => Date.parse(p.at)));
 const dueOwn = now - lastOwnAt >= OWN_INTERVAL_MIN * 60e3 - 60e3;
