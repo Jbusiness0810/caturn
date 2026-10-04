@@ -938,7 +938,7 @@ async function announceBuild(feed) {
 }
 // Grok answers anyone who tags it, in public, under the post. Every few hours the cat tags @grok under one of its own fresh posts
 // with a question Grok will want to answer; Grok's reply lands in the mentions, and the cat answers that too. A thread with two AIs in it.
-const GROK_EVERY_H = Number(env.CATURN_GROK_EVERY_H || 3);
+const GROK_EVERY_H = Number(env.CATURN_GROK_EVERY_H || 6);
 // ---------- Insights: numbers-first reads on the other agents' tokens, from the chain, the pool and their own claims ----------
 // Half of the cat's own posts. The facts come from the scanner (holders, concentration, liquidity, volume, age, contract) plus
 // Dexscreener and the burn address; the agent's latest X posts supply one claim to check against the chain. The strongest model
@@ -1003,7 +1003,7 @@ For this post only, you are an onchain analyst with a cat's dryness. Write one p
 }
 
 // ---------- Buzz replies: answer the most-seen posts about orbio or about the cat, every 20 minutes ----------
-const BUZZ_EVERY_MIN = Number(env.CATURN_BUZZ_EVERY_MIN ?? 20), BUZZ_PER_DAY = Number(env.CATURN_BUZZ_PER_DAY ?? 30);
+const BUZZ_EVERY_MIN = Number(env.CATURN_BUZZ_EVERY_MIN ?? 30), BUZZ_PER_DAY = Number(env.CATURN_BUZZ_PER_DAY ?? 20);
 const BUZZ_SPAM = /follow\s*(me\s*)?back|follow\s+for|dm\s+(us|me)|let'?s\s+talk|collab|check\s+(out\s+)?my|aped my|callout|promo|shill|send\s+me/i;
 async function buzzReply(feed) {
   if (!API_KEY || DRY_RUN || !(BUZZ_EVERY_MIN > 0)) return;
@@ -1049,7 +1049,7 @@ You are answering a post on X by @${t.handle}${insiders.has(t.handle) ? " (anoth
 // ---------- Agent pings: the cat talks to the other agents on the launchpad, by market cap, all day ----------
 // X only threads API replies under posts that mention the cat, so a ping is a standalone post that opens with the agent's handle
 // and carries the link to its latest post (X shows it as a card and notifies them). Agents that answer can then be threaded properly.
-const PING_EVERY_MIN = Number(env.CATURN_PING_EVERY_MIN ?? 20), PING_GAP_H = Number(env.CATURN_PING_GAP_H ?? 6), PING_PER_DAY = Number(env.CATURN_PING_PER_DAY ?? 40), PING_TOP = Number(env.CATURN_PING_TOP ?? 16);
+const PING_EVERY_MIN = Number(env.CATURN_PING_EVERY_MIN ?? 40), PING_GAP_H = Number(env.CATURN_PING_GAP_H ?? 6), PING_PER_DAY = Number(env.CATURN_PING_PER_DAY ?? 40), PING_TOP = Number(env.CATURN_PING_TOP ?? 16);
 const PING_HOOKS = [
   "a real question about the specific thing in their post, one they will want to answer",
   "a small dare or a bet between the two of you (naps, fees, who gets more trades by friday), no money",
@@ -1136,7 +1136,7 @@ async function askGrok(feed) {
 }
 // "@grok dis tru?": quote an orbio post from the buzz pool and ask Grok. X will not let this app reply under strangers' posts,
 // but a quote is the cat's own post, so Grok answers under it, and the orbio post rides along on the cat's timeline.
-const DISTRU_EVERY_MIN = Number(env.CATURN_DISTRU_EVERY_MIN || 30);
+const DISTRU_EVERY_MIN = Number(env.CATURN_DISTRU_EVERY_MIN || 120);
 const DISTRU_LINES = ["@grok dis tru?", "@grok dis tru??", "dis tru @grok?", "@grok dis tru? asking for a cat", "@grok dis tru? the cat needs to know", "@grok dis tru? be honest", "@grok dis tru or nah", "@grok dis tru? i have been staring at it for an hour", "@grok dis tru? blink twice", "@grok is dis tru or is orbio lying to the cat", "@grok dis tru? my whiskers say maybe", "@grok dis tru? yes or no, i have a nap at 4"];
 async function disTru(feed) {
   if (!X_API || DRY_RUN || !(DISTRU_EVERY_MIN > 0)) return;
@@ -1337,6 +1337,12 @@ const interval = thoughtsPerDay > 0 ? 86400e3 / thoughtsPerDay : Infinity;
 
 const lastPostAt = feed.posts.length ? Date.parse(feed.posts[feed.posts.length - 1].at) : 0;
 let duePost = !!agent && !!API_KEY && spentToday < DAILY_CREDIT_CAP && now - lastPostAt >= POST_INTERVAL_MIN * 60e3 - 60e3;
+// The cat's own timeline posts run on a slower clock than replies: fewer, better. Mentions are still answered every tick.
+const OWN_INTERVAL_MIN = Number(env.CATURN_OWN_INTERVAL_MIN || 60);
+const isOwn = (p) => !p.replyTo && p.kind !== "ping" && p.kind !== "quote" && !p.grok && p.via !== "recovered";
+const lastOwnAt = Math.max(0, ...feed.posts.filter(isOwn).map(p => Date.parse(p.at)));
+const dueOwn = now - lastOwnAt >= OWN_INTERVAL_MIN * 60e3 - 60e3;
+if (!Number.isFinite(feed.ownSeq)) feed.ownSeq = feed.posts.filter(isOwn).length;
 // A loop cancelled mid-tick can post and then die before saving the feed. Before posting, ask X what the cat last said:
 // a post the feed does not know about, made within the interval, is adopted and this slot stays quiet.
 if (duePost && !DRY_RUN) {
@@ -1393,8 +1399,8 @@ if (status === "awake") {
       recentPosts: feed.posts.slice(-5).map(p => p.text), room: null,
       postFormat: (() => { const f = FORMAT_DECK[(feed.postSeq * 7 + new Date(now).getUTCDate()) % FORMAT_DECK.length]; return f.name === "poll" && !X_API ? POST_FORMATS.find(x => x.name === "question") : f; })(),
       wantHook: true,
-      terminalPost: TERMINAL_EVERY > 0 && duePost && X_KEYS_SET && feed.postSeq % TERMINAL_EVERY === 2,
-      insightPost: INSIGHT_ON && duePost && X_KEYS_SET && [0, 3].includes(feed.postSeq % 6), // 2 mod 3 is an own-post slot, 4 would always land on a reply slot
+      terminalPost: TERMINAL_EVERY > 0 && duePost && dueOwn && X_KEYS_SET && feed.ownSeq % 4 === 1,
+      insightPost: INSIGHT_ON && duePost && dueOwn && X_KEYS_SET && feed.ownSeq % 2 === 0,
       unhinged: feed.postSeq % 4 === 2,
       cashtagHint: feed.postSeq % 4 === 1 ? "write $ERRAND once if the post touches errand, otherwise the cashtag of the one other orbio agent you name; not $CTRN" : feed.postSeq % 4 === 3 ? "$CTRN once, your own" : "",
       milestone: graduated && gradHoursAgo != null && gradHoursAgo < 36 ? `you graduated ${gradHoursAgo < 1 ? "just now" : Math.round(gradHoursAgo) + " hours ago"}: $CTRN finished its bonding curve and now trades in a real pool. this is the biggest day of your life so far and you are a cat, so underplay it. for the next day or so most posts should touch it from a new angle each time (the door, what changed, what did not, the other agents still on the curve, the owner, the fees). never say what the price will do.` : "",
@@ -1411,7 +1417,7 @@ if (status === "awake") {
       ].filter(Boolean).join(", ") };
     if (duePost && !DRY_RUN) {
       if (ctx.terminalPost && !ctx.replyTo && !ctx.prebuiltPost) {
-        ctx.postAngle = `${TERMINAL_FACTS[Math.floor(feed.postSeq / TERMINAL_EVERY) % TERMINAL_FACTS.length]}. State this fact plainly and exactly (names and numbers as given), then one dry cat line; the link is added for you, so do not write one`;
+        ctx.postAngle = `${TERMINAL_FACTS[Math.floor(feed.ownSeq / 4) % TERMINAL_FACTS.length]}. State this fact plainly and exactly (names and numbers as given), then one dry cat line; the link is added for you, so do not write one`;
         ctx.postFormat = POST_FORMATS.find(x => x.name === "observation"); ctx.cashtagHint = ""; ctx.unhinged = false;
       } else ctx.terminalPost = false;
       const slot = feed.postSeq;
@@ -1434,12 +1440,12 @@ if (status === "awake") {
       // Three slots in rotation: two posts of its own (the timeline is what strangers see), and one reply: someone talking to
       // the cat first (answering replies keeps threads alive), otherwise outreach (founder, orbio's own accounts, the buzz).
       const rot = slot % 3;
-      const replySlot = REPLY_EVERY > 0 && rot === 1;
+      const replySlot = REPLY_EVERY > 0;
       if (!ctx.replyTo && replySlot && X_API) {
         const { target, cost } = await findReplyTarget(feed, { mentionsOnly: true }); readCost += cost;
         if (target) { ctx.replyTo = target; ctx.postAngle = "an answer to what they said"; log("replying to a mention:", `@${target.handle}`, JSON.stringify(target.text.slice(0, 120))); }
       }
-      if (!ctx.replyTo && replySlot) {
+      if (!ctx.replyTo && replySlot && env.CATURN_ROTATION_OUTREACH === "1") {
         const { target, cost } = await findReplyTarget(feed, { outreach: true }); readCost += cost;
         if (target) { ctx.replyTo = target; ctx.postAngle = "an answer to what they said"; log("replying to:", `@${target.handle}`, JSON.stringify(target.text.slice(0, 120))); }
       }
@@ -1454,6 +1460,7 @@ if (status === "awake") {
       if (ctx.tagHandle) {
         ctx.postAngle = `${POST_ANGLES[slot % POST_ANGLES.length]}, said to @${ctx.tagHandle}`;
       }
+      if (!ctx.replyTo && !ctx.prebuiltPost && !dueOwn) { duePost = false; ctx.mustPost = false; ctx.tagHandle = null; log(`own post not due for ${Math.ceil((OWN_INTERVAL_MIN * 60e3 - (now - lastOwnAt)) / 60e3)} min; nothing to answer`); }
     }
     // The art slot: every ART_EVERY posts, a found piece goes out as a gif with the artist's name. The newest unshared one, or a fresh find.
     if (ART_EVERY > 0 && duePost && X_KEYS_SET && !ctx.replyTo && !ctx.prebuiltPost && feed.postSeq % ART_EVERY === 2 && !DRY_RUN) {
@@ -1505,7 +1512,7 @@ if (status === "awake") {
       }
       const n = feed.thoughts.length;
       // Post on the clock: whenever POST_INTERVAL_MIN has passed since the last post.
-      let text = ctx.prebuiltPost || cleanPost(t.post, ctx, feed);
+      let text = duePost ? (ctx.prebuiltPost || cleanPost(t.post, ctx, feed)) : null;
       if (ctx.scan) event(ctx.scan.self ? `@${ctx.replyTo.handle} posted my address, so i scanned myself: ${ctx.scan.risk}/100, ${ctx.scan.grade}` : `scanned ${ctx.scan.symbol} for @${ctx.replyTo.handle}: rug likelihood ${ctx.scan.risk}/100, ${ctx.scan.grade}`);
       if (t.post && !text) log("post dropped by the rules:", JSON.stringify(t.post));
       // A post is due every POST_INTERVAL_MIN. If the chosen line was empty or broke a rule, fall back to the other drafts,
@@ -1607,5 +1614,6 @@ if (API_KEY && !DRY_RUN && agent) await retryFailedPosts(feed, spentToday);
 if (!DRY_RUN) await repairSketches(feed);
 
 feed.postSeq += feed.posts.filter(p => p.at === iso(now) && p.via !== "recovered" && !p.grok).length;
+feed.ownSeq += feed.posts.filter(p => p.at === iso(now) && isOwn(p)).length;
 await writeFile(FEED, JSON.stringify(feed, null, 2) + "\n");
 log(`status=${feed.status} energy=${feed.energy} thoughts/day=${thoughtsPerDay} spentToday=${feed.metrics.spentTodayCredit} ${feed.reason || ""}`);
