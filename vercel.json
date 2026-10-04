@@ -61,7 +61,7 @@
       "maxDuration": 10
     },
     "api/analyze.js": {
-      "maxDuration": 30
+      "maxDuration": 60
     },
     "api/build.js": {
       "maxDuration": 30

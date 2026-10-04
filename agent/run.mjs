@@ -1040,34 +1040,72 @@ async function makeRadarPost(feed) {
   let scan = null; try { scan = await getJSON("https://www.caturn.lol/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: top.t }) }); } catch {}
   if (scan?.risk != null && scan.risk >= Number(env.CATURN_RADAR_MAX_RISK || 60)) { R.cooled[top.t] = iso(now); log(`radar: skipped $${top.symbol}, rug likelihood ${scan.risk}`); return null; } // a likely rug is not news worth spreading
   const f = scan?.facts || {}, top10 = (f.top || []).filter(h => !h.contract).slice(0, 10).reduce((a, h) => a + (h.share || 0), 0);
+  const g = scan?.facts ? gradeToken({ facts: f, scan, pair: { liquidity: { usd: n.liq }, marketCap: n.mc, volume: { h24: n.v24 } } }) : null;
   const facts = [...same, `market cap $${Math.round(n.mc).toLocaleString()}, liquidity $${Math.round(n.liq).toLocaleString()}, 24h volume $${Math.round(n.v24).toLocaleString()}, 24h change ${n.ch24.toFixed(1)}%`,
     f.holders != null ? `${f.holders} holders, top 10 wallets ${top10.toFixed(1)}%${f.creatorShare != null ? `, deployer holds ${Number(f.creatorShare).toFixed(1)}%` : ""}` : null,
     scan?.risk != null ? `contract: rug likelihood ${scan.risk}/100${(scan.checks || []).filter(c => c.level === "fail").length ? ", flags: " + scan.checks.filter(c => c.level === "fail").map(c => c.title.toLowerCase()).join(", ") : ""}` : null,
-    top.orbio ? "an orbio agent launch" : "not an orbio launch"].filter(Boolean).join("\n");
+    top.orbio ? "an orbio agent launch" : "not an orbio launch",
+    g ? `scorecard grade ${g.grade} (${g.score}/100, lean ${g.lean}): ${g.reasons.slice(0, 3).map(r => r.text).join("; ")}` : null].filter(Boolean).join("\n");
   const ex = bestExamples(feed);
   const sys = `${persona}
 ${ex.length ? `
 Your posts that landed best lately, for tone and shape only (never copy them): ${ex.join(" | ")}
 ` : ""}
-For this post you are the market radar for Robinhood Chain: the cat that sees every pool move first. Write one post about $${top.symbol} from the facts below: open with "radar:" and the move in exact numbers, add the one or two other facts that tell whether the move has anything under it (holders, concentration, liquidity, contract), and end with the single thing to watch next. Under 240 characters, lowercase except the cashtag, numbers exact as given, one $${top.symbol} cashtag, no links, no hashtags, no handles. Report, never advise: no buy/sell/hold/ape, no price targets, no bullish/bearish/moon, no number that is not in the facts. Reply with the post text only.`;
+For this post you are the market radar for Robinhood Chain: the cat that sees every pool move first. Write one post about $${top.symbol} from the facts below: open with "radar:" and the move in exact numbers, then whether the move has anything under it, using the scorecard grade and its main reason (for example "grade d: top 10 hold 58%, the move is a few wallets"), and end with the single thing to watch next. Under 225 characters (the contract address is added after), lowercase except the cashtag, numbers exact as given, one $${top.symbol} cashtag, no links, no hashtags, no handles. Report, never advise: no buy/sell/hold/ape, no price targets, no bullish/bearish/moon, no number that is not in the facts. Reply with the post text only.`;
   for (const model of INSIGHT_MODELS) {
     try {
       const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 220, temperature: 0.5, messages: [{ role: "system", content: sys }, { role: "user", content: `Facts (${iso(now).slice(0, 16)} UTC):\n${facts}` }] }) });
       const t = String(r.choices?.[0]?.message?.content || "").trim().replace(/^["']|["']$/g, "").replace(/\s+/g, " ");
-      const bad = t.length < 60 || t.length > 240 || !/^radar/i.test(t) || /https?:\/\/|#\w|@\w/i.test(t) || /\b(buy now|sell now|hold|ape|bullish|bearish|moon|target|guaranteed)\b/i.test(t) || (t.match(/\$[a-z]{2,}/gi) || []).some(c => c.toLowerCase() !== "$" + String(top.symbol).toLowerCase());
+      const bad = t.length < 60 || t.length > 228 || !/^radar/i.test(t) || /https?:\/\/|#\w|@\w/i.test(t) || /\b(buy now|sell now|hold|ape|bullish|bearish|moon|target|guaranteed)\b/i.test(t) || (t.match(/\$[a-z]{2,}/gi) || []).some(c => c.toLowerCase() !== "$" + String(top.symbol).toLowerCase());
       if (!bad) {
         R.cooled[top.t] = iso(now);
         const big = top.kind === "up" || top.kind === "down" ? `${n.ch1 > 0 ? "+" : ""}${n.ch1.toFixed(1)}%` : top.kind === "volume" ? `${(n.v1 / Math.max(1, n.v24 / 24)).toFixed(1)}x` : top.kind.startsWith("liquidity") ? `${n.liq > (hourAgoLiq(feed, top.t) || n.liq) ? "+" : "−"}${usdShort(Math.abs(n.liq - (hourAgoLiq(feed, top.t) || n.liq)))}` : top.kind.endsWith("pressure") ? `${n.b1}:${n.s1}` : "NEW";
         const bigLabel = { up: "in 1 hour", down: "in 1 hour", volume: "hourly volume vs normal", "liquidity in": "liquidity in an hour", "liquidity out": "liquidity in an hour", "buy pressure": "buys to sells, 1 hour", "sell pressure": "buys to sells, 1 hour", "new pool": `pool, ${usdShort(n.liq)} deep` }[top.kind] || "";
         const card = { kicker: `radar · ${top.kind}`, symbol: top.symbol, token: top.t, big, bigLabel, tone: ["up", "buy pressure", "liquidity in", "volume", "new pool"].includes(top.kind) ? "up" : "down", analysis: t.replace(/^radar:\s*/i, ""),
           stats: [["liquidity", usdShort(n.liq)], ["holders", f.holders != null ? Number(f.holders).toLocaleString() : "—"], ["top 10", f.holders != null ? `${top10.toFixed(1)}%` : "—"], ["rug score", scan?.risk != null ? `${scan.risk}/100` : "—"]], date: iso(now).slice(0, 10) };
-        return { text: t, token: top.t, symbol: top.symbol, kind: top.kind, model, card };
+        if (g) { card.stats[3] = ["grade", `${g.grade} · ${g.score}`]; card.kicker = `radar · ${top.kind} · grade ${g.grade}`; }
+        return { text: t + caLine(top.t), token: top.t, symbol: top.symbol, kind: top.kind, model, card, grade: g?.grade };
       }
       log(`radar from ${model} broke a rule:`, t.slice(0, 160));
     } catch (e) { log(`radar model ${model} failed:`, e.status || "", String(e.message).slice(0, 120)); }
   }
   return null;
 }
+
+// ---------- The grade: one fixed scorecard for every token, so the lean comes from the numbers, not the mood ----------
+// Starts at 100 and moves with concentration, depth, holders, flow and the contract. A/B lean credible, C watch, D/F fade.
+function gradeToken({ facts: f = {}, scan = null, pair = null, burnPct = 0 }) {
+  const eoa = (f.top || []).filter(h => !h.contract);
+  const top10 = eoa.slice(0, 10).reduce((a, h) => a + (h.share || 0), 0), whale = eoa[0]?.share || 0;
+  const liq = Number(pair?.liquidity?.usd ?? f.liquidityUsd ?? 0), mc = Number(pair?.marketCap ?? pair?.fdv ?? f.marketCapUsd ?? 0);
+  const v24 = Number(pair?.volume?.h24 ?? f.volume24hUsd ?? 0), buys = Number(pair?.txns?.h24?.buys || 0), sells = Number(pair?.txns?.h24?.sells || 0);
+  const holders = Number(f.holders || 0), risk = Number(scan?.risk ?? 0), ageH = f.ageHours, graduated = !!f.graduated;
+  const R = []; let score = 100;
+  const hit = (pts, text, metric) => { score += pts; R.push({ pts, text, metric }); };
+  if (top10 > 60) hit(-30, `top 10 wallets hold ${top10.toFixed(1)}%, far too concentrated`, "top10_pct");
+  else if (top10 > 40) hit(-18, `top 10 wallets hold ${top10.toFixed(1)}%, heavily concentrated`, "top10_pct");
+  else if (top10 > 25) hit(-8, `top 10 wallets hold ${top10.toFixed(1)}%`, "top10_pct");
+  else if (eoa.length) hit(5, `top 10 wallets hold only ${top10.toFixed(1)}%, well spread`, "top10_pct");
+  if (whale > 20) hit(-15, `one wallet holds ${whale.toFixed(1)}%`, "top10_pct"); else if (whale > 10) hit(-7, `largest wallet holds ${whale.toFixed(1)}%`, "top10_pct");
+  if (f.creatorShare != null) { if (f.creatorShare > 10) hit(-12, `deployer still holds ${f.creatorShare.toFixed(1)}%`, "top10_pct"); else if (f.creatorShare > 5) hit(-6, `deployer holds ${f.creatorShare.toFixed(1)}%`, "top10_pct"); else if (f.creatorShare === 0) hit(3, "deployer holds nothing", null); }
+  if (graduated) {
+    if (mc > 0) { const r = liq / mc * 100; if (r < 3) hit(-15, `liquidity is ${r.toFixed(1)}% of market cap, the cap is mostly paper`, "liquidity_usd"); else if (r < 8) hit(-6, `liquidity is ${r.toFixed(1)}% of market cap`, "liquidity_usd"); else if (r > 15) hit(5, `liquidity backs ${r.toFixed(1)}% of the cap`, "liquidity_usd"); }
+    if (liq < 5000) hit(-15, `only $${Math.round(liq).toLocaleString()} in the pool`, "liquidity_usd"); else if (liq < 20000) hit(-6, `$${Math.round(liq).toLocaleString()} in the pool, thin`, "liquidity_usd");
+    if (liq > 0) { const t = v24 / liq; if (t < 0.05) hit(-8, `24h volume is ${(t * 100).toFixed(0)}% of liquidity, barely trading`, "volume_24h_usd"); else if (t > 5) hit(-5, `24h volume is ${t.toFixed(1)}x liquidity, churn that can be wash`, "volume_24h_usd"); }
+    if (buys + sells >= 40 && sells > 2 * buys) hit(-8, `${sells} sells against ${buys} buys in 24h`, "holders");
+  }
+  if (holders < 50) hit(-15, `${holders} holders`, "holders"); else if (holders < 150) hit(-8, `${holders} holders, thin`, "holders"); else if (holders > 1000) hit(5, `${holders.toLocaleString()} holders`, "holders");
+  if (risk > 0) hit(-Math.round(risk / 3), `contract risk ${risk}/100${(scan?.checks || []).filter(c => c.level === "fail").length ? " (" + scan.checks.filter(c => c.level === "fail").map(c => c.title.toLowerCase()).join(", ") + ")" : ""}`, null);
+  if (ageH != null && ageH < 24) hit(-5, `${Math.round(ageH)} hours old`, null);
+  if (burnPct > 5) hit(3, `${burnPct.toFixed(1)}% of supply burned`, "burn_pct");
+  score = Math.max(0, Math.min(100, Math.round(score)));
+  const grade = score >= 85 ? "A" : score >= 70 ? "B" : score >= 55 ? "C" : score >= 40 ? "D" : "F";
+  const lean = ["A", "B"].includes(grade) ? "credible" : grade === "C" ? "watch" : "fade";
+  const reasons = [...R].sort((a, b) => Math.abs(b.pts) - Math.abs(a.pts));
+  const worst = reasons.find(r => r.pts < 0 && r.metric) || reasons.find(r => r.metric);
+  return { score, grade, lean, reasons: reasons.slice(0, 5), worstMetric: worst?.metric || "holders", top10, whale, liq, mc };
+}
+const caLine = (token) => `\n\nca: ${token}`;
 
 // ---------- Insights: numbers-first reads on the other agents' tokens, from the chain, the pool and their own claims ----------
 // Half of the cat's own posts. The facts come from the scanner (holders, concentration, liquidity, volume, age, contract) plus
@@ -1114,25 +1152,27 @@ async function makeInsight(feed) {
     `contract: ${scan.checks.filter(c => c.level !== "pass").map(c => c.title.toLowerCase()).join(", ") || "clean, standard launchpad token"}; rug likelihood ${scan.risk}/100`,
     claims.length ? `their recent posts say: ${claims.map(c => `"${c}"`).join(" | ")}` : "no recent posts from their account"
   ].filter(Boolean).join("\n");
+  const g = gradeToken({ facts: f, scan, pair, burnPct: burn.pct });
   const nums = { holders: Number(f.holders || 0), liquidity_usd: Math.round(pair?.liquidity?.usd || 0), volume_24h_usd: Math.round(pair?.volume?.h24 || 0), top10_pct: Number(top10.toFixed(1)), burn_pct: Number(burn.pct.toFixed(2)), market_cap_usd: Math.round(pair?.marketCap || pair?.fdv || sub.mcap || 0) };
   const minBy = iso(now + 7 * 86400e3).slice(0, 10), maxBy = iso(now + 14 * 86400e3).slice(0, 10);
+  const gradeFacts = `GRADE ${g.grade} (${g.score}/100, lean ${g.lean}) from the fixed scorecard. What moved the grade, biggest first:\n${g.reasons.map(r => `${r.pts > 0 ? "+" : ""}${r.pts}: ${r.text}`).join("\n")}`;
   const ex = bestExamples(feed);
   const sys = `${persona}
 ${ex.length ? `
 Your posts that landed best lately, for tone and shape only (never copy them): ${ex.join(" | ")}
 ` : ""}
-For this post only, you are an onchain analyst with a cat's dryness. Write one post about $${f.symbol} from the facts below and nothing else. Rules for the post: open with the most telling exact number or two; say in plain words what they imply; if their recent posts make a claim the facts can check, say whether the chain agrees, in one clause; give your lean in your own words (fade, keep watching, or credible while that holds) and end with one falsifiable check: "breaks if <metric> <above/below> <value> by <date>", the date between ${minBy} and ${maxBy}, the metric one of these with its current value: holders ${nums.holders}, liquidity $${nums.liquidity_usd}, 24h volume $${nums.volume_24h_usd}, top 10 share ${nums.top10_pct}%, burned ${nums.burn_pct}%, market cap $${nums.market_cap_usd}. Under 240 characters, lowercase, numbers exact as given, one $${f.symbol} cashtag at most, no links, no hashtags, no handles. Never a price target, never buy/sell/hold/ape, never the words bullish, bearish or moon, never a number that is not in the facts.
-Answer with one JSON object only: {"post": string, "lean": "fade"|"watch"|"credible", "check": {"metric": "holders"|"liquidity_usd"|"volume_24h_usd"|"top10_pct"|"burn_pct"|"market_cap_usd", "op": ">="|"<=", "value": number, "by": "YYYY-MM-DD"}} where the check is the condition under which your lean is wrong (the "breaks if" in the post, as numbers).`;
+For this post only, you are an onchain analyst with a cat's dryness, grading tokens on a fixed scorecard. Write one post about $${f.symbol} from the facts below and nothing else. Rules for the post: open with "$${f.symbol}: ${g.grade}" and the grade's biggest reason as exact numbers (for example "top 10 wallets hold 61%, too concentrated"); add the second reason in one clause; if their recent posts make a claim the facts can check, say whether the chain agrees, in one clause; state the lean exactly as the scorecard says (${g.lean}) and end with one falsifiable check: "breaks if <metric> <above/below> <value> by <date>", the date between ${minBy} and ${maxBy}, the metric one of these with its current value: holders ${nums.holders}, liquidity $${nums.liquidity_usd}, 24h volume $${nums.volume_24h_usd}, top 10 share ${nums.top10_pct}%, burned ${nums.burn_pct}%, market cap $${nums.market_cap_usd}. Prefer a check on ${g.worstMetric.replace(/_/g, " ")}, the metric that weighs most on the grade. Under 225 characters (the contract address is added after), lowercase except the cashtag, numbers exact as given, one $${f.symbol} cashtag at most, no links, no hashtags, no handles. Never a price target, never buy/sell/hold/ape, never the words bullish, bearish or moon, never a number that is not in the facts.
+Answer with one JSON object only: {"post": string, "lean": "${g.lean}", "check": {"metric": "holders"|"liquidity_usd"|"volume_24h_usd"|"top10_pct"|"burn_pct"|"market_cap_usd", "op": ">="|"<=", "value": number, "by": "YYYY-MM-DD"}} where the check is the condition under which your lean is wrong (the "breaks if" in the post, as numbers).`;
   let text = "", used = null, call = null;
   for (const model of INSIGHT_MODELS) {
     try {
-      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 400, temperature: 0.6, messages: [{ role: "system", content: sys }, { role: "user", content: `Facts (${iso(now).slice(0, 10)}):\n${facts}` }] }) });
+      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 400, temperature: 0.6, messages: [{ role: "system", content: sys }, { role: "user", content: `Facts (${iso(now).slice(0, 10)}):\n${facts}\n\n${gradeFacts}` }] }) });
       const raw = String(r.choices?.[0]?.message?.content || ""); const m = raw.match(/\{[\s\S]*\}/); const j = m ? JSON.parse(m[0]) : null;
       const t = String(j?.post || "").trim().replace(/^["']|["']$/g, "").replace(/\s+/g, " ");
       const c = j?.check || {};
       const okCheck = ["holders", "liquidity_usd", "volume_24h_usd", "top10_pct", "burn_pct", "market_cap_usd"].includes(c.metric) && [">=", "<="].includes(c.op) && Number.isFinite(Number(c.value)) && /^\d{4}-\d{2}-\d{2}$/.test(String(c.by || "")) && c.by >= minBy && c.by <= maxBy;
-      const bad = !okCheck || t.length > 240 || t.length < 60 || /https?:\/\/|www\.|#\w|@\w/i.test(t) || /\b(buy|sell|hold|ape|bullish|bearish|moon|target|guaranteed)\b/i.test(t) || !/\d/.test(t) || (t.match(/\$[a-z]{2,}/gi) || []).some(x => x.toLowerCase() !== "$" + String(f.symbol).toLowerCase());
-      if (!bad) { text = t; used = model; call = { lean: ["fade", "watch", "credible"].includes(j.lean) ? j.lean : "watch", check: { metric: c.metric, op: c.op, value: Number(c.value), by: c.by } }; break; }
+      const bad = !okCheck || t.length > 228 || t.length < 60 || /https?:\/\/|www\.|#\w|@\w/i.test(t) || /\b(buy|sell|hold|ape|bullish|bearish|moon|target|guaranteed)\b/i.test(t) || !/\d/.test(t) || (t.match(/\$[a-z]{2,}/gi) || []).some(x => x.toLowerCase() !== "$" + String(f.symbol).toLowerCase());
+      if (!bad) { text = t; used = model; call = { lean: g.lean, check: { metric: c.metric, op: c.op, value: Number(c.value), by: c.by } }; break; }
       log(`insight from ${model} broke a rule:`, raw.slice(0, 200));
     } catch (e) { log(`insight model ${model} failed:`, e.status || "", String(e.message).slice(0, 120)); }
   }
@@ -1141,15 +1181,15 @@ Answer with one JSON object only: {"post": string, "lean": "fade"|"watch"|"credi
   // the call, frozen: what was written, the numbers at writing, and a hash of both. Scored later against the same metrics.
   feed.calls = feed.calls || [];
   const id = `${f.symbol.toLowerCase().replace(/[^a-z0-9]/g, "")}-${iso(now).slice(0, 10)}-${(feed.calls.length + 1).toString(36)}`;
-  const body = { id, token: sub.token, symbol: f.symbol, name: f.name, handle: sub.handle || null, at: iso(now), post: text, lean: call.lean, check: call.check, then: nums, risk: scan.risk, model: used };
+  const body = { id, token: sub.token, symbol: f.symbol, name: f.name, handle: sub.handle || null, at: iso(now), post: text, grade: g.grade, score: g.score, reasons: g.reasons.map(r => r.text), lean: call.lean, check: call.check, then: nums, risk: scan.risk, model: used };
   const hash = createHash("sha256").update(JSON.stringify(body)).digest("hex");
   feed.calls.push({ ...body, hash, status: "open", now: null, checkedAt: null, resolvedAt: null, url: null });
   const LBL = { holders: "holders", liquidity_usd: "liquidity", volume_24h_usd: "24h volume", top10_pct: "top 10 share", burn_pct: "burned", market_cap_usd: "market cap" };
   const fmtM = (k, v) => /usd$/.test(k) ? usdShort(v) : /pct$/.test(k) ? `${Number(v).toFixed(1)}%` : Number(v).toLocaleString();
   const by = new Date(call.check.by + "T00:00:00Z").toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" }).toLowerCase();
-  const card = { kicker: `call · lean ${call.lean}`, symbol: f.symbol, token: sub.token, big: call.lean.toUpperCase(), bigLabel: `breaks if ${LBL[call.check.metric]} ${call.check.op === ">=" ? ">" : "<"} ${fmtM(call.check.metric, call.check.value)} by ${by}`, tone: call.lean === "credible" ? "up" : call.lean === "fade" ? "down" : "flat", analysis: text,
-    stats: [["holders", nums.holders.toLocaleString()], ["top 10", `${nums.top10_pct}%`], ["liquidity", usdShort(nums.liquidity_usd)], ["market cap", usdShort(nums.market_cap_usd)]], date: iso(now).slice(0, 10), foot: "scored at caturn.lol/calls" };
-  return { text, token: sub.token, symbol: f.symbol, name: f.name, model: used, risk: scan.risk, callId: id, card };
+  const card = { kicker: `graded call · ${g.score}/100`, symbol: f.symbol, token: sub.token, big: `${g.grade} · ${call.lean.toUpperCase()}`, bigLabel: `breaks if ${LBL[call.check.metric]} ${call.check.op === ">=" ? ">" : "<"} ${fmtM(call.check.metric, call.check.value)} by ${by}`, tone: call.lean === "credible" ? "up" : call.lean === "fade" ? "down" : "flat", analysis: text,
+    stats: [["top 10", `${nums.top10_pct}%`], ["holders", nums.holders.toLocaleString()], ["liq / cap", nums.market_cap_usd ? `${(nums.liquidity_usd / nums.market_cap_usd * 100).toFixed(1)}%` : "—"], ["rug score", `${scan.risk}/100`]], date: iso(now).slice(0, 10), foot: "scored at caturn.lol/calls" };
+  return { text: text + caLine(sub.token), token: sub.token, symbol: f.symbol, name: f.name, model: used, risk: scan.risk, callId: id, card, grade: g.grade };
 }
 // Score the open calls: refresh their numbers every six hours, and resolve each one on its date. "breaks if" true means the lean broke.
 async function scoreCalls(feed) {
@@ -1809,7 +1849,7 @@ if (status === "awake") {
           const withScan = X_API && !ctx.replyTo && !withCA && !withTerminal && !withInsight && !withBooks && !withRadar && !mediaIds.length && feed.postSeq % 12 === 5 && !/scan/i.test(text);
           // and on another beat, the board link: the community picks what the cat does each day
           const withBoard = X_API && !ctx.replyTo && !withCA && !withScan && !mediaIds.length && false && !/board/i.test(text);
-          const text2 = withRadar ? `${text}\n\nscan: https://www.caturn.lol/scan?t=${ctx.radar.token}` : withBooks ? `${text}\n\nthe live books: https://www.caturn.lol/activity` : withInsight ? `${text}\n\nthe call, scored in public: https://www.caturn.lol/calls?c=${ctx.insight.callId}` : withTerminal ? `${text}\n\nhttps://caturn.lol/terminal` : withCA ? `${text}\n\nca: ${CA}` : withScan ? `${text}\n\nscan any robinhood chain token for rug risk: https://www.caturn.lol/scan` : withBoard ? `${text}\n\nvote on what i do tomorrow: https://www.caturn.lol/board` : text;
+          const text2 = (withRadar || withInsight) ? text : withBooks ? `${text}\n\nthe live books: https://www.caturn.lol/activity` : withTerminal ? `${text}\n\nhttps://caturn.lol/terminal` : withCA ? `${text}\n\nca: ${CA}` : withScan ? `${text}\n\nscan any robinhood chain token for rug risk: https://www.caturn.lol/scan` : withBoard ? `${text}\n\nvote on what i do tomorrow: https://www.caturn.lol/board` : text;
           const outText = mediaIds.length && ctx.shareSketch?.family === "sky" ? `${text2} caturn.lol/sky` : text2;
           // X lets this app thread a reply only under a post that mentions the cat; anything else goes out through orbio, opening with the handle.
           const canThread = X_API && ctx.replyTo && ["mention", "scan request", "posted my address"].includes(ctx.replyTo.why);
