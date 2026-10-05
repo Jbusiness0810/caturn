@@ -44,11 +44,13 @@ export function squarify(items, x, y, w, h) {
   return out;
 }
 
-const tileColor = (d) => {
-  if (d == null || Math.abs(d) < 0.25) return "#262a31";
+const tileRgb = (d) => {
+  if (d == null || Math.abs(d) < 0.25) return [38, 42, 49];
   const k = Math.min(1, Math.abs(d) / 6); // six points of share is the full color
-  return d > 0 ? `rgb(${Math.round(40 + 10 * k)}, ${Math.round(80 + 70 * k)}, ${Math.round(60 + 30 * k)})` : `rgb(${Math.round(120 + 70 * k)}, ${Math.round(50 + 10 * k)}, ${Math.round(50 + 10 * k)})`;
+  return d > 0 ? [Math.round(40 + 10 * k), Math.round(80 + 70 * k), Math.round(60 + 30 * k)] : [Math.round(120 + 70 * k), Math.round(50 + 10 * k), Math.round(50 + 10 * k)];
 };
+// the token's logo fills the tile, under a tint that keeps the color's meaning and the text readable
+const tileBg = (t) => { const c = tileRgb(t.delta).join(", "); return t.imgData ? `linear-gradient(rgba(${c}, 0.72), rgba(${c}, 0.86)), url('${t.imgData}') center / cover no-repeat` : `rgb(${c})`; };
 const fmtDelta = (d) => d == null ? "" : `${d > 0 ? "+" : ""}${d.toFixed(2)}`;
 
 export function mindshareHtml({ rows, date, postsRead, tokensRead, title }) {
@@ -58,7 +60,7 @@ export function mindshareHtml({ rows, date, postsRead, tokensRead, title }) {
     const area = t.w * t.h, big = area > 26000, mid = area > 9000, small = area > 3200;
     const fs = big ? 30 : mid ? 22 : small ? 16 : 12, sub = big ? 17 : mid ? 14 : 11;
     const show = t.w > 56 && t.h > 30;
-    return `<div class="tile" style="left:${t.x.toFixed(1)}px;top:${t.y.toFixed(1)}px;width:${Math.max(0, t.w - 3).toFixed(1)}px;height:${Math.max(0, t.h - 3).toFixed(1)}px;background:${tileColor(t.delta)}">
+    return `<div class="tile" style="left:${t.x.toFixed(1)}px;top:${t.y.toFixed(1)}px;width:${Math.max(0, t.w - 3).toFixed(1)}px;height:${Math.max(0, t.h - 3).toFixed(1)}px;background:${tileBg(t)}">
       ${show ? `<div class="sym" style="font-size:${fs}px">$${esc(t.symbol)}</div><div class="num" style="font-size:${sub}px">${t.share.toFixed(2)}%${t.delta != null && (mid || t.w > 110) ? ` <span class="d ${t.delta > 0 ? "up" : t.delta < 0 ? "dn" : ""}">${fmtDelta(t.delta)}</span>` : ""}</div>` : ""}
     </div>`;
   }).join("");
@@ -70,8 +72,8 @@ export function mindshareHtml({ rows, date, postsRead, tokensRead, title }) {
   .hd span{color:#8a90a0;font-weight:400;font-size:16px;margin-left:12px}
   .key{position:absolute;right:${PAD}px;top:24px;font-size:15px;color:#8a90a0}
   .tile{position:absolute;border-radius:4px;box-sizing:border-box;padding:8px 10px;overflow:hidden}
-  .sym{font-weight:700;line-height:1.05;white-space:nowrap}
-  .num{margin-top:4px;color:#d4d8e2;font-family:"DejaVu Sans Mono",Menlo,monospace;white-space:nowrap}
+  .sym{font-weight:700;line-height:1.05;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,.7)}
+  .num{margin-top:4px;color:#e6e9f0;font-family:"DejaVu Sans Mono",Menlo,monospace;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,.7)}
   .d.up{color:#a8f0c6}.d.dn{color:#ffb3b3}
   .ft{position:absolute;left:${PAD}px;right:${PAD}px;bottom:12px;font-size:13px;color:#8a90a0;display:flex;justify-content:space-between;letter-spacing:.3px}
   .ft b{color:#c9ced9}

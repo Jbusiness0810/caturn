@@ -1073,6 +1073,7 @@ async function radarRead(feed) {
       for (const p of (Array.isArray(pairs) ? pairs : [])) {
         const t = String(p.baseToken?.address || "").toLowerCase(); if (!meta.has(t)) continue;
         const mm = meta.get(t); if (p.baseToken?.name && (!mm.name || mm.name === mm.symbol)) mm.name = String(p.baseToken.name).slice(0, 60); // pool lists carry only the symbol
+        if (p.info?.imageUrl && !mm.img) mm.img = String(p.info.imageUrl).replace(/width=\d+&height=\d+/, "width=256&height=256"); // the token's logo on dexscreener, for the cards
         const liq = Number(p.liquidity?.usd || 0); if (snap[t] && snap[t].liq >= liq) continue; // the deepest pool speaks for the token
         snap[t] = { liq, mc: Number(p.marketCap || p.fdv || 0), px: Number(p.priceUsd || 0), v1: Number(p.volume?.h1 || 0), v24: Number(p.volume?.h24 || 0), b1: Number(p.txns?.h1?.buys || 0), s1: Number(p.txns?.h1?.sells || 0), ch1: Number(p.priceChange?.h1 || 0), ch24: Number(p.priceChange?.h24 || 0), created: Number(p.pairCreatedAt || 0) };
       }
@@ -1180,13 +1181,19 @@ async function mindshareDaily(feed) {
         .filter(t => !GENERIC_SYMBOL.test(u.symbol) || /robinhood|orbio|\bhood\b|\brh chain\b/i.test(t.text) || (u.handle && t.handle === u.handle));
       postsRead += posts.length;
       const a = xAttention(posts, now);
-      samples.push({ symbol: u.symbol, token: u.token, orbio: !!u.orbio, score: a.score, posts: a.posts, reach: a.reach });
+      samples.push({ symbol: u.symbol, token: u.token, orbio: !!u.orbio, img: u.img || null, score: a.score, posts: a.posts, reach: a.reach });
     } catch (e) { log(`mindshare read $${u.symbol} failed:`, e.status || "", String(e.message).slice(0, 100)); if ([402, 429, 503].includes(e.status)) break; }
   }
   const total = samples.reduce((s, x) => s + x.score, 0);
   if (samples.filter(s => s.score > 0).length < 5 || !total) { M.note = { at: iso(now), m: `only ${samples.filter(s => s.score > 0).length} of ${samples.length} tokens had posts in the last day` }; log("mindshare:", M.note.m); return; }
   const prev = M.history[M.history.length - 1]?.shares || {};
   const rows = rankMindshare(samples, prev, 50);
+  // each token's dexscreener logo becomes its tile's background; fetched here so the page needs no network to render
+  await Promise.all(rows.map(async (r) => {
+    if (!r.img) return;
+    try { const res = await fetch(r.img, { signal: AbortSignal.timeout(8000) }); if (!res.ok) return; const buf = Buffer.from(await res.arrayBuffer()); if (buf.length > 0 && buf.length < 600000) r.imgData = `data:${(res.headers.get("content-type") || "image/png").split(";")[0]};base64,${buf.toString("base64")}`; } catch {}
+  }));
+  log(`mindshare: ${rows.filter(r => r.imgData).length} of ${rows.length} tiles have a logo`);
   const html = mindshareHtml({ rows, date: today, postsRead, tokensRead: samples.length, title: `top ${rows.length} by mindshare` });
   let png = null, media = null;
   try { png = await renderHtml(html, { width: 1200, height: 675 }); media = `data:image/png;base64,${png.toString("base64")}`; } catch (e) { log("mindshare render failed:", String(e.message).slice(0, 120)); return; }
