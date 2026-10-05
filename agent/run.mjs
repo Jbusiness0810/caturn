@@ -1162,12 +1162,13 @@ async function thesisPost(feed) {
   if (!pick) { note("nothing uncovered busy enough on the chain"); return; }
   sub = pick;
   const scan = await scanToken(sub.token);
-  if (!scan?.facts || scan.facts.partialHistory || !scan.facts.holders) { note(`scan incomplete for ${sub.symbol}`); T.done = [...T.done, { token: sub.token, symbol: sub.symbol, at: iso(now), skipped: true }].slice(-50); return; }
+  if (!scan?.facts) { note(`no scan for ${sub.symbol}`); T.done = [...T.done, { token: sub.token, symbol: sub.symbol, at: iso(now), skipped: true }].slice(-50); return; }
+  const structureKnown = !scan.facts.partialHistory && !!scan.facts.holders; // a history too long to scan leaves holders and shares unknown
   const f = scan.facts, n = snap[sub.token];
   const pairs = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${sub.token}`).then(r => r.json()).then(d => (d.pairs || []).filter(p => String(p.chainId).toLowerCase().includes("robinhood"))).catch(() => []);
   const pair = pairs.sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0] || null;
   const burn = await burned(sub.token, Number(f.decimals || 18), Number(f.supply || 0)).catch(() => ({ amount: 0, pct: 0 }));
-  const g = gradeToken({ facts: f, scan, pair, burnPct: burn.pct });
+  const g = structureKnown ? gradeToken({ facts: f, scan, pair, burnPct: burn.pct }) : null;
   const eoa = (f.top || []).filter(h => !h.contract), top10 = eoa.slice(0, 10).reduce((a, h) => a + (h.share || 0), 0);
   const rank = pool.findIndex(u => u.token === pick.token) + 1;
   const peers = pool.slice(0, 8).map((u, i) => `#${i + 1} $${u.symbol}: 24h volume $${Math.round(snap[u.token].v24).toLocaleString()}, market cap $${Math.round(snap[u.token].mc || 0).toLocaleString()}, liquidity $${Math.round(snap[u.token].liq || 0).toLocaleString()}, 24h ${snap[u.token].ch24 > 0 ? "+" : ""}${Number(snap[u.token].ch24 || 0).toFixed(1)}%`);
@@ -1178,9 +1179,9 @@ async function thesisPost(feed) {
     `subject: ${pick.name} ($${pick.symbol}), ${pick.orbio ? "an orbio agent launch" : "a token on robinhood chain, not an orbio launch"}, #${rank} of ${pool.length} ${poolName} by 24h volume`,
     `now: market cap $${Math.round(n.mc || 0).toLocaleString()}, liquidity $${Math.round(n.liq || 0).toLocaleString()} (${n.mc ? (n.liq / n.mc * 100).toFixed(1) : "0"}% of the cap), 24h volume $${Math.round(n.v24).toLocaleString()} (${n.liq ? (n.v24 / n.liq).toFixed(1) : "0"}x liquidity), last hour $${Math.round(n.v1 || 0).toLocaleString()} with ${n.b1} buys and ${n.s1} sells, 1h ${n.ch1 > 0 ? "+" : ""}${Number(n.ch1 || 0).toFixed(1)}%, 24h ${n.ch24 > 0 ? "+" : ""}${Number(n.ch24 || 0).toFixed(1)}%`,
     pair?.txns?.h24 ? `24h trades: ${pair.txns.h24.buys} buys, ${pair.txns.h24.sells} sells; 6h volume $${Math.round(pair.volume?.h6 || 0).toLocaleString()}` : null,
-    `holders ${f.holders}, top 10 wallets ${top10.toFixed(1)}%, largest wallet ${(eoa[0]?.share || 0).toFixed(1)}%${f.creatorShare != null ? `, deployer ${Number(f.creatorShare).toFixed(1)}%` : ""}${burn.pct > 0 ? `, ${burn.pct.toFixed(1)}% of supply burned` : ""}`,
+    structureKnown ? `holders ${f.holders}, top 10 wallets ${top10.toFixed(1)}%, largest wallet ${(eoa[0]?.share || 0).toFixed(1)}%${f.creatorShare != null ? `, deployer ${Number(f.creatorShare).toFixed(1)}%` : ""}${burn.pct > 0 ? `, ${burn.pct.toFixed(1)}% of supply burned` : ""}` : "holder structure: not readable for this token (its transfer history is longer than the scanner can walk), so say nothing about holders, wallets or concentration; reason from flow, liquidity and peers only",
     `contract: rug likelihood ${scan.risk}/100${(scan.checks || []).filter(c => c.level === "fail").length ? ", flags: " + scan.checks.filter(c => c.level === "fail").map(c => c.title.toLowerCase()).join(", ") : ", no failed checks"}`,
-    `scorecard: grade ${g.grade}, ${g.score}/100; biggest factors: ${g.reasons.slice(0, 4).map(r => r.text).join("; ")}`,
+    g ? `scorecard: grade ${g.grade}, ${g.score}/100; biggest factors: ${g.reasons.slice(0, 4).map(r => r.text).join("; ")}` : "scorecard: not graded (structure unknown)",
     trend,
     `peers (${poolName} by 24h volume):\n${peers.join("\n")}`,
     claims.length ? `what their own account posted lately: ${claims.map(c => `"${c}"`).join(" | ")}` : "their account posted nothing readable lately"
@@ -1210,15 +1211,15 @@ Rules: lowercase except cashtags; every number exactly as given in the facts, ne
     } catch (e) { note(`${model} failed: ${String(e.message).slice(0, 160)}`); }
   }
   if (!out) return;
-  const card = { kicker: `thesis · ${out.stance}`, symbol: sub.symbol, token: sub.token, big: g.grade, bigLabel: `${out.stance} · score ${g.score}/100`, tone: out.stance === "constructive" ? "up" : out.stance === "skeptical" ? "down" : "flat",
-    analysis: out.parts[0].replace(/^\$\S+[:,]?\s*/i, ""), stats: [["24h volume", usdShort(n.v24)], ["holders", Number(f.holders).toLocaleString()], ["top 10", `${top10.toFixed(1)}%`], ["orbio rank", `#${rank}`]], date: iso(now).slice(0, 10) };
+  const card = { kicker: `thesis · ${out.stance}`, symbol: sub.symbol, token: sub.token, big: g ? g.grade : out.stance.toUpperCase(), bigLabel: g ? `${out.stance} · score ${g.score}/100` : "flow and liquidity read · structure not scanned", tone: out.stance === "constructive" ? "up" : out.stance === "skeptical" ? "down" : "flat",
+    analysis: out.parts[0].replace(/^\$\S+[:,]?\s*/i, ""), stats: structureKnown ? [["24h volume", usdShort(n.v24)], ["holders", Number(f.holders).toLocaleString()], ["top 10", `${top10.toFixed(1)}%`], ["rank", `#${rank}`]] : [["24h volume", usdShort(n.v24)], ["liquidity", usdShort(n.liq)], ["market cap", usdShort(n.mc)], ["rank", `#${rank}`]], date: iso(now).slice(0, 10) };
   card.foot = "caturn.lol/theses";
   let media = null, png = null; try { png = await renderCard(card); media = `data:image/png;base64,${png.toString("base64")}`; } catch (e) { log("thesis card failed:", String(e.message).slice(0, 120)); }
   let p = await orbioSend(out.parts[0] + caLine(sub.token), { media });
   if (p.status === "failed" && media) p = await orbioSend(out.parts[0] + caLine(sub.token));
   if (p.status === "failed" || !p.id) { note(`post failed: ${p.err}`); return; }
   T.lastOk = iso(now);
-  const recs = [{ at: iso(now), text: out.parts[0] + caLine(sub.token), id: p.id, url: p.url, status: p.status, cost: Number(p.cost || 0), via: p.via || "orbio", format: "thesis", card: !!media, insight: { token: sub.token, symbol: sub.symbol, model: used, grade: g.grade, stance: out.stance } }];
+  const recs = [{ at: iso(now), text: out.parts[0] + caLine(sub.token), id: p.id, url: p.url, status: p.status, cost: Number(p.cost || 0), via: p.via || "orbio", format: "thesis", card: !!media, insight: { token: sub.token, symbol: sub.symbol, model: used, grade: g?.grade || null, stance: out.stance } }];
   let parent = p.id;
   for (const text of out.parts.slice(1)) {
     const q = await orbioSend(text, { replyTo: parent });
@@ -1231,8 +1232,8 @@ Rules: lowercase except cashtags; every number exactly as given in the facts, ne
   // the published record: every thesis in full, with its card, for caturn.lol/theses
   let cardUrl = null;
   if (png) { try { const name = `thesis-${String(sub.symbol).toLowerCase().replace(/[^a-z0-9]/g, "")}-${iso(now).slice(0, 10)}-${String(p.id).slice(-6)}.png`; await mkdir("out", { recursive: true }); await writeFile(`out/${name}`, png); if (await uploadSketch(`out/${name}`, name)) cardUrl = `/a/${name}`; } catch (e) { log("thesis card upload failed:", String(e.message).slice(0, 120)); } }
-  feed.theses = [...(feed.theses || []), { id: String(p.id), at: iso(now), token: sub.token, symbol: sub.symbol, name: sub.name || sub.symbol, handle: sub.handle || null, grade: g.grade, score: g.score, stance: out.stance, model: used, hook: out.parts[0], evidence: out.parts[1], risk: out.parts[2], url: p.url, card: cardUrl,
-    numbers: { marketCapUsd: Math.round(n.mc || 0), liquidityUsd: Math.round(n.liq || 0), volume24hUsd: Math.round(n.v24), holders: Number(f.holders || 0), top10Pct: Number(top10.toFixed(1)), deployerPct: f.creatorShare != null ? Number(Number(f.creatorShare).toFixed(1)) : null, rugScore: scan.risk, orbioRank: rank, orbioCount: pool.length, pool: poolName } }].slice(-200);
+  feed.theses = [...(feed.theses || []), { id: String(p.id), at: iso(now), token: sub.token, symbol: sub.symbol, name: sub.name || sub.symbol, handle: sub.handle || null, grade: g?.grade || null, score: g?.score ?? null, stance: out.stance, model: used, hook: out.parts[0], evidence: out.parts[1], risk: out.parts[2], url: p.url, card: cardUrl,
+    numbers: { marketCapUsd: Math.round(n.mc || 0), liquidityUsd: Math.round(n.liq || 0), volume24hUsd: Math.round(n.v24), holders: structureKnown ? Number(f.holders || 0) : null, top10Pct: structureKnown ? Number(top10.toFixed(1)) : null, deployerPct: structureKnown && f.creatorShare != null ? Number(Number(f.creatorShare).toFixed(1)) : null, rugScore: scan.risk, orbioRank: rank, orbioCount: pool.length, pool: poolName } }].slice(-200);
   event(`wrote a thesis thread on $${sub.symbol} (${used.split("/").pop()})`);
   log("thesis:", used, out.parts.join(" || "));
 }
@@ -1308,6 +1309,7 @@ async function makeInsight(feed) {
   const scan = await scanToken(sub.token);
   if (!scan?.facts) throw new Error("no scan for " + sub.symbol);
   if (scan.facts.partialHistory || (!scan.facts.holders && scan.facts.transfers !== 0)) throw new Error(`scan of ${sub.symbol} came back without its full transfer history; not grading on half the data`);
+  if (Number(scan.facts.holders || 0) < Number(env.CATURN_GRADE_MIN_HOLDERS || 25)) { (feed.insights.done = feed.insights.done || []).push({ token: sub.token, symbol: sub.symbol, at: iso(now), skipped: true }); log(`insight: ${sub.symbol} has ${scan.facts.holders} holders, too few to grade`); return null; }
   const f = scan.facts, decimals = Number(f.decimals || 18);
   const [burn, pairs] = await Promise.all([burned(sub.token, decimals, Number(f.supply || 0)), fetch(`https://api.dexscreener.com/latest/dex/tokens/${sub.token}`).then(r => r.json()).then(d => (d.pairs || []).filter(p => String(p.chainId).toLowerCase().includes("robinhood"))).catch(() => [])]);
   const pair = pairs.sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0] || null;
