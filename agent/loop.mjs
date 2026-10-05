@@ -42,7 +42,12 @@ async function pushFeed() {
   try { await putObject("feed.json", await readFile(FEED), "application/json; charset=utf-8", 10); } catch (e) { log("feed push failed:", String(e.message).slice(0, 160)); }
 }
 async function update() {
-  await sh("git", ["pull", "-q", "--ff-only", "origin", "master"]);
+  // the live feed is the runner's working copy, never git's: a pull that touches data/feed.json must not be refused, and
+  // must not roll the feed back either, so the tree is reset to master with the feed carried across
+  const keep = await readFile(FEED).catch(() => null);
+  const fetched = await sh("git", ["fetch", "-q", "origin", "master"]);
+  if (fetched === 0) { await sh("git", ["reset", "-q", "--hard", "origin/master"]); if (keep) await writeFile(FEED, keep); }
+  else log("git fetch failed; running the code already here");
   // deps the workflow used to install per run; a no-op when they are already there
   await sh("npm", ["i", "--no-save", "--no-audit", "--no-fund", "--loglevel=error", "playwright@1.49.1", "gifenc@1.0.3", "errand-mcp@0.5.0"]);
 }
