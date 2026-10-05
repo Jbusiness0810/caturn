@@ -14,7 +14,8 @@ const run = promisify(execFile);
 
 const env = process.env;
 const API_KEY   = env.ORBIO_API_KEY || "";
-import { renderCard } from "./card.mjs";
+import { renderCard, renderHtml } from "./card.mjs";
+import { mindshareHtml, attention as xAttention, rank as rankMindshare } from "./mindshare.mjs";
 import { putObject as storagePut, typeOf as storageType } from "./storage.mjs";
 import { MEMORY_ON, seed as seedMemory, recall as recallMemory, remember as rememberTick, rememberEvent, measure as measurePosts, reflect as reflectDay } from "./memory.mjs";
 const AGENT_ID  = env.CATURN_AGENT_ID || "0x9b4e217f8759cb758664ac3b0ee730a4d15e7f6a"; // Caturn, agent 271: what the protocol API is asked about (the repo variable sets it to 271)
@@ -62,7 +63,7 @@ const NEVER_TAG = new Set(["orbiodotso", "x", "twitter", "elonmusk", "boredelonm
 const MIN_THOUGHTS_PER_DAY  = Number(env.CATURN_MIN_THOUGHTS || 6);
 const MAX_THOUGHTS_PER_DAY  = Number(env.CATURN_MAX_THOUGHTS || 96);   // every 15 minutes at full energy
 const VOLUME_FOR_FULL_ENERGY = Number(env.CATURN_FULL_VOLUME_USD || 50000); // 24h USD volume at which energy = 1
-const DAILY_CREDIT_CAP = Number(env.CATURN_DAILY_CAP || 25);               // CREDIT per UTC day, hard stop (a full day at the current pace is about 12)
+const DAILY_CREDIT_CAP = Number(env.CATURN_DAILY_CAP || 40);               // CREDIT per UTC day, hard stop (a day of posting is about 12; the daily mindshare read is up to 20 more)
 const FEED = new URL("../data/feed.json", import.meta.url);
 
 const ORBIO_API = "https://api.orbio.so/api/v1";
@@ -1149,6 +1150,61 @@ function noteCovered(feed) {
 }
 const covered = (feed, token) => { const at = noteCovered(feed)[String(token || "").toLowerCase()]; return !!at && now - Date.parse(at) < COVER_DAYS * 86400e3; };
 
+// ---------- Mindshare: once a day, every busy token on the chain is measured on X and the top 50 drawn as a treemap ----------
+// Attention per token comes from its latest posts on X through orbio's reader (a post counts once plus its reach), shares
+// are over everything measured, and the color is the move against yesterday. The read costs about a third of a CREDIT a token.
+const MINDSHARE_HOUR = Number(env.CATURN_MINDSHARE_HOUR ?? 14), MINDSHARE_TOKENS = Number(env.CATURN_MINDSHARE_TOKENS || 60), MINDSHARE_MAX_COST = Number(env.CATURN_MINDSHARE_MAX_COST || 20);
+// a cashtag that is also a word or another chain's token needs the post to say where it lives, or to come from the project itself
+const GENERIC_SYMBOL = /^(ai|hi|si|meme|note|moo|inu|cpu|dark|gold|golden|wallet|monitor|bow|ask|worm|earn|zero|ore|roo|baby|hood|cat|dog|money|bank|chain|token|coin|mole|spore|tank|quant|wth|paws|volt|sif|cash|vault|pay)$/i;
+async function mindshareDaily(feed) {
+  if (!API_KEY || DRY_RUN || env.CATURN_MINDSHARE === "0") return;
+  const M = feed.mindshare = feed.mindshare || { lastDay: null, history: [] };
+  const today = iso(now).slice(0, 10);
+  if (M.lastDay === today || new Date(now).getUTCHours() < MINDSHARE_HOUR) return;
+  if (M.triedDay === today && M.triedAt && now - Date.parse(M.triedAt) < 60 * 60e3) return; // a failed run tries again in an hour
+  M.triedDay = today; M.triedAt = iso(now);
+  const snap = feed.radar?.snaps?.[feed.radar.snaps.length - 1]?.d || {};
+  const uni = (feed.radar?.universe || []).filter(u => snap[u.token]?.v24 > 0).sort((a, b) => snap[b.token].v24 - snap[a.token].v24);
+  const seen = new Set(), picks = [];
+  for (const u of uni) { const s = String(u.symbol || "").replace(/^\$/, ""); if (!s || !/^[a-z0-9]{2,12}$/i.test(s) || seen.has(s.toUpperCase())) continue; seen.add(s.toUpperCase()); picks.push({ ...u, symbol: s }); if (picks.length >= MINDSHARE_TOKENS) break; }
+  if (picks.length < 10) { log("mindshare: too few tokens to measure"); return; }
+  const samples = []; let cost = 0, postsRead = 0;
+  for (const u of picks) {
+    if (cost >= MINDSHARE_MAX_COST) { log(`mindshare: read budget spent after ${samples.length} tokens`); break; }
+    try {
+      const r = await getJSON(`${ORBIO_API}/tools/social.x.posts`, { method: "POST", headers: auth, body: JSON.stringify({ query: `$${u.symbol}`, sort: "Latest", limit: 10, max_cost: "0.4000" }) });
+      cost += Number(r.cost?.credit || 0);
+      const tag = new RegExp(`\\$${u.symbol}\\b`, "i");
+      const posts = (r.tweets || r.result?.tweets || []).map(t => ({ id: String(t.id_str || t.id || ""), text: String(t.full_text || t.text || ""), at: t.tweet_created_at || t.created_at || null, handle: String(t.user?.screen_name || "").toLowerCase(), views: Number(t.views_count || 0), likes: Number(t.favorite_count || 0), replies: Number(t.reply_count || 0), reposts: Number(t.retweet_count || 0) }))
+        .filter(t => t.id && tag.test(t.text) && (t.text.match(/\$[a-z0-9]{2,12}\b/gi) || []).length <= 3 && t.handle !== OWN_HANDLE)
+        .filter(t => !GENERIC_SYMBOL.test(u.symbol) || /robinhood|orbio|\bhood\b|\brh chain\b/i.test(t.text) || (u.handle && t.handle === u.handle));
+      postsRead += posts.length;
+      const a = xAttention(posts, now);
+      samples.push({ symbol: u.symbol, token: u.token, orbio: !!u.orbio, score: a.score, posts: a.posts, reach: a.reach });
+    } catch (e) { log(`mindshare read $${u.symbol} failed:`, e.status || "", String(e.message).slice(0, 100)); if ([402, 429, 503].includes(e.status)) break; }
+  }
+  const total = samples.reduce((s, x) => s + x.score, 0);
+  if (samples.filter(s => s.score > 0).length < 5 || !total) { M.note = { at: iso(now), m: `only ${samples.filter(s => s.score > 0).length} of ${samples.length} tokens had posts in the last day` }; log("mindshare:", M.note.m); return; }
+  const prev = M.history[M.history.length - 1]?.shares || {};
+  const rows = rankMindshare(samples, prev, 50);
+  const html = mindshareHtml({ rows, date: today, postsRead, tokensRead: samples.length, title: `top ${rows.length} by mindshare` });
+  let png = null, media = null;
+  try { png = await renderHtml(html, { width: 1200, height: 675 }); media = `data:image/png;base64,${png.toString("base64")}`; } catch (e) { log("mindshare render failed:", String(e.message).slice(0, 120)); return; }
+  const line = (r) => `$${r.symbol} ${r.share.toFixed(1)}%${r.delta != null && Math.abs(r.delta) >= 0.5 ? ` (${r.delta > 0 ? "+" : ""}${r.delta.toFixed(1)})` : ""}`;
+  const text = `mindshare on x, last 24h. robinhood chain.\n${rows.slice(0, 5).map(line).join("\n")}\n${samples.length} tokens measured from ${postsRead} posts. share of attention, not of volume.`;
+  const p = await unpaced(() => orbioSend(text, { media })); // the day's one map goes out at its hour, outside the pacing
+  if (p.status === "failed" || !p.id) { M.note = { at: iso(now), m: `post failed: ${p.err}` }; log("mindshare post failed:", p.err); return; }
+  M.lastDay = today; M.at = iso(now); M.cost = Number(cost.toFixed(4)); M.postsRead = postsRead; M.tokensRead = samples.length; delete M.note;
+  M.rows = rows.map(r => ({ symbol: r.symbol, token: r.token, share: Number(r.share.toFixed(2)), delta: r.delta == null ? null : Number(r.delta.toFixed(2)), posts: r.posts, reach: r.reach }));
+  M.history = [...M.history.filter(h => h.day !== today), { day: today, shares: Object.fromEntries(samples.map(s => [s.symbol, Number((s.score / total * 100).toFixed(2))])) }].slice(-14);
+  M.card = null;
+  try { const name = `mindshare-${today}.png`; await mkdir("out", { recursive: true }); await writeFile(`out/${name}`, png); if (await uploadSketch(`out/${name}`, name)) M.card = `/a/${name}`; } catch (e) { log("mindshare upload failed:", String(e.message).slice(0, 120)); }
+  feed.posts.push({ at: iso(now), text, id: p.id, url: p.url, status: p.status, cost: Number(((p.cost || 0) + cost).toFixed(6)), via: p.via || "orbio", kind: "own", format: "mindshare", card: true, mindshare: { top: rows.slice(0, 5).map(r => r.symbol), tokens: samples.length, posts: postsRead, image: M.card }, replyTo: null });
+  event(`posted the daily mindshare map: $${rows[0].symbol} leads at ${rows[0].share.toFixed(1)}%`);
+  log("mindshare:", text.replace(/\n/g, " | "));
+  await persistNow(feed);
+}
+
 // ---------- Radar cards between the cat's own posts. Each one is its own post: a card never goes out as a reply under an
 // earlier card about a different token (that read as the cat talking to itself), so it only runs with originals to spare.
 async function radarThread(feed) {
@@ -2148,6 +2204,7 @@ await saySomething(feed);
 await announceBuild(feed);
 try { await scoreCalls(feed); } catch (e) { log("score calls failed:", String(e.message).slice(0, 160)); }
 try { await measureFormats(feed); } catch (e) { log("measure formats failed:", String(e.message).slice(0, 160)); }
+try { await mindshareDaily(feed); } catch (e) { log("mindshare failed:", String(e.message).slice(0, 160)); }
 try { await thesisPost(feed); } catch (e) { log("thesis failed:", String(e.message).slice(0, 160)); }
 try { await radarThread(feed); } catch (e) { log("radar thread failed:", String(e.message).slice(0, 160)); }
 try { await buzzReply(feed); } catch (e) { log("buzz reply failed:", String(e.message).slice(0, 160)); }

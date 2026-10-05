@@ -66,13 +66,14 @@ export function cardHtml(spec) {
   </body></html>`;
 }
 
-export async function renderCard(spec) {
+export async function renderHtml(html, { width = 1200, height = 728 } = {}) {
   const { chromium } = require("playwright");
   const launch = process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH, args: ["--no-sandbox", "--disable-dev-shm-usage"] } : { channel: "chrome" };
   const browser = await chromium.launch(launch).catch(() => chromium.launch());
   try {
-    const page = await browser.newPage({ viewport: { width: 1200, height: 728 }, deviceScaleFactor: 1 });
-    await page.setContent(cardHtml(spec), { waitUntil: "load" });
+    const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
+    await page.setContent(html, { waitUntil: "load" });
     return await page.screenshot({ type: "png" });
   } finally { await browser.close(); }
 }
+export const renderCard = (spec) => renderHtml(cardHtml(spec), { width: 1200, height: 728 });
