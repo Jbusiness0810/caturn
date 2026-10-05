@@ -1003,12 +1003,24 @@ const RADAR_ON = env.CATURN_RADAR !== "0";
 const DS = "https://api.dexscreener.com";
 async function radarUniverse(feed) {
   const R = feed.radar = feed.radar || { universe: [], uAt: null, snaps: [], signals: [], cooled: {} };
-  if (R.uAt && now - Date.parse(R.uAt) < 6 * 3600e3 && R.universe.length) return R.universe;
+  if (R.uAt && now - Date.parse(R.uAt) < 2 * 3600e3 && R.universe.length) return R.universe;
   const toks = new Map();
+  // the chain's busiest pools right now, so the biggest robinhood tokens are in every read, not only orbio launches
+  for (let page = 1; page <= 3; page++) {
+    try {
+      const d = await getJSON(`https://api.geckoterminal.com/api/v2/networks/robinhood/pools?page=${page}&sort=h24_volume_usd_desc`, { headers: { accept: "application/json" } });
+      for (const p of (d.data || [])) {
+        const base = String(p.relationships?.base_token?.data?.id || "").replace(/^robinhood_/, "").toLowerCase(), symbol = String(p.attributes?.name || "").split("/")[0].trim();
+        if (!/^0x[a-f0-9]{40}$/.test(base) || /^0x0{40}$/.test(base) || toks.has(base) || !symbol) continue;
+        toks.set(base, { symbol, name: symbol, orbio: false, handle: null, hot: true });
+      }
+      if (!(d.data || []).length) break;
+    } catch (e) { log("radar universe pools page failed:", page, String(e.message).slice(0, 100)); break; }
+  }
   for (let page = 1; page <= 8; page++) {
     try {
       const d = await getJSON(`https://www.orbio.so/api/protocol/agents?limit=200&page=${page}`);
-      for (const a of (d.data || [])) if (a.token && a.price?.graduated) toks.set(String(a.token).toLowerCase(), { symbol: a.symbol, name: a.name, orbio: true, handle: (String(a.socials?.twitter || "").match(/(?:x|twitter)\.com\/([A-Za-z0-9_]{1,15})/) || [])[1]?.toLowerCase() || null });
+      for (const a of (d.data || [])) if (a.token && a.price?.graduated) toks.set(String(a.token).toLowerCase(), { ...(toks.get(String(a.token).toLowerCase()) || {}), symbol: a.symbol, name: a.name, orbio: true, handle: (String(a.socials?.twitter || "").match(/(?:x|twitter)\.com\/([A-Za-z0-9_]{1,15})/) || [])[1]?.toLowerCase() || null });
       if (!(d.data || []).length || (d.data || []).length < 200) break;
     } catch (e) { log("radar universe page failed:", page, String(e.message).slice(0, 100)); break; }
   }
@@ -1018,6 +1030,15 @@ async function radarUniverse(feed) {
   R.universe = [...toks.entries()].map(([token, v]) => ({ token, ...v })).slice(0, 300); R.uAt = iso(now);
   log("radar universe:", R.universe.length, "tokens");
   return R.universe;
+}
+// Outside orbio a token earns a read with real depth, a day of history, and a name that is not bait, a wrapped asset,
+// a stablecoin or a tokenized stock. Orbio launches pass as they are: the scanner knows their deployer and curve.
+const WRAPPED_OR_STABLE = /^(usd[a-z]*|[a-z]*usd|usdt|usdc|dai|weth|eth|wbtc|btc|wsol|sol)$/i;
+function safeOther(m, n) {
+  if (m.orbio) return true;
+  if (WRAPPED_OR_STABLE.test(String(m.symbol || ""))) return false;
+  if (/robinhood|official|airdrop|claim|stock|wrapped|stable/i.test(String(m.name || ""))) return false;
+  return !!n && n.liq >= 25000 && !!n.created && now - n.created >= 24 * 3600e3;
 }
 async function radarRead(feed) {
   if (!RADAR_ON) return null;
@@ -1029,6 +1050,7 @@ async function radarRead(feed) {
       const pairs = await getJSON(`${DS}/tokens/v1/robinhood/${uni.slice(i, i + 30).map(u => u.token).join(",")}`);
       for (const p of (Array.isArray(pairs) ? pairs : [])) {
         const t = String(p.baseToken?.address || "").toLowerCase(); if (!meta.has(t)) continue;
+        const mm = meta.get(t); if (p.baseToken?.name && (!mm.name || mm.name === mm.symbol)) mm.name = String(p.baseToken.name).slice(0, 60); // pool lists carry only the symbol
         const liq = Number(p.liquidity?.usd || 0); if (snap[t] && snap[t].liq >= liq) continue; // the deepest pool speaks for the token
         snap[t] = { liq, mc: Number(p.marketCap || p.fdv || 0), px: Number(p.priceUsd || 0), v1: Number(p.volume?.h1 || 0), v24: Number(p.volume?.h24 || 0), b1: Number(p.txns?.h1?.buys || 0), s1: Number(p.txns?.h1?.sells || 0), ch1: Number(p.priceChange?.h1 || 0), ch24: Number(p.priceChange?.h24 || 0), created: Number(p.pairCreatedAt || 0) };
       }
@@ -1040,11 +1062,7 @@ async function radarRead(feed) {
   const sig = [];
   for (const [t, n] of Object.entries(snap)) {
     const m = meta.get(t), o = hourAgo[t], name = `$${m.symbol}`;
-    if (n.liq < 3000) continue;
-    // never amplify brand bait: tokens named after the chain, an exchange or a stablecoin, unless they are orbio launches
-    if (!m.orbio && /^(robin|hood|rh|robinhood|usd|eth|weth|btc|wbtc|sol|coinbase|binance|base|arb|op)/i.test(String(m.symbol || "") + "") ) continue;
-    if (!m.orbio && /robinhood|official|airdrop|claim/i.test(String(m.name || ""))) continue;
-    if (!m.orbio && (n.liq < 25000 || !n.created || now - n.created < 24 * 3600e3)) continue; // outside orbio: real depth and a day of history first
+    if (n.liq < 3000 || !safeOther(m, n)) continue;
     const avgHour = n.v24 / 24;
     if (n.v1 >= 5000 && avgHour > 0 && n.v1 >= 3 * avgHour) sig.push({ t, kind: "volume", score: (n.v1 / avgHour) * Math.log10(n.liq), line: `${name}: $${Math.round(n.v1).toLocaleString()} traded in the last hour, ${(n.v1 / avgHour).toFixed(1)}x its 24h hourly average` });
     if (Math.abs(n.ch1) >= 25 && n.liq >= 10000) sig.push({ t, kind: n.ch1 > 0 ? "up" : "down", score: Math.abs(n.ch1) / 10 * Math.log10(n.liq), line: `${name}: ${n.ch1 > 0 ? "+" : ""}${n.ch1.toFixed(1)}% in an hour on $${Math.round(n.liq).toLocaleString()} of liquidity` });
@@ -1159,15 +1177,12 @@ async function thesisPost(feed) {
   T.tried = iso(now); const note = (m) => { T.note = { at: iso(now), m: String(m).slice(0, 300) }; log("thesis:", m); };
   if (feed.xAllowance?.posts_left != null && feed.xAllowance.posts_left <= 1) { note("holding back, no originals left today"); return; }
   const snaps = feed.radar?.snaps || [], snap = snaps[snaps.length - 1]?.d || {};
-  const orbio = (feed.radar?.universe || []).filter(u => u.orbio && snap[u.token]?.v24 > 0).sort((a, b) => snap[b.token].v24 - snap[a.token].v24);
-  let sub = orbio.find(u => !covered(feed, u.token) && !T.done.some(d => d.token === u.token && now - Date.parse(d.at) < 48 * 3600e3) && snap[u.token].v24 >= Number(env.CATURN_THESIS_MIN_VOL || 3000));
-  // every orbio launch covered this week: the rest of the chain (the big robinhood tokens the radar watches) gets the read instead
+  // the whole chain ranked by what is trading right now: the busiest uncovered token gets the thesis, orbio launch or not
+  const pool = (feed.radar?.universe || []).filter(u => snap[u.token]?.v24 > 0 && safeOther(u, snap[u.token])).sort((a, b) => snap[b.token].v24 - snap[a.token].v24), poolName = "robinhood chain tokens";
   const eligible = (u) => !covered(feed, u.token) && !T.done.some(d => d.token === u.token && now - Date.parse(d.at) < 48 * 3600e3) && snap[u.token].v24 >= Number(env.CATURN_THESIS_MIN_VOL || 3000);
-  const others = (feed.radar?.universe || []).filter(u => !u.orbio && snap[u.token]?.v24 > 0).sort((a, b) => snap[b.token].v24 - snap[a.token].v24);
-  const pool = sub ? orbio : others, poolName = sub ? "orbio launches" : "robinhood chain tokens";
-  const pick = sub || others.find(eligible);
+  const pick = pool.find(eligible);
   if (!pick) { note("nothing uncovered busy enough on the chain"); return; }
-  sub = pick;
+  const sub = pick;
   const scan = await scanToken(sub.token);
   if (!scan?.facts) { note(`no scan for ${sub.symbol}`); T.done = [...T.done, { token: sub.token, symbol: sub.symbol, at: iso(now), skipped: true }].slice(-50); return; }
   const structureKnown = !scan.facts.partialHistory && !!scan.facts.holders; // a history too long to scan leaves holders and shares unknown
@@ -1195,7 +1210,7 @@ async function thesisPost(feed) {
   ].filter(Boolean).join("\n");
   const sys = `${persona}
 
-For this thread you are the sharpest onchain analyst on Robinhood Chain, writing a thesis on one orbio agent token, the way the best crypto research accounts do: one clear, specific, slightly contrarian idea that the numbers support, the kind of read people quote. Find the single most interesting thing in the facts (a mismatch between volume and holders, a token out-trading peers with a fraction of their cap, flow that contradicts price, concentration that the price action hides, an account whose claims the chain does or does not back) and build the thread around it.
+For this thread you are the sharpest onchain analyst on Robinhood Chain, writing a thesis on one token trading on the chain, the way the best crypto research accounts do: one clear, specific, slightly contrarian idea that the numbers support, the kind of read people quote. Find the single most interesting thing in the facts (a mismatch between volume and holders, a token out-trading peers with a fraction of their cap, flow that contradicts price, concentration that the price action hides, an account whose claims the chain does or does not back) and build the thread around it.
 
 Write three posts as JSON {"hook": string, "evidence": string, "risk": string, "stance": "constructive"|"skeptical"|"mixed"}:
 - hook: under 160 characters, opens with $${sub.symbol}, two or three stacked fragments in the analyst voice from your persona, at most two numbers, the claim stated flat as fact. it must make a reader stop scrolling.
@@ -1300,23 +1315,30 @@ async function pickInsightSubject(feed) {
   const eco = (feed.room?.ecosystem || []).map(e => ({ token: String(e.token || e.address || e.ca || e.contract || "").toLowerCase(), handle: (e.handle || "").toLowerCase(), name: e.name, symbol: e.symbol, mcap: e.mcap, graduated: e.graduated, hoursAgo: e.hoursAgo })).filter(e => /^0x[a-f0-9]{40}$/.test(e.token) && e.token !== CA.toLowerCase());
   const top = eco.slice(0, PING_TOP), fresh = eco.filter(e => e.hoursAgo != null && e.hoursAgo < 48 && !top.includes(e)).slice(0, 4);
   const fresh24 = (e) => !covered(feed, e.token) && !I.done.some(d => d.token === e.token && now - Date.parse(d.at) < 24 * 3600e3);
-  // grade what people are trading first: orbio launches ranked by 24h volume from the latest radar read
+  // grade what people are trading first: the whole chain ranked by 24h volume from the latest radar read, orbio or not
   const snap = feed.radar?.snaps?.[feed.radar.snaps.length - 1]?.d || {}, byTok = new Map(eco.map(e => [e.token, e]));
-  const hot = (feed.radar?.universe || []).filter(u => u.orbio && snap[u.token]?.v24 >= Number(env.CATURN_GRADE_MIN_VOL || 5000))
+  const hot = (feed.radar?.universe || []).filter(u => snap[u.token]?.v24 >= Number(env.CATURN_GRADE_MIN_VOL || 5000) && safeOther(u, snap[u.token]))
     .sort((a, b) => snap[b.token].v24 - snap[a.token].v24)
-    .map(u => ({ ...(byTok.get(u.token) || {}), token: u.token, handle: (u.handle || byTok.get(u.token)?.handle || "").toLowerCase(), name: u.name, symbol: u.symbol, graduated: true, volume24h: snap[u.token].v24 }))
+    .map(u => ({ ...(byTok.get(u.token) || {}), token: u.token, handle: (u.handle || byTok.get(u.token)?.handle || "").toLowerCase(), name: u.name, symbol: u.symbol, orbio: !!u.orbio, graduated: true, volume24h: snap[u.token].v24 }))
     .filter(fresh24);
-  if (hot.length) { I.seq = (I.seq || 0) + 1; return hot[0]; }
-  const pool = [...top, ...fresh].filter(fresh24);
-  if (!pool.length) return null;
-  const pick = pool[I.seq % pool.length]; I.seq = (I.seq || 0) + 1; return pick;
+  if (hot.length) { I.seq = (I.seq || 0) + 1; return hot.slice(0, 3); }
+  const pool = [...top, ...fresh].filter(fresh24).map(e => ({ ...e, orbio: true }));
+  if (!pool.length) return [];
+  const pick = pool[I.seq % pool.length]; I.seq = (I.seq || 0) + 1; return [pick];
 }
 async function makeInsight(feed) {
-  const sub = await pickInsightSubject(feed); if (!sub) { log("insight: no subject"); return null; }
-  const scan = await scanToken(sub.token);
-  if (!scan?.facts) throw new Error("no scan for " + sub.symbol);
-  if (scan.facts.partialHistory || (!scan.facts.holders && scan.facts.transfers !== 0)) throw new Error(`scan of ${sub.symbol} came back without its full transfer history; not grading on half the data`);
-  if (Number(scan.facts.holders || 0) < Number(env.CATURN_GRADE_MIN_HOLDERS || 25)) { (feed.insights.done = feed.insights.done || []).push({ token: sub.token, symbol: sub.symbol, at: iso(now), skipped: true }); log(`insight: ${sub.symbol} has ${scan.facts.holders} holders, too few to grade`); return null; }
+  const cands = await pickInsightSubject(feed); if (!cands.length) { log("insight: no subject"); return null; }
+  feed.insights.done = feed.insights.done || [];
+  // the busiest token first; one whose history is too long to read in full, or too thin to grade, steps aside for a day
+  let sub = null, scan = null;
+  for (const c of cands.slice(0, 2)) {
+    const s = await scanToken(c.token);
+    if (!s?.facts) { log(`insight: no scan for ${c.symbol}`); continue; }
+    if (s.facts.partialHistory || (!s.facts.holders && s.facts.transfers !== 0)) { feed.insights.done.push({ token: c.token, symbol: c.symbol, at: iso(now), skipped: true }); log(`insight: ${c.symbol} has more history than the scanner can walk, not grading on half the data`); continue; }
+    if (Number(s.facts.holders || 0) < Number(env.CATURN_GRADE_MIN_HOLDERS || 25)) { feed.insights.done.push({ token: c.token, symbol: c.symbol, at: iso(now), skipped: true }); log(`insight: ${c.symbol} has ${s.facts.holders} holders, too few to grade`); continue; }
+    sub = c; scan = s; break;
+  }
+  if (!sub) return null;
   const f = scan.facts, decimals = Number(f.decimals || 18);
   const [burn, pairs] = await Promise.all([burned(sub.token, decimals, Number(f.supply || 0)), fetch(`https://api.dexscreener.com/latest/dex/tokens/${sub.token}`).then(r => r.json()).then(d => (d.pairs || []).filter(p => String(p.chainId).toLowerCase().includes("robinhood"))).catch(() => [])]);
   const pair = pairs.sort((a, b) => (b.liquidity?.usd || 0) - (a.liquidity?.usd || 0))[0] || null;
@@ -1324,7 +1346,7 @@ async function makeInsight(feed) {
   const top10 = (f.top || []).filter(h => !h.contract).slice(0, 10).reduce((a, h) => a + (h.share || 0), 0);
   const whale = (f.top || []).filter(h => !h.contract)[0];
   const facts = [
-    `${f.name} ($${f.symbol}), launched on orbio ${sub.graduated ? "and graduated to a pool" : "and still on the bonding curve"}`,
+    `${f.name} ($${f.symbol}), ${sub.orbio ? `launched on orbio ${sub.graduated ? "and graduated to a pool" : "and still on the bonding curve"}` : "a token on robinhood chain, not an orbio launch"}`,
     f.ageHours != null ? `age ${Math.round(f.ageHours / 24 * 10) / 10} days` : (sub.hoursAgo != null ? `age ${Math.round(sub.hoursAgo)} hours` : null),
     `holders ${f.holders}, transfers ${f.transfers}`,
     whale ? `largest wallet ${whale.share.toFixed(1)}%` : null, `top 10 wallets ${top10.toFixed(1)}%`,
