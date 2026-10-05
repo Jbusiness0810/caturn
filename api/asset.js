@@ -6,7 +6,9 @@ export default async function handler(req, res) {
   const ext = (name.match(/\.([a-z0-9]+)$/i) || [])[1]?.toLowerCase();
   if (!/^[a-z0-9][a-z0-9._-]{0,120}$/i.test(name) || !TYPES[ext] || name === "feed.json") return res.status(404).send("not found");
   try {
-    const r = await fetch(`https://github.com/${REPO}/releases/download/sketches/${name}`, { redirect: "follow", headers: { "user-agent": "caturn.lol" } });
+    const SB = (process.env.SUPABASE_URL || "").replace(/\/$/, ""), BUCKET = process.env.CATURN_BUCKET || "caturn";
+    let r = SB ? await fetch(`${SB}/storage/v1/object/public/${BUCKET}/${name}`, { headers: { "user-agent": "caturn.lol" } }).catch(() => null) : null;
+    if (!r || !r.ok) r = await fetch(`https://github.com/${REPO}/releases/download/sketches/${name}`, { redirect: "follow", headers: { "user-agent": "caturn.lol" } });
     if (!r.ok) return res.status(404).send("not found");
     res.setHeader("Content-Type", TYPES[ext]);
     res.setHeader("Cache-Control", "public, max-age=86400, s-maxage=604800, immutable");

@@ -68,7 +68,7 @@ export function cardHtml(spec) {
 
 export async function renderCard(spec) {
   const { chromium } = require("playwright");
-  const launch = process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: "chrome" };
+  const launch = process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH, args: ["--no-sandbox", "--disable-dev-shm-usage"] } : { channel: "chrome" };
   const browser = await chromium.launch(launch).catch(() => chromium.launch());
   try {
     const page = await browser.newPage({ viewport: { width: 1200, height: 728 }, deviceScaleFactor: 1 });

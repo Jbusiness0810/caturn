@@ -8,7 +8,7 @@ const { GIFEncoder, quantize, applyPalette } = require("gifenc");
 const out = process.argv[2] || "sky.gif";
 const URL_ = process.argv[3] || "https://www.caturn.lol/sky?shot=1";
 const FRAMES = 30, SIZE = 480, FPS = 10;
-const launch = process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: "chrome" };
+const launch = process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH, args: ["--no-sandbox", "--disable-dev-shm-usage"] } : { channel: "chrome" };
 const browser = await chromium.launch(launch).catch(() => chromium.launch());
 const page = await browser.newPage({ viewport: { width: SIZE, height: SIZE }, deviceScaleFactor: 1 });
 try {

@@ -96,7 +96,7 @@ async function findCandidate() {
 
 // Render: sketch code first, then p5 (p5 starts itself once the document is loaded), then step draw() by hand with redraw().
 async function render(c) {
-  const launch = process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: "chrome" };
+  const launch = process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH, args: ["--no-sandbox", "--disable-dev-shm-usage"] } : { channel: "chrome" };
   const browser = await chromium.launch(launch).catch(() => chromium.launch());
   const page = await browser.newPage({ viewport: { width: 900, height: 900 }, deviceScaleFactor: 1 });
   await page.route(/^https?:\/\//, r => r.abort()); // self-contained only: no network from inside a stranger's sketch

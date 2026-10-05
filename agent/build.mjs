@@ -119,7 +119,7 @@ async function step(idea, n, prevHtml) {
 async function screenshot(html, file) {
   try {
     const { chromium } = require("playwright");
-    const launch = env.CHROME_PATH ? { executablePath: env.CHROME_PATH } : { channel: "chrome" };
+    const launch = env.CHROME_PATH ? { executablePath: env.CHROME_PATH, args: ["--no-sandbox", "--disable-dev-shm-usage"] } : { channel: "chrome" };
     const browser = await chromium.launch(launch).catch(() => chromium.launch());
     try {
       const page = await browser.newPage({ viewport: { width: 720, height: 540 }, deviceScaleFactor: 1 });

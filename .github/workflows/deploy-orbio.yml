@@ -1,0 +1,54 @@
+name: Deploy runner to orbio
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "status | deploy | logs | restart | renew"
+        required: true
+        default: "status"
+permissions:
+  contents: read
+concurrency:
+  group: orbio-deploy
+  cancel-in-progress: false
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 170
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: master }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - uses: docker/setup-buildx-action@v3
+        if: ${{ inputs.mode == 'deploy' }}
+      - name: ${{ inputs.mode }}
+        run: node agent/deploy-orbio.mjs "${{ inputs.mode }}"
+        env:
+          ORBIO_API_KEY: ${{ secrets.ORBIO_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          CATURN_AGENT_ID: ${{ vars.CATURN_AGENT_ID || secrets.CATURN_AGENT_ID }}
+          CATURN_MODEL: ${{ vars.CATURN_MODEL }}
+          CATURN_DAILY_CAP: ${{ vars.CATURN_DAILY_CAP }}
+          CATURN_FULL_VOLUME_USD: ${{ vars.CATURN_FULL_VOLUME_USD }}
+          CATURN_TAG_HANDLES: ${{ vars.CATURN_TAG_HANDLES }}
+          CATURN_TAG_EVERY: ${{ vars.CATURN_TAG_EVERY }}
+          CATURN_REPLY_EVERY: ${{ vars.CATURN_REPLY_EVERY }}
+          CATURN_REPLY_ACCOUNTS: ${{ vars.CATURN_REPLY_ACCOUNTS }}
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
+          ERRAND_KEY: ${{ secrets.ERRAND_KEY }}
+          ERRAND_OWNER: ${{ vars.ERRAND_OWNER }}
+          ERRAND_MIN_REWARD: ${{ vars.ERRAND_MIN_REWARD }}
+          ERRAND_TAKE_OWN: ${{ vars.ERRAND_TAKE_OWN }}
+          CATURN_FOUND_SKETCHES: ${{ vars.CATURN_FOUND_SKETCHES }}
+          CATURN_FOUND_ARTISTS: ${{ vars.CATURN_FOUND_ARTISTS }}
+          CATURN_FOUND_CURATORS: ${{ vars.CATURN_FOUND_CURATORS }}
+          CATURN_FOUND_MIN_HEARTS: ${{ vars.CATURN_FOUND_MIN_HEARTS }}
+          CATURN_FOUND_LICENSES: ${{ vars.CATURN_FOUND_LICENSES }}
+          CATURN_ORBIO_SOCIAL: ${{ vars.CATURN_ORBIO_SOCIAL }}
+          CATURN_FLY_DAILY_CAP: ${{ vars.CATURN_FLY_DAILY_CAP }}
+          CATURN_FLY_REGION: ${{ vars.CATURN_FLY_REGION }}

@@ -16,7 +16,7 @@ const family = state.family || families[Math.floor((state.seed || 0) % families.
 const params = new URLSearchParams({ family, seed: String(state.seed || Date.now() % 100000), energy: String(state.energy ?? 0.5), size: String(SIZE) });
 for (const k of ["curiosity","smugness","unease","affection","boredom","hunger","mischief","melancholy"]) if (state.emotions?.[k] != null) params.set(k, String(state.emotions[k]));
 
-const launch = process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: "chrome" };
+const launch = process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH, args: ["--no-sandbox", "--disable-dev-shm-usage"] } : { channel: "chrome" };
 const browser = await chromium.launch(launch).catch(() => chromium.launch());
 const page = await browser.newPage({ viewport: { width: SIZE, height: SIZE }, deviceScaleFactor: 1 });
 await page.goto(pathToFileURL(join(here, "sketch", "index.html")).href + "?" + params.toString());

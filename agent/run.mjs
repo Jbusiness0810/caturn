@@ -11,6 +11,7 @@ const run = promisify(execFile);
 const env = process.env;
 const API_KEY   = env.ORBIO_API_KEY || "";
 import { renderCard } from "./card.mjs";
+import { putObject as storagePut, typeOf as storageType } from "./storage.mjs";
 import { MEMORY_ON, seed as seedMemory, recall as recallMemory, remember as rememberTick, rememberEvent, measure as measurePosts, reflect as reflectDay } from "./memory.mjs";
 const AGENT_ID  = env.CATURN_AGENT_ID || "0x9b4e217f8759cb758664ac3b0ee730a4d15e7f6a"; // Caturn, agent 271: what the protocol API is asked about (the repo variable sets it to 271)
 // The contract address, the only one the cat ever posts. Never taken from CATURN_CA, which may be the agent number.
@@ -28,7 +29,9 @@ const FOUND_ARTISTS = (env.CATURN_FOUND_ARTISTS || "").split(",").map(s => Numbe
 const FOUND_MIN_HEARTS = Number(env.CATURN_FOUND_MIN_HEARTS || 12);        // a found sketch needs this many hearts on openprocessing
 const FOUND_CURATORS = (env.CATURN_FOUND_CURATORS || "6533,65884").split(",").map(s => Number(s.trim())).filter(n => n > 0); // whose hearted sketches to draw from (takawo by default)
 const FOUND_LICENSES = (env.CATURN_FOUND_LICENSES || "cc0,by,by-sa").split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
-const SKETCH_RELEASE = "sketches";                                      // rolling GitHub release that hosts the GIFs
+const SKETCH_RELEASE = "sketches";
+const RUNNER = !!(env.CATURN_RUNNER && env.SUPABASE_URL && env.SUPABASE_SERVICE_KEY); // the always-on machine publishes to storage instead of the release
+const CAN_PUBLISH = ((env.GH_TOKEN || env.GITHUB_TOKEN) && env.GITHUB_ACTIONS) || RUNNER;                                      // rolling GitHub release that hosts the GIFs
 const OWN_HANDLE = (env.CATURN_X_HANDLE || "caturn_rh").toLowerCase();
 // People worth tagging now and then. Pinned ones come from CATURN_TAG_HANDLES (comma-separated, no @); the rest Caturn finds on X itself:
 // accounts @orbiodotso mentions, and the larger accounts talking about orbio. Robinhood is the chain Caturn lives on.
@@ -803,7 +806,8 @@ async function makeSketch(ctx) {
   const state = { family, seed, energy: ctx.energy, emotions: ctx.emotions || {}, frames: 24, size: 480 };
   await run("node", [new URL("./sketch.mjs", import.meta.url).pathname, JSON.stringify(state), file], { timeout: 120000, env: { ...process.env } });
   let url = null;
-  if ((env.GH_TOKEN || env.GITHUB_TOKEN) && env.GITHUB_ACTIONS) {
+  if (RUNNER) { try { url = await storagePut(name, await readFile(file), storageType(name), 86400); } catch (e) { log("storage upload failed:", String(e.message).slice(0, 200)); } }
+  else if (CAN_PUBLISH) {
     const repo = env.GITHUB_REPOSITORY || "Jbusiness0810/caturn";
     try {
       try { await run("gh", ["release", "view", SKETCH_RELEASE, "-R", repo]); }
@@ -815,7 +819,8 @@ async function makeSketch(ctx) {
   return { url, family, seed, file: url ? null : file, at: iso(now) };
 }
 async function uploadSketch(file, name) {
-  if (!((env.GH_TOKEN || env.GITHUB_TOKEN) && env.GITHUB_ACTIONS)) return null;
+  if (!CAN_PUBLISH) return null;
+  if (RUNNER) { try { return await storagePut(name, await readFile(file), storageType(name), 86400); } catch (e) { log("storage upload failed:", String(e.message).slice(0, 200)); return null; } }
   const repo = env.GITHUB_REPOSITORY || "Jbusiness0810/caturn";
   try {
     try { await run("gh", ["release", "view", SKETCH_RELEASE, "-R", repo]); }
@@ -826,7 +831,7 @@ async function uploadSketch(file, name) {
 }
 // A sketch whose upload failed is drawn again from its seed on a run that can upload, and reattached to its thought.
 async function repairSketches(feed) {
-  if (!((env.GH_TOKEN || env.GITHUB_TOKEN) && env.GITHUB_ACTIONS)) return;
+  if (!CAN_PUBLISH) return;
   const sk = feed.sketches.find(x => !x.url && x.seed && (x.repairTries || 0) < 2);
   if (!sk) return;
   sk.repairTries = (sk.repairTries || 0) + 1;
@@ -877,7 +882,7 @@ async function makeFoundSketch(ctx) {
 // Commissioned sketches: code delivered to Caturn (errand missions) lives in art/submitted/<key>.js with a <key>.json credit.
 // Each is rendered once in CI, uploaded, and shown in the gallery with the artist's name.
 async function renderSubmitted(feed) {
-  if (!((env.GH_TOKEN || env.GITHUB_TOKEN) && env.GITHUB_ACTIONS)) return;
+  if (!CAN_PUBLISH) return;
   const { readdir } = await import("node:fs/promises");
   const dir = new URL("../art/submitted/", import.meta.url);
   let files = []; try { files = (await readdir(dir)).filter(f => f.endsWith(".json")); } catch { return; }
@@ -902,7 +907,7 @@ async function renderSubmitted(feed) {
 // The sky: every few hours film the live sky map and put it in the gallery; with X keys it goes out as an image post with the link.
 const SKY_EVERY_H = Number(env.CATURN_SKY_EVERY_H || 0);   // off with the rest of the art
 async function makeSkyShot(feed) {
-  if (!((env.GH_TOKEN || env.GITHUB_TOKEN) && env.GITHUB_ACTIONS) || SKY_EVERY_H <= 0) return;
+  if (!CAN_PUBLISH || SKY_EVERY_H <= 0) return;
   if (feed.lastSkyAt && now - Date.parse(feed.lastSkyAt) < SKY_EVERY_H * 3600e3) return;
   feed.lastSkyAt = iso(now);
   const name = `sky-${new Date(now).toISOString().slice(0, 16).replace(/[:T]/g, "-")}.gif`; await mkdir("out", { recursive: true });
@@ -920,7 +925,8 @@ async function makeSkyShot(feed) {
 async function persistNow(feed) {
   try {
     await writeFile(FEED, JSON.stringify(feed, null, 2) + "\n");
-    if ((env.GH_TOKEN || env.GITHUB_TOKEN) && env.GITHUB_ACTIONS) await run("gh", ["release", "upload", SKETCH_RELEASE, FEED.pathname, "-R", env.GITHUB_REPOSITORY || "Jbusiness0810/caturn", "--clobber"], { timeout: 60000 });
+    if (RUNNER) { try { await storagePut("feed.json", await readFile(FEED), "application/json; charset=utf-8", 10); } catch (e) { log("feed storage upload failed:", String(e.message).slice(0, 160)); } }
+    else if (CAN_PUBLISH) await run("gh", ["release", "upload", SKETCH_RELEASE, FEED.pathname, "-R", env.GITHUB_REPOSITORY || "Jbusiness0810/caturn", "--clobber"], { timeout: 60000 });
   } catch (e) { log("persist failed:", String(e.message).slice(0, 120)); }
 }
 // A build shipped from the workshop (agent/build.mjs leaves it in feed.workshop.announce): one post with the screenshot and the link.
