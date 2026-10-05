@@ -1110,15 +1110,13 @@ function noteCovered(feed) {
 }
 const covered = (feed, token) => { const at = noteCovered(feed)[String(token || "").toLowerCase()]; return !!at && now - Date.parse(at) < COVER_DAYS * 86400e3; };
 
-// ---------- Radar thread: orbio allows 50 originals but 100 replies a day. Between the cat's own posts, the next radar read
-// goes out as a reply under its latest post, so the timeline moves about every 15 minutes without spending originals.
+// ---------- Radar cards between the cat's own posts. Each one is its own post: a card never goes out as a reply under an
+// earlier card about a different token (that read as the cat talking to itself), so it only runs with originals to spare.
 async function radarThread(feed) {
   if (DRY_RUN || !RADAR_ON || !API_KEY || env.CATURN_RADAR_THREAD === "0") return;
   const gapMin = Number(env.CATURN_THREAD_GAP_MIN || 14), last = feed.posts[feed.posts.length - 1];
   if (last && now - Date.parse(last.at) < gapMin * 60e3) return;
-  const a = feed.xAllowance; if (a?.replies_left != null && a.replies_left <= 15) { log("radar thread: keeping the last replies for mentions"); feed.radarThreadNote = { at: iso(now), note: "radar thread: keeping the last replies for mentions" }; return; }
-  const parent = [...feed.posts].reverse().find(p => ["radar", "insight"].includes(p.format) && p.via !== "recovered" && /^\d{10,}$/.test(String(p.id)) && now - Date.parse(p.at) < 6 * 3600e3);
-  if (!parent && spareOriginals(feed) <= 0) { log("radar thread: no card post to thread under and no spare originals"); feed.radarThreadNote = { at: iso(now), note: "no card post to thread under" }; return; }
+  if (spareOriginals(feed) <= 0) { log("radar card: no spare originals today"); feed.radarThreadNote = { at: iso(now), note: "radar card: no spare originals" }; return; }
   let rd = await makeRadarPost(feed, { minScore: Number(env.CATURN_THREAD_MIN_SCORE || 7) });
   if (!rd && INSIGHT_ON) { // a quiet tape: grade a token on the scorecard instead of waiting for a move
     rd = await makeInsight(feed).catch(e => { log("radar thread grade failed:", String(e.message).slice(0, 160)); return null; });
@@ -1127,13 +1125,12 @@ async function radarThread(feed) {
   if (!rd) { log("radar thread: no signal strong enough"); feed.radarThreadNote = { at: iso(now), note: "radar thread: no signal and no gradeable token" }; return; }
   let media = null;
   if (env.CATURN_CARDS !== "0") { try { const png = await renderCard(rd.card); media = `data:image/png;base64,${png.toString("base64")}`; } catch (e) { log("radar thread card failed:", String(e.message).slice(0, 120)); } }
-  // a card chains under the last card; with no card post in the last 6 hours it starts a new chain as its own post
-  let p = await orbioSend(rd.text, { replyTo: parent?.id || null, media });
-  if (p.status === "failed" && media) p = await orbioSend(rd.text, { replyTo: parent?.id || null });
-  if (p.status === "failed") { log("radar thread post failed:", p.err); return; }
-  feed.posts.push({ at: iso(now), text: rd.text, id: p.id, url: p.url, status: p.status, cost: Number(p.cost || 0), via: p.via || "orbio", kind: "reply", threaded: true, format: rd.kind === "grade" ? "insight" : "radar", card: !!media, radar: { token: rd.token, symbol: rd.symbol, kind: rd.kind, grade: rd.grade || null }, replyTo: parent ? { id: String(parent.id), handle: OWN_HANDLE, name: "caturn", text: String(parent.text || "").slice(0, 200), url: parent.url, why: "radar thread" } : null });
-  event(`radar read on $${rd.symbol} under its own post`);
-  log("radar thread:", rd.model, rd.text);
+  let p = await orbioSend(rd.text, { media });
+  if (p.status === "failed" && media) p = await orbioSend(rd.text, {});
+  if (p.status === "failed") { log("radar card post failed:", p.err); return; }
+  feed.posts.push({ at: iso(now), text: rd.text, id: p.id, url: p.url, status: p.status, cost: Number(p.cost || 0), via: p.via || "orbio", kind: "own", threaded: false, format: rd.kind === "grade" ? "insight" : "radar", card: !!media, radar: { token: rd.token, symbol: rd.symbol, kind: rd.kind, grade: rd.grade || null }, replyTo: null });
+  event(`radar read on $${rd.symbol}`);
+  log("radar card:", rd.model, rd.text);
 }
 
 // ---------- Theses: every few hours, the busiest orbio launch gets a full read from the strongest model available
