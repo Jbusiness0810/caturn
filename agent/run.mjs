@@ -1153,7 +1153,7 @@ async function thesisPost(feed) {
   if (feed.xAllowance?.posts_left != null && feed.xAllowance.posts_left <= 1) { note("holding back, no originals left today"); return; }
   const snaps = feed.radar?.snaps || [], snap = snaps[snaps.length - 1]?.d || {};
   const orbio = (feed.radar?.universe || []).filter(u => u.orbio && snap[u.token]?.v24 > 0).sort((a, b) => snap[b.token].v24 - snap[a.token].v24);
-  const sub = orbio.find(u => !covered(feed, u.token) && !T.done.some(d => d.token === u.token && now - Date.parse(d.at) < 48 * 3600e3) && snap[u.token].v24 >= Number(env.CATURN_THESIS_MIN_VOL || 10000));
+  const sub = orbio.find(u => !covered(feed, u.token) && !T.done.some(d => d.token === u.token && now - Date.parse(d.at) < 48 * 3600e3) && snap[u.token].v24 >= Number(env.CATURN_THESIS_MIN_VOL || 3000));
   if (!sub) { note("no orbio launch busy enough"); return; }
   const scan = await scanToken(sub.token);
   if (!scan?.facts || scan.facts.partialHistory || !scan.facts.holders) { note(`scan incomplete for ${sub.symbol}`); T.done = [...T.done, { token: sub.token, symbol: sub.symbol, at: iso(now), skipped: true }].slice(-50); return; }
