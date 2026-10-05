@@ -3,6 +3,10 @@
 // Run from a cron (see .github/workflows/caturn.yml). Safe to run with no keys: it just updates status.
 
 import { readFile, writeFile, mkdir } from "node:fs/promises";
+// Retired from GitHub Actions on 2026-10-05: the always-on orbio runner is the only writer now. A leftover loop here
+// pulls master each tick and lands on this line, so it stops posting without being cancelled. Manual one-off runs still work.
+if (process.env.GITHUB_ACTIONS && Number(process.env.LOOP || 1) > 1 && !process.env.CATURN_ALLOW_ACTIONS) { console.log("[caturn] retired here; the runner lives on orbio now"); process.exit(0); }
+
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash, createHmac, randomBytes } from "node:crypto";

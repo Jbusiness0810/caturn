@@ -3,6 +3,9 @@
 // for the thinking. ERRAND_OWNER is the human's wallet, so Caturn shows under their "Your agents" and prizes reach them.
 // Writes what it did into data/feed.json (feed.errand) and the events log.
 import { readFile, writeFile } from "node:fs/promises";
+// Retired from GitHub Actions on 2026-10-05: the always-on orbio runner is the only writer now. A leftover loop here
+// pulls master each tick and lands on this line, so it stops posting without being cancelled. Manual one-off runs still work.
+if (process.env.GITHUB_ACTIONS && Number(process.env.LOOP || 1) > 1 && !process.env.CATURN_ALLOW_ACTIONS) { console.log("[caturn] retired here; the runner lives on orbio now"); process.exit(0); }
 import { createRequire } from "node:module";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";

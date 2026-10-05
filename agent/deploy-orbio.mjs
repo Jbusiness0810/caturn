@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { readFile, mkdir, rm } from "node:fs/promises";
 import { infra, act, findIn, findKey, fundingState, renewIfNeeded } from "./orbio-infra.mjs";
+import { ensureBucket, putObject } from "./storage.mjs";
 const ex = promisify(execFile);
 const env = process.env, mode = process.argv[2] || "status";
 const log = (...a) => console.log(`[deploy ${new Date().toISOString().slice(11, 19)}]`, ...a);
@@ -145,6 +146,16 @@ async function restart() {
   const op = await act("worker.machine.restart", { idempotency_key: `rs-${RUN}`, max_cost: "0.5", resource_id: r.id, machine_id: m.machine_id }, { log });
   log("restart:", op.state);
 }
+// cutover: seed storage with the GitHub loop's last feed (the full history, said ids and covered tokens), stamped newest so
+// the runner boots from it, then restart the runner
+async function prime() {
+  const RELEASE = `https://github.com/${env.GITHUB_REPOSITORY || "Jbusiness0810/caturn"}/releases/download/sketches/feed.json`;
+  const r = await fetch(`${RELEASE}?t=${Date.now()}`, { redirect: "follow" }); if (!r.ok) throw new Error(`release feed ${r.status}`);
+  const f = JSON.parse(await r.text()); const prev = f.updatedAt; f.updatedAt = new Date().toISOString(); f.primedFrom = { release: prev, at: f.updatedAt };
+  await ensureBucket(); await putObject("feed.json", Buffer.from(JSON.stringify(f, null, 2)), "application/json; charset=utf-8", 10);
+  log("storage primed with the release feed from", prev, `(${(f.posts || []).length} posts, ${Object.keys(f.covered || {}).length} covered tokens)`);
+  await restart();
+}
 async function renew() { const r = await findResource(); if (!r) throw new Error("no app"); const f = await renewIfNeeded(r.id, { hours: 23, maxCost: DAILY_CAP, log }); log("funded until", f?.fundedUntil); }
 
 try {
@@ -153,5 +164,6 @@ try {
   else if (mode === "logs") await logs();
   else if (mode === "restart") await restart();
   else if (mode === "renew") await renew();
+  else if (mode === "prime") await prime();
   else throw new Error("unknown mode " + mode);
 } catch (e) { console.error("FAILED:", e.message, e.setupUrl ? `(setup: ${e.setupUrl})` : "", e.op ? JSON.stringify(e.op).slice(0, 800) : ""); process.exit(1); }

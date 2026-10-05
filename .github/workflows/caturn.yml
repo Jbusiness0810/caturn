@@ -1,10 +1,7 @@
 name: Caturn tick
+# Retired as the main loop on 2026-10-05: the cat now runs on an always-on orbio machine (agent/loop.mjs, deploy-orbio.yml).
+# Kept for manual runs only; a scheduled or kicked loop here would post twice.
 on:
-  schedule:
-    - cron: "7 * * * *"   # hourly; GitHub delays schedules by hours, so each run loops ticks itself (see CATURN_LOOP_TICKS)
-  push:
-    branches: [master]
-    paths: [".kick"]        # an hourly routine bumps this file to start a loop; GitHub's own cron is unreliable
   workflow_dispatch:
     inputs:
       say:
