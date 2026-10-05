@@ -771,3 +771,34 @@ h1, h2, h3, .display {
 .term-promo { margin: 10px 0 0; padding: 10px 14px; border: 1px dashed var(--accent, #b8952a); border-radius: 10px; font-size: 14px; background: var(--bg-raised); }
 .term-promo b { color: var(--accent, #b8952a); }
 .scan-foot { margin: 28px 0 0; font-size: 12.5px; color: var(--ink-soft); max-width: 720px; }
+
+/* ---------- /theses: the published record ---------- */
+.theses-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 22px 0 18px; }
+.theses-filters .chip { font: inherit; font-size: 12px; letter-spacing: .1em; text-transform: uppercase; padding: 7px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg-raised); color: var(--ink-soft); cursor: pointer; }
+.theses-filters .chip.is-on { color: var(--ink); border-color: var(--gold-deep); }
+.theses-count { margin-left: auto; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); }
+.theses { display: grid; gap: 18px; }
+.theses-empty { color: var(--ink-soft); padding: 28px 0; }
+.thesis { border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: var(--radius); background: var(--bg-raised); padding: 20px 22px 16px; }
+.thesis--constructive { border-left-color: #2f7a3a; } .thesis--skeptical { border-left-color: #a03c28; } .thesis--mixed { border-left-color: var(--gold-deep); }
+.thesis.is-want { box-shadow: 0 0 0 3px rgba(176,138,62,.25); }
+.thesis-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.thesis-sym { font-family: var(--font-display); font-weight: 400; font-size: 28px; line-height: 1; }
+.thesis-name { margin-left: 10px; font-size: 13px; color: var(--ink-soft); }
+.thesis-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.thesis-tags .tag { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; padding: 5px 10px; border-radius: 999px; border: 1px solid var(--line); color: var(--ink-soft); white-space: nowrap; }
+.tag--constructive { color: #2f7a3a; border-color: rgba(47,122,58,.4); background: rgba(47,122,58,.07); }
+.tag--skeptical { color: #a03c28; border-color: rgba(160,60,40,.4); background: rgba(160,60,40,.07); }
+.tag--mixed { color: var(--gold-deep); border-color: rgba(176,138,62,.4); background: rgba(176,138,62,.08); }
+.thesis-meta { margin: 6px 0 0; font-size: 12.5px; color: var(--ink-soft); }
+.thesis-body { display: grid; gap: 18px; margin-top: 14px; }
+@media (min-width: 820px) { .thesis-body { grid-template-columns: 1.1fr .9fr; align-items: start; } }
+.thesis-text p { margin: 0 0 10px; font-size: 15.5px; line-height: 1.6; }
+.thesis-text .thesis-hook { font-size: 18px; line-height: 1.45; }
+.thesis-card img { display: block; width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); }
+.thesis-nums { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 10px 14px; margin: 16px 0 0; padding: 12px 0 0; border-top: 1px solid var(--line); }
+.thesis-nums dt { font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-soft); }
+.thesis-nums dd { margin: 3px 0 0; font-size: 15px; font-weight: 500; }
+.thesis-foot { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; margin-top: 14px; font-size: 12.5px; }
+.thesis-foot a { color: var(--gold-deep); border-bottom: 1px solid var(--line); }
+.thesis-foot .hash { margin-left: auto; font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--ink-soft); word-break: break-all; }

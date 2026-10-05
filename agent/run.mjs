@@ -1130,8 +1130,21 @@ async function radarThread(feed) {
 // (Fable first, Opus when Fable is down): the subject against its peers, its holder structure, its flow over the last
 // hours and what its own account claims. Posted as a three-part thread with a card: a hook, the evidence, the risk.
 const THESIS_MODELS = (env.CATURN_THESIS_MODELS || "anthropic/claude-fable-5.1,anthropic/claude-opus-5.5,anthropic/claude-sonnet-5.5").split(",").map(x => x.trim()).filter(Boolean);
+// threads posted before the record existed are rebuilt from the posts, so the page shows every thesis ever posted
+function backfillTheses(feed) {
+  const have = new Set((feed.theses || []).map(t => t.id));
+  const roots = (feed.posts || []).filter(p => p.format === "thesis" && !p.replyTo && p.id && !have.has(String(p.id)));
+  for (const r of roots) {
+    const chain = []; let cur = r;
+    for (let i = 0; i < 2; i++) { const next = (feed.posts || []).find(p => p.format === "thesis" && p.replyTo?.id === String(cur.id)); if (!next) break; chain.push(next); cur = next; }
+    const token = (String(r.text).match(/ca:\s*(0x[a-f0-9]{40})/i)?.[1] || r.insight?.token || "").toLowerCase();
+    feed.theses = [...(feed.theses || []), { id: String(r.id), at: r.at, token, symbol: r.insight?.symbol || (String(r.text).match(/^\$(\w+)/) || [])[1] || "?", name: null, grade: r.insight?.grade || null, score: null, stance: r.insight?.stance || "mixed", model: r.insight?.model || null,
+      hook: String(r.text).replace(/\n\nca:.*$/s, ""), evidence: chain[0]?.text || "", risk: chain[1]?.text || "", url: r.url, card: null, numbers: {} }].sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).slice(-200);
+  }
+}
 async function thesisPost(feed) {
   if (DRY_RUN || !API_KEY || env.CATURN_THESIS === "0") return;
+  try { backfillTheses(feed); } catch (e) { log("thesis backfill failed:", String(e.message).slice(0, 120)); }
   const T = feed.thesis = feed.thesis || { last: null, done: [] };
   const everyH = Number(env.CATURN_THESIS_EVERY_H || 3);
   if (T.lastOk && now - Date.parse(T.lastOk) < everyH * 3600e3) return;
@@ -1193,7 +1206,8 @@ Rules: lowercase except cashtags; every number exactly as given in the facts, ne
   if (!out) return;
   const card = { kicker: `thesis · ${out.stance}`, symbol: sub.symbol, token: sub.token, big: g.grade, bigLabel: `${out.stance} · score ${g.score}/100`, tone: out.stance === "constructive" ? "up" : out.stance === "skeptical" ? "down" : "flat",
     analysis: out.parts[0].replace(/^\$\S+[:,]?\s*/i, ""), stats: [["24h volume", usdShort(n.v24)], ["holders", Number(f.holders).toLocaleString()], ["top 10", `${top10.toFixed(1)}%`], ["orbio rank", `#${rank}`]], date: iso(now).slice(0, 10) };
-  let media = null; try { media = `data:image/png;base64,${(await renderCard(card)).toString("base64")}`; } catch (e) { log("thesis card failed:", String(e.message).slice(0, 120)); }
+  card.foot = "caturn.lol/theses";
+  let media = null, png = null; try { png = await renderCard(card); media = `data:image/png;base64,${png.toString("base64")}`; } catch (e) { log("thesis card failed:", String(e.message).slice(0, 120)); }
   let p = await orbioSend(out.parts[0] + caLine(sub.token), { media });
   if (p.status === "failed" && media) p = await orbioSend(out.parts[0] + caLine(sub.token));
   if (p.status === "failed" || !p.id) { note(`post failed: ${p.err}`); return; }
@@ -1208,6 +1222,11 @@ Rules: lowercase except cashtags; every number exactly as given in the facts, ne
   }
   feed.posts.push(...recs);
   T.done = [...T.done, { token: sub.token, symbol: sub.symbol, at: iso(now), url: p.url, model: used }].slice(-50);
+  // the published record: every thesis in full, with its card, for caturn.lol/theses
+  let cardUrl = null;
+  if (png) { try { const name = `thesis-${String(sub.symbol).toLowerCase().replace(/[^a-z0-9]/g, "")}-${iso(now).slice(0, 10)}-${String(p.id).slice(-6)}.png`; await mkdir("out", { recursive: true }); await writeFile(`out/${name}`, png); if (await uploadSketch(`out/${name}`, name)) cardUrl = `/a/${name}`; } catch (e) { log("thesis card upload failed:", String(e.message).slice(0, 120)); } }
+  feed.theses = [...(feed.theses || []), { id: String(p.id), at: iso(now), token: sub.token, symbol: sub.symbol, name: sub.name || sub.symbol, handle: sub.handle || null, grade: g.grade, score: g.score, stance: out.stance, model: used, hook: out.parts[0], evidence: out.parts[1], risk: out.parts[2], url: p.url, card: cardUrl,
+    numbers: { marketCapUsd: Math.round(n.mc || 0), liquidityUsd: Math.round(n.liq || 0), volume24hUsd: Math.round(n.v24), holders: Number(f.holders || 0), top10Pct: Number(top10.toFixed(1)), deployerPct: f.creatorShare != null ? Number(Number(f.creatorShare).toFixed(1)) : null, rugScore: scan.risk, orbioRank: rank, orbioCount: orbio.length } }].slice(-200);
   event(`wrote a thesis thread on $${sub.symbol} (${used.split("/").pop()})`);
   log("thesis:", used, out.parts.join(" || "));
 }
