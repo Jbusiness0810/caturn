@@ -1169,8 +1169,11 @@ async function mindshareDaily(feed) {
   const seen = new Set(), picks = [];
   for (const u of uni) { const s = String(u.symbol || "").replace(/^\$/, ""); if (!s || !/^[a-z0-9]{2,12}$/i.test(s) || seen.has(s.toUpperCase())) continue; seen.add(s.toUpperCase()); picks.push({ ...u, symbol: s }); if (picks.length >= MINDSHARE_TOKENS) break; }
   if (picks.length < 10) { log("mindshare: too few tokens to measure"); return; }
-  const samples = []; let cost = 0, postsRead = 0;
-  for (const u of picks) {
+  // a day's reads cost real credit: when the post failed after them, the next try reuses the sample instead of reading again
+  let samples = [], cost = 0, postsRead = 0;
+  const cached = M.sample && M.sample.day === today && now - Date.parse(M.sample.at) < 6 * 3600e3 ? M.sample : null;
+  if (cached) { samples = cached.samples; cost = 0; postsRead = cached.postsRead; log(`mindshare: reusing the ${samples.length}-token sample read at ${cached.at.slice(11, 16)}`); }
+  for (const u of cached ? [] : picks) {
     if (cost >= MINDSHARE_MAX_COST) { log(`mindshare: read budget spent after ${samples.length} tokens`); break; }
     try {
       const r = await getJSON(`${ORBIO_API}/tools/social.x.posts`, { method: "POST", headers: auth, body: JSON.stringify({ query: `$${u.symbol}`, sort: "Latest", limit: 10, max_cost: "0.4000" }) });
@@ -1185,6 +1188,7 @@ async function mindshareDaily(feed) {
     } catch (e) { log(`mindshare read $${u.symbol} failed:`, e.status || "", String(e.message).slice(0, 100)); if ([402, 429, 503].includes(e.status)) break; }
   }
   const total = samples.reduce((s, x) => s + x.score, 0);
+  if (!cached) M.sample = { day: today, at: iso(now), samples, postsRead, cost: Number(cost.toFixed(4)) };
   if (samples.filter(s => s.score > 0).length < 5 || !total) { M.note = { at: iso(now), m: `only ${samples.filter(s => s.score > 0).length} of ${samples.length} tokens had posts in the last day` }; log("mindshare:", M.note.m); return; }
   const prev = M.history[M.history.length - 1]?.shares || {};
   const rows = rankMindshare(samples, prev, 50);
@@ -1197,11 +1201,12 @@ async function mindshareDaily(feed) {
   const html = mindshareHtml({ rows, date: today, postsRead, tokensRead: samples.length, title: `top ${rows.length} by mindshare` });
   let png = null, media = null;
   try { png = await renderHtml(html, { width: 1200, height: 675 }); media = `data:image/png;base64,${png.toString("base64")}`; } catch (e) { log("mindshare render failed:", String(e.message).slice(0, 120)); return; }
-  const line = (r) => `$${r.symbol} ${r.share.toFixed(1)}%${r.delta != null && Math.abs(r.delta) >= 0.5 ? ` (${r.delta > 0 ? "+" : ""}${r.delta.toFixed(1)})` : ""}`;
+  // X allows one cashtag per post: the leader gets it, the rest are named plain (the picture carries all fifty)
+  const line = (r, i) => `${i + 1}. ${i === 0 ? "$" : ""}${r.symbol} ${r.share.toFixed(1)}%${r.delta != null && Math.abs(r.delta) >= 0.5 ? ` (${r.delta > 0 ? "+" : ""}${r.delta.toFixed(1)})` : ""}`;
   const text = `mindshare on x, last 24h. robinhood chain.\n${rows.slice(0, 5).map(line).join("\n")}\n${samples.length} tokens measured from ${postsRead} posts. share of attention, not of volume.`;
   const p = await unpaced(() => orbioSend(text, { media })); // the day's one map goes out at its hour, outside the pacing
   if (p.status === "failed" || !p.id) { M.note = { at: iso(now), m: `post failed: ${p.err}` }; log("mindshare post failed:", p.err); return; }
-  M.lastDay = today; M.at = iso(now); M.cost = Number(cost.toFixed(4)); M.postsRead = postsRead; M.tokensRead = samples.length; delete M.note;
+  M.lastDay = today; M.at = iso(now); M.cost = Number((cached ? cached.cost : cost).toFixed(4)); M.postsRead = postsRead; M.tokensRead = samples.length; delete M.note; delete M.sample;
   M.rows = rows.map(r => ({ symbol: r.symbol, token: r.token, share: Number(r.share.toFixed(2)), delta: r.delta == null ? null : Number(r.delta.toFixed(2)), posts: r.posts, reach: r.reach }));
   M.history = [...M.history.filter(h => h.day !== today), { day: today, shares: Object.fromEntries(samples.map(s => [s.symbol, Number((s.score / total * 100).toFixed(2))])) }].slice(-14);
   M.card = null;
