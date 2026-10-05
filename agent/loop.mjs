@@ -11,12 +11,17 @@ const TICK_MIN = Number(env.CATURN_TICK_MIN || 10), FEED = `${ROOT}data/feed.jso
 const log = (...a) => console.log(`[loop ${new Date().toISOString()}]`, ...a);
 const sleep = (ms) => new Promise(r => setTimeout(r, Math.max(0, ms)));
 
-function sh(cmd, args, extra = {}) {
+// timeoutMs is a hang guard, not a schedule: a child that is still running past it is killed and the tick moves on
+function sh(cmd, args, extra = {}, timeoutMs = 0) {
   return new Promise((resolve) => {
     const p = spawn(cmd, args, { cwd: ROOT, stdio: "inherit", env: { ...env, ...extra } });
-    p.on("exit", (code) => resolve(code)); p.on("error", (e) => { log(`${cmd} failed to start:`, e.message); resolve(-1); });
+    const timer = timeoutMs ? setTimeout(() => { log(`${cmd} ${args.join(" ")} still running after ${Math.round(timeoutMs / 60e3)} min; killing it`); p.kill("SIGTERM"); setTimeout(() => p.kill("SIGKILL"), 15e3).unref(); }, timeoutMs) : null;
+    p.on("exit", (code) => { clearTimeout(timer); resolve(code); }); p.on("error", (e) => { clearTimeout(timer); log(`${cmd} failed to start:`, e.message); resolve(-1); });
   });
 }
+// errand gets a soft budget (no new mission started past it) and a hard stop a little later; the think tick only a hang guard
+const ERRAND_BUDGET_MS = Number(env.CATURN_ERRAND_BUDGET_MIN || 2.5) * 60e3, ERRAND_HARD_MS = ERRAND_BUDGET_MS + 2 * 60e3, TICK_HARD_MS = Number(env.CATURN_TICK_HARD_MIN || 20) * 60e3;
+const errandPass = () => sh("node", ["agent/errand.mjs"], { CATURN_RUNNER: "1", ERRAND_BUDGET_MS: String(ERRAND_BUDGET_MS) }, ERRAND_HARD_MS);
 async function feedValid() { try { JSON.parse(await readFile(FEED, "utf8")); return true; } catch { return false; } }
 // at boot the newest copy of the feed wins: storage (this runner's own writes), the GitHub release (what the Actions
 // loop wrote), or the git snapshot. Starting from an old copy would replay the say queue and forget covered tokens.
@@ -57,15 +62,17 @@ for (;;) {
   try {
     if (!first) await update();
     // the git copy of the feed may be older than the live one; never let a pull roll the feed back
-    await sh("node", ["agent/run.mjs"], { CATURN_FORCE: first ? (env.FORCE_FIRST || "1") : "", CATURN_RUNNER: "1" });
+    await sh("node", ["agent/run.mjs"], { CATURN_FORCE: first ? (env.FORCE_FIRST || "1") : "", CATURN_RUNNER: "1" }, TICK_HARD_MS);
     await pushFeed();
-    await sh("node", ["agent/errand.mjs"], { CATURN_RUNNER: "1" });
+    await errandPass();
     await pushFeed();
     await renew();
   } catch (e) { log("tick failed:", String(e.message).slice(0, 200)); }
   first = false;
   const half = t0 + TICK_MIN * 60e3 / 2, next = t0 + TICK_MIN * 60e3;
   await sleep(half - Date.now());
-  try { await sh("node", ["agent/errand.mjs"], { CATURN_RUNNER: "1" }); await pushFeed(); } catch (e) { log("errand pass failed:", String(e.message).slice(0, 200)); }
+  // the second errand pass only when it cannot push the next think tick late
+  if (next - Date.now() > ERRAND_HARD_MS) { try { await errandPass(); await pushFeed(); } catch (e) { log("errand pass failed:", String(e.message).slice(0, 200)); } }
+  else log("skipping the half-tick errand pass; the next tick is due in", Math.round((next - Date.now()) / 60e3), "min");
   await sleep(next - Date.now());
 }

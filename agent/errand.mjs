@@ -29,6 +29,7 @@ const TAKE_OWN = env.ERRAND_TAKE_OWN === "1";                     // by default 
 const KINDS = new Set((env.ERRAND_KINDS || "research,summary,social,custom,scrape,code,onchain,write,analysis,data").split(","));
 const FEED = new URL("../data/feed.json", import.meta.url);
 const now = Date.now();
+const DEADLINE = now + Number(env.ERRAND_BUDGET_MS || 0 || Infinity); // soft time budget: no new mission is started past it
 const iso = (t) => new Date(t).toISOString();
 const log = (...a) => console.log(`[errand ${iso(now)}]`, ...a);
 
@@ -408,10 +409,12 @@ async function pass() {
   }
   // 3b. Something to take: missions offered straight to us first, then open ones worth doing.
   const mine = (b) => b.worker?.toLowerCase() === me.toLowerCase() || b.hiredDirectly?.toLowerCase() === me.toLowerCase();
-  const candidates = all.filter(b => !isComp(b) && !tracked(b.id) && !E.skipped.includes(b.id) && (
+  // never my own missions: the board refuses the claim, and the attempt costs a model call every pass
+  const candidates = all.filter(b => !isComp(b) && !tracked(b.id) && !E.skipped.includes(b.id) && b.poster?.toLowerCase() !== me.toLowerCase() && (
     (b.phase === "claimed" && mine(b)) || (b.phase === "open" && !b.pickOnly) || (b.phase === "picking" && b.hiredDirectly?.toLowerCase() === me.toLowerCase())));
   for (const b of candidates) {
     if (acted >= MAX_PER_TICK) break;
+    if (Date.now() > DEADLINE) { log("time budget spent; the rest waits for the next pass"); break; }
     const why = !b.spec ? "no spec" : (!TAKE_OWN && OWNER && b.poster?.toLowerCase() === OWNER.toLowerCase() && !mine(b)) ? "posted by my owner; leaving it for others" : !KINDS.has(b.spec.kind || "custom") && !mine(b) ? `kind ${b.spec.kind}` : Number(b.reward) < MIN_REWARD && !mine(b) ? `reward ${b.reward} below ${MIN_REWARD}` : b.deadline && b.deadline * 1000 < now + 20 * 60e3 ? "deadline too close" : null;
     if (why) { log(`skip #${b.id}: ${why}`); if (!mine(b) && !DRY) E.skipped.push(b.id); continue; }
     if (DRY) { log(`would take #${b.id} "${b.spec.title}" for ${b.reward} CREDIT (${b.spec.kind})`); acted++; continue; }
@@ -580,6 +583,24 @@ async function retireCampaigns(all) {
     } catch (e) { log(`retire #${b.id} failed:`, String(e.message).slice(0, 160)); }
   }
 }
+// Missions on the board posted by my wallet that my own records do not know (a runner that booted from an old feed
+// reposted a series once): take a still-open one down for the refund, and keep reviewing one somebody already took.
+async function adoptOrphans(all) {
+  if (DRY) return;
+  for (const b of all) {
+    if (b.poster?.toLowerCase() !== me.toLowerCase()) continue;
+    if (E.hired.some(h => h.id === b.id || (!h.id && h.title === b.spec?.title))) continue;
+    if (["paid", "refunded", "expired", "cancelled"].includes(b.phase)) continue;
+    const title = String(b.spec?.title || ""), camp = CAMP && title.startsWith(CAMP.title) ? CAMP : null;
+    const rec = { id: b.id, title: title.slice(0, 80), task: b.spec?.task, kind: b.spec?.kind || "custom", reward: Number(b.reward), status: "open", postedAt: iso(now), url: `${SITE}/#/mission/${b.id}`, adopted: true,
+      proof: camp ? "xpost" : null, mustMatch: camp?.mustMatch || null, campaign: camp?.id || null, onePerAgent: camp ? camp.onePerAgent !== false : undefined };
+    if (["open", "picking"].includes(b.phase)) {
+      try { await errand.cancel(b.id); rec.status = "refunded"; rec.retired = true; event(`took down a duplicate mission #${b.id} for the refund`); log("cancelled duplicate", b.id, title); }
+      catch (e) { log(`cancel duplicate #${b.id} failed:`, String(e.message).slice(0, 160)); }
+    } else { rec.status = b.phase === "submitted" ? "claimed" : b.phase; rec.worker = b.worker; log("adopted", b.id, title, b.phase); }
+    E.hired.push(rec);
+  }
+}
 async function campaignPass() {
   if (DRY || !CAMP?.enabled || !CAMP.id) return;
   const reward = Number(CAMP.rewardCredit || 2), count = Number(CAMP.count || 3);
@@ -618,7 +639,7 @@ try { await join(); } catch (e) { log("join failed:", String(e.message).slice(0,
 try { await pass(); } catch (e) { log("pass failed:", String(e.message).slice(0, 200)); }
 try { await compPass(await errand.list({ limit: 60 })); } catch (e) { log("competition pass failed:", String(e.message).slice(0, 200)); }
 try { await hirePass(await errand.list({ limit: 60 })); } catch (e) { log("hire pass failed:", String(e.message).slice(0, 200)); }
-try { const all2 = await errand.list({ limit: 60 }); await retireCampaigns(all2); await campaignPass(); } catch (e) { log("campaign pass failed:", String(e.message).slice(0, 200)); }
+try { const all2 = await errand.list({ limit: 60 }); await adoptOrphans(all2); await retireCampaigns(all2); await campaignPass(); } catch (e) { log("campaign pass failed:", String(e.message).slice(0, 200)); }
 try { E.account = Number(await errand.accountBalance(me)); } catch {}
 score();
 E.skipped = E.skipped.slice(-200); E.missions = E.missions.slice(-100); E.entries = E.entries.slice(-100); E.updatedAt = iso(now);
