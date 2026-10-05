@@ -1153,8 +1153,14 @@ async function thesisPost(feed) {
   if (feed.xAllowance?.posts_left != null && feed.xAllowance.posts_left <= 1) { note("holding back, no originals left today"); return; }
   const snaps = feed.radar?.snaps || [], snap = snaps[snaps.length - 1]?.d || {};
   const orbio = (feed.radar?.universe || []).filter(u => u.orbio && snap[u.token]?.v24 > 0).sort((a, b) => snap[b.token].v24 - snap[a.token].v24);
-  const sub = orbio.find(u => !covered(feed, u.token) && !T.done.some(d => d.token === u.token && now - Date.parse(d.at) < 48 * 3600e3) && snap[u.token].v24 >= Number(env.CATURN_THESIS_MIN_VOL || 3000));
-  if (!sub) { note("no orbio launch busy enough"); return; }
+  let sub = orbio.find(u => !covered(feed, u.token) && !T.done.some(d => d.token === u.token && now - Date.parse(d.at) < 48 * 3600e3) && snap[u.token].v24 >= Number(env.CATURN_THESIS_MIN_VOL || 3000));
+  // every orbio launch covered this week: the rest of the chain (the big robinhood tokens the radar watches) gets the read instead
+  const eligible = (u) => !covered(feed, u.token) && !T.done.some(d => d.token === u.token && now - Date.parse(d.at) < 48 * 3600e3) && snap[u.token].v24 >= Number(env.CATURN_THESIS_MIN_VOL || 3000);
+  const others = (feed.radar?.universe || []).filter(u => !u.orbio && snap[u.token]?.v24 > 0).sort((a, b) => snap[b.token].v24 - snap[a.token].v24);
+  const pool = sub ? orbio : others, poolName = sub ? "orbio launches" : "robinhood chain tokens";
+  const pick = sub || others.find(eligible);
+  if (!pick) { note("nothing uncovered busy enough on the chain"); return; }
+  sub = pick;
   const scan = await scanToken(sub.token);
   if (!scan?.facts || scan.facts.partialHistory || !scan.facts.holders) { note(`scan incomplete for ${sub.symbol}`); T.done = [...T.done, { token: sub.token, symbol: sub.symbol, at: iso(now), skipped: true }].slice(-50); return; }
   const f = scan.facts, n = snap[sub.token];
@@ -1163,20 +1169,20 @@ async function thesisPost(feed) {
   const burn = await burned(sub.token, Number(f.decimals || 18), Number(f.supply || 0)).catch(() => ({ amount: 0, pct: 0 }));
   const g = gradeToken({ facts: f, scan, pair, burnPct: burn.pct });
   const eoa = (f.top || []).filter(h => !h.contract), top10 = eoa.slice(0, 10).reduce((a, h) => a + (h.share || 0), 0);
-  const rank = orbio.findIndex(u => u.token === sub.token) + 1;
-  const peers = orbio.slice(0, 8).map((u, i) => `#${i + 1} $${u.symbol}: 24h volume $${Math.round(snap[u.token].v24).toLocaleString()}, market cap $${Math.round(snap[u.token].mc || 0).toLocaleString()}, liquidity $${Math.round(snap[u.token].liq || 0).toLocaleString()}, 24h ${snap[u.token].ch24 > 0 ? "+" : ""}${Number(snap[u.token].ch24 || 0).toFixed(1)}%`);
+  const rank = pool.findIndex(u => u.token === pick.token) + 1;
+  const peers = pool.slice(0, 8).map((u, i) => `#${i + 1} $${u.symbol}: 24h volume $${Math.round(snap[u.token].v24).toLocaleString()}, market cap $${Math.round(snap[u.token].mc || 0).toLocaleString()}, liquidity $${Math.round(snap[u.token].liq || 0).toLocaleString()}, 24h ${snap[u.token].ch24 > 0 ? "+" : ""}${Number(snap[u.token].ch24 || 0).toFixed(1)}%`);
   const trail = snaps.slice(-8).map(x => x.d?.[sub.token]).filter(Boolean);
   const trend = trail.length >= 3 ? `over the last ${trail.length} radar reads (about ${Math.round((Date.parse(snaps[snaps.length - 1].at) - Date.parse(snaps[snaps.length - trail.length].at)) / 3600e3)}h): price ${trail[0].px} to ${trail[trail.length - 1].px}, liquidity $${Math.round(trail[0].liq).toLocaleString()} to $${Math.round(trail[trail.length - 1].liq).toLocaleString()}, hourly volume ${trail.map(x => "$" + Math.round(x.v1 || 0).toLocaleString()).join(", ")}` : null;
   let claims = []; if (sub.handle) { try { claims = (await readX({ handle: sub.handle, limit: 4 })).filter(t => t.handle === sub.handle && !/^RT @/i.test(t.text)).slice(0, 4).map(t => t.text.replace(/https?:\/\/\S+/g, "").replace(/\s+/g, " ").trim().slice(0, 200)); } catch {} }
   const facts = [
-    `subject: ${sub.name} ($${sub.symbol}), an orbio agent launch, #${rank} of ${orbio.length} orbio launches by 24h volume`,
+    `subject: ${pick.name} ($${pick.symbol}), ${pick.orbio ? "an orbio agent launch" : "a token on robinhood chain, not an orbio launch"}, #${rank} of ${pool.length} ${poolName} by 24h volume`,
     `now: market cap $${Math.round(n.mc || 0).toLocaleString()}, liquidity $${Math.round(n.liq || 0).toLocaleString()} (${n.mc ? (n.liq / n.mc * 100).toFixed(1) : "0"}% of the cap), 24h volume $${Math.round(n.v24).toLocaleString()} (${n.liq ? (n.v24 / n.liq).toFixed(1) : "0"}x liquidity), last hour $${Math.round(n.v1 || 0).toLocaleString()} with ${n.b1} buys and ${n.s1} sells, 1h ${n.ch1 > 0 ? "+" : ""}${Number(n.ch1 || 0).toFixed(1)}%, 24h ${n.ch24 > 0 ? "+" : ""}${Number(n.ch24 || 0).toFixed(1)}%`,
     pair?.txns?.h24 ? `24h trades: ${pair.txns.h24.buys} buys, ${pair.txns.h24.sells} sells; 6h volume $${Math.round(pair.volume?.h6 || 0).toLocaleString()}` : null,
     `holders ${f.holders}, top 10 wallets ${top10.toFixed(1)}%, largest wallet ${(eoa[0]?.share || 0).toFixed(1)}%${f.creatorShare != null ? `, deployer ${Number(f.creatorShare).toFixed(1)}%` : ""}${burn.pct > 0 ? `, ${burn.pct.toFixed(1)}% of supply burned` : ""}`,
     `contract: rug likelihood ${scan.risk}/100${(scan.checks || []).filter(c => c.level === "fail").length ? ", flags: " + scan.checks.filter(c => c.level === "fail").map(c => c.title.toLowerCase()).join(", ") : ", no failed checks"}`,
     `scorecard: grade ${g.grade}, ${g.score}/100; biggest factors: ${g.reasons.slice(0, 4).map(r => r.text).join("; ")}`,
     trend,
-    `peers (orbio launches by 24h volume):\n${peers.join("\n")}`,
+    `peers (${poolName} by 24h volume):\n${peers.join("\n")}`,
     claims.length ? `what their own account posted lately: ${claims.map(c => `"${c}"`).join(" | ")}` : "their account posted nothing readable lately"
   ].filter(Boolean).join("\n");
   const sys = `${persona}
@@ -1226,7 +1232,7 @@ Rules: lowercase except cashtags; every number exactly as given in the facts, ne
   let cardUrl = null;
   if (png) { try { const name = `thesis-${String(sub.symbol).toLowerCase().replace(/[^a-z0-9]/g, "")}-${iso(now).slice(0, 10)}-${String(p.id).slice(-6)}.png`; await mkdir("out", { recursive: true }); await writeFile(`out/${name}`, png); if (await uploadSketch(`out/${name}`, name)) cardUrl = `/a/${name}`; } catch (e) { log("thesis card upload failed:", String(e.message).slice(0, 120)); } }
   feed.theses = [...(feed.theses || []), { id: String(p.id), at: iso(now), token: sub.token, symbol: sub.symbol, name: sub.name || sub.symbol, handle: sub.handle || null, grade: g.grade, score: g.score, stance: out.stance, model: used, hook: out.parts[0], evidence: out.parts[1], risk: out.parts[2], url: p.url, card: cardUrl,
-    numbers: { marketCapUsd: Math.round(n.mc || 0), liquidityUsd: Math.round(n.liq || 0), volume24hUsd: Math.round(n.v24), holders: Number(f.holders || 0), top10Pct: Number(top10.toFixed(1)), deployerPct: f.creatorShare != null ? Number(Number(f.creatorShare).toFixed(1)) : null, rugScore: scan.risk, orbioRank: rank, orbioCount: orbio.length } }].slice(-200);
+    numbers: { marketCapUsd: Math.round(n.mc || 0), liquidityUsd: Math.round(n.liq || 0), volume24hUsd: Math.round(n.v24), holders: Number(f.holders || 0), top10Pct: Number(top10.toFixed(1)), deployerPct: f.creatorShare != null ? Number(Number(f.creatorShare).toFixed(1)) : null, rugScore: scan.risk, orbioRank: rank, orbioCount: pool.length, pool: poolName } }].slice(-200);
   event(`wrote a thesis thread on $${sub.symbol} (${used.split("/").pop()})`);
   log("thesis:", used, out.parts.join(" || "));
 }

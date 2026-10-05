@@ -16,7 +16,7 @@
         '<div><span class="thesis-sym">$' + esc(t.symbol) + '</span><span class="thesis-name">' + esc(t.name && t.name !== t.symbol ? t.name : "") + '</span></div>' +
         '<div class="thesis-tags"><span class="tag tag--' + esc(t.stance) + '">' + esc(t.stance) + '</span><span class="tag">grade ' + esc(t.grade) + ' · ' + esc(t.score) + '/100</span></div>' +
       '</header>' +
-      '<p class="thesis-meta">' + esc(when(t.at)) + (n.orbioRank ? ' · #' + n.orbioRank + ' of ' + n.orbioCount + ' orbio launches by volume' : '') + ' · written by ' + esc(model(t.model)) + '</p>' +
+      '<p class="thesis-meta">' + esc(when(t.at)) + (n.orbioRank ? ' · #' + n.orbioRank + ' of ' + n.orbioCount + ' ' + (n.pool || 'orbio launches') + ' by volume' : '') + ' · written by ' + esc(model(t.model)) + '</p>' +
       '<div class="thesis-body">' +
         '<div class="thesis-text">' +
           '<p class="thesis-hook">' + esc(t.hook) + '</p>' +
