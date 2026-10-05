@@ -83,8 +83,21 @@ async function uploadBlob(resourceId, digest, size) {
   const CHUNK = 131072;
   while (offset < size) {
     const part = buf.subarray(offset, Math.min(size, offset + CHUNK));
-    const op = await act("worker.image.upload.chunk", { idempotency_key: `ch-${RUN}-${tag}-${offset}`, max_cost: "0.05", resource_id: resourceId, upload_id: uploadId, offset, content_base64: part.toString("base64") }, { log });
-    const confirmed = Number(findKey(op.result || {}, "offset") ?? findKey(op.result || {}, "confirmed_offset") ?? (offset + part.length));
+    let confirmed;
+    try {
+      const op = await act("worker.image.upload.chunk", { idempotency_key: `ch-${RUN}-${tag}-${offset}`, max_cost: "0.05", resource_id: resourceId, upload_id: uploadId, offset, content_base64: part.toString("base64") }, { log, timeoutMs: 300000 });
+      confirmed = Number(findKey(op.result || {}, "offset") ?? findKey(op.result || {}, "confirmed_offset") ?? (offset + part.length));
+    } catch (e) {
+      // a chunk stuck reconciling: the recorded progress says whether the bytes landed; never resend uncertain bytes with a new key
+      log(`chunk at ${offset} uncertain (${String(e.message).slice(0, 80)}); reading recorded progress`);
+      for (let i = 0; i < 20; i++) {
+        await new Promise(r => setTimeout(r, 15000));
+        const g = await infra("worker.image.upload.get", { resource_id: resourceId, upload_id: uploadId });
+        const rec = Number(findKey(g, "confirmed_offset") ?? findKey(g, "offset") ?? -1);
+        if (rec >= offset + part.length) { confirmed = rec; break; }
+      }
+      if (confirmed == null) throw e;
+    }
     offset = confirmed > offset ? confirmed : offset + part.length;
     if ((offset / CHUNK) % 50 === 0 || offset >= size) log(`  ${tag}: ${offset}/${size}`);
   }

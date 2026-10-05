@@ -25,7 +25,7 @@ jobs:
         with: { node-version: 20 }
       - id: mode
         run: |
-          m="${{ inputs.mode }}"; [ -n "$m" ] || m=$(tr -d '[:space:]' < .deploy 2>/dev/null || echo status)
+          m="${{ inputs.mode }}"; [ -n "$m" ] || m=$(awk '{print $1; exit}' .deploy 2>/dev/null || echo status)
           echo "mode=$m" >> "$GITHUB_OUTPUT"; echo "mode: $m"
       - uses: docker/setup-buildx-action@v3
         if: ${{ steps.mode.outputs.mode == 'deploy' }}
