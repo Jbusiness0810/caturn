@@ -11,7 +11,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 const runCmd = promisify(execFile);
 const require = createRequire(import.meta.url);
-const { ErrandV2 } = await import("errand-mcp/errand-v2.mjs");
+const { ErrandV2, PHASES_V2, FIRST_ID } = await import("errand-mcp/errand-v2.mjs");
+const { decodeURI, fmt } = await import("errand-mcp/errand.mjs");
 const { message, normalize } = await import("errand-mcp/profile.mjs");
 const { ethers } = require("ethers");
 
@@ -45,6 +46,44 @@ const persona = await readFile(new URL("./persona.md", import.meta.url), "utf8")
 const errand = new ErrandV2({ privateKey: KEY, site: SITE });
 const me = await errand.signer.getAddress();
 E.address = me;
+
+// The board library reads one mission at a time (five calls each, one a log scan over the whole chain) and the pass
+// listed the board four times; from the runner that took twenty minutes. This reads the same fields with one log scan
+// and parallel calls, once per pass, and keeps decoded specs (immutable) on disk between passes.
+const stage = (name, t0) => log(`${name}: ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+const SPECS = new URL("../data/errand-specs.json", import.meta.url);
+const specs = await readFile(SPECS, "utf8").then(JSON.parse).catch(() => ({}));
+async function listBoard(limit = 60, conc = 8) {
+  const board = errand.board;
+  if (!(await errand.live())) return [];
+  const count = Number(await board.missionCount()), ids = [];
+  for (let id = count; id >= FIRST_ID && ids.length < limit; id--) ids.push(id);
+  const posted = new Map((await board.queryFilter(board.filters.Posted(), errand.fromBlock)).map(ev => [Number(ev.args.id), ev]));
+  const quotes = new Map(), out = new Array(ids.length);
+  let i = 0;
+  await Promise.all(Array.from({ length: conc }, async () => {
+    for (;;) {
+      const k = i++; if (k >= ids.length) return;
+      const id = ids[k];
+      try {
+        const [m, ph] = await Promise.all([board.missions(id), board.phase(id)]);
+        if (m.poster === ethers.ZeroAddress) continue;
+        const p = posted.get(id), specURI = p?.args.specURI || null;
+        let spec = specs[id] ?? null;
+        if (spec === null && specURI) { try { spec = await decodeURI(specURI); if (spec) specs[id] = spec; } catch {} }
+        const rk = String(m.reward); if (!quotes.has(rk)) quotes.set(rk, board.quote(m.reward)); const [net, fee] = await quotes.get(rk);
+        out[k] = { id, board: "v2", phase: PHASES_V2[Number(ph)], poster: m.poster, worker: m.worker === ethers.ZeroAddress ? null : m.worker,
+          reward: fmt(m.reward), net: fmt(net), boardFee: fmt(fee), deadline: Number(m.deadline), reviewWindow: Number(m.reviewWindow), claimTtl: Number(m.claimTtl),
+          claimedAt: Number(m.claimedAt) || null, submittedAt: Number(m.submittedAt) || null, pickOnly: m.pickOnly,
+          hiredDirectly: p && p.args.assignee !== ethers.ZeroAddress ? p.args.assignee : null,
+          revisions: `${Number(m.revisions)} of ${Number(m.maxRevisions)} used`, specURI, spec };
+      } catch (e) { log(`read #${id} failed:`, String(e.message).slice(0, 100)); }
+    }
+  }));
+  for (const k of Object.keys(specs)) if (Number(k) < count - 200) delete specs[k];
+  writeFile(SPECS, JSON.stringify(specs)).catch(() => {});
+  return out.filter(Boolean);
+}
 
 async function getJSON(url, init = {}) {
   const r = await fetch(url, init); const text = await r.text();
@@ -384,8 +423,7 @@ function randomSlug() { return Array.from(crypto.getRandomValues(new Uint8Array(
 
 // ---------- 3. One pass over the board ----------
 const tracked = (id) => E.missions.find(m => m.id === Number(id));
-async function pass() {
-  const all = await errand.list({ limit: 60 });
+async function pass(all) {
   let acted = 0;
   // 3a. What we already hold or delivered: revisions, payments, finalizing.
   for (const b of all) {
@@ -635,11 +673,19 @@ function score() {
         + E.hired.filter(m => m.status === "paid" && inWin(m)).reduce((s, m) => s + Math.min(m.reward, BT.cap) * 5, 0);
 }
 
+let t0 = Date.now();
 try { await join(); } catch (e) { log("join failed:", String(e.message).slice(0, 200)); }
-try { await pass(); } catch (e) { log("pass failed:", String(e.message).slice(0, 200)); }
-try { await compPass(await errand.list({ limit: 60 })); } catch (e) { log("competition pass failed:", String(e.message).slice(0, 200)); }
-try { await hirePass(await errand.list({ limit: 60 })); } catch (e) { log("hire pass failed:", String(e.message).slice(0, 200)); }
-try { const all2 = await errand.list({ limit: 60 }); await adoptOrphans(all2); await retireCampaigns(all2); await campaignPass(); } catch (e) { log("campaign pass failed:", String(e.message).slice(0, 200)); }
+stage("join", t0); t0 = Date.now();
+let all = [];
+try { all = await listBoard(60); } catch (e) { log("board read failed:", String(e.message).slice(0, 200)); }
+stage(`board read (${all.length} missions)`, t0); t0 = Date.now();
+try { await pass(all); } catch (e) { log("pass failed:", String(e.message).slice(0, 200)); }
+stage("pass", t0); t0 = Date.now();
+try { await compPass(all); } catch (e) { log("competition pass failed:", String(e.message).slice(0, 200)); }
+try { await hirePass(all); } catch (e) { log("hire pass failed:", String(e.message).slice(0, 200)); }
+stage("competition and hire passes", t0); t0 = Date.now();
+try { await adoptOrphans(all); await retireCampaigns(all); await campaignPass(); } catch (e) { log("campaign pass failed:", String(e.message).slice(0, 200)); }
+stage("campaign pass", t0);
 try { E.account = Number(await errand.accountBalance(me)); } catch {}
 score();
 E.skipped = E.skipped.slice(-200); E.missions = E.missions.slice(-100); E.entries = E.entries.slice(-100); E.updatedAt = iso(now);
