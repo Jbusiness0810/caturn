@@ -631,6 +631,7 @@ let orbioQuota = null;
 async function orbioSend(text, { replyTo = null, quote = null, poll = null, media = null } = {}) {
   const kind = replyTo ? "replies" : "posts";
   if (orbioQuota && orbioQuota[`${kind}_left`] === 0 && Date.parse(orbioQuota.resets_at || 0) > Date.now()) return { id: null, status: "failed", err: `orbio daily ${kind} allowance used`, via: "orbio" };
+  if (kind === "posts" && feed && originalPaced(feed, "orbio post")) return { id: null, status: "failed", err: "paced: the next original waits its turn", via: "orbio", paced: true };
   // X bills a post that carries a link at $0.20 through orbio; words alone cost about 2 cents. Cards, scan links and the terminal link are worth it.
   const hasLink = /https?:\/\//i.test(text);
   const body = { text, platforms: ["twitter"], max_cost: hasLink ? (env.CATURN_LINK_MAX_COST || "0.4500") : media ? "0.0600" : "0.0300" };
@@ -984,7 +985,27 @@ function spareOriginals(feed) {
   const ownReserve = Math.ceil(Math.max(0, minsLeft) / ownIntervalMin(feed)) + 2; // the rest of today's own slots, plus two for queued posts
   return a.posts_left - ownReserve;
 }
-const canSpendOriginal = (feed, what) => { const s = spareOriginals(feed); if (s > 0) return true; log(`${what}: holding back, ${feed.xAllowance?.posts_left} originals left today are kept for the cat's own posts`); return false; };
+// Orbio allows 50 originals a day. Spent as they come they run out by evening and the timeline goes quiet for hours, so
+// every original (a thought, a card, a ping, a thesis) waits its turn: today's remaining allowance spread evenly over the
+// hours to the reset, about one every half hour. Replies are not paced, and neither is a post the owner queued.
+let PACE_ON = true;
+function originalGapMin(feed) {
+  const a = feed?.xAllowance; if (!a || a.posts_left == null || !a.resets_at || Date.parse(a.resets_at) < now) return 20;
+  const hoursLeft = Math.max(0.5, (Date.parse(a.resets_at) - now) / 3600e3), left = Math.max(0, a.posts_left - 1); // one kept back for a mention that needs a fresh post
+  if (left <= 0) return Infinity;
+  return Math.max(12, Math.min(60, Math.round(60 * hoursLeft / left)));
+}
+function originalPaced(feed, what = "post") {
+  if (!PACE_ON || DRY_RUN) return false;
+  const gap = originalGapMin(feed);
+  const last = [...(feed?.posts || [])].reverse().find(p => !p.replyTo && p.kind !== "reply" && p.status !== "failed" && p.via !== "recovered");
+  const since = last ? (now - Date.parse(last.at)) / 60e3 : Infinity;
+  if (since >= gap) return false;
+  log(`${what}: next original in ${Math.ceil(gap - since)} min (${feed.xAllowance?.posts_left} left today, one every ${gap === Infinity ? "never" : gap + " min"} until the reset)`);
+  return true;
+}
+const unpaced = async (fn) => { PACE_ON = false; try { return await fn(); } finally { PACE_ON = true; } };
+const canSpendOriginal = (feed, what) => { if (originalPaced(feed, what)) return false; const s = spareOriginals(feed); if (s > 0) return true; log(`${what}: holding back, ${feed.xAllowance?.posts_left} originals left today are kept for the cat's own posts`); return false; };
 
 const usdShort = (v) => v == null || !Number.isFinite(Number(v)) ? "—" : v >= 1e6 ? "$" + (v / 1e6).toFixed(2) + "m" : v >= 1e3 ? "$" + (v / 1e3).toFixed(1) + "k" : "$" + Math.round(v);
 const hourAgoLiq = (feed, token) => (feed.radar?.snaps || []).filter(x => now - Date.parse(x.at) >= 50 * 60e3).slice(-1)[0]?.d?.[token]?.liq;
@@ -1134,6 +1155,7 @@ async function radarThread(feed) {
   if (DRY_RUN || !RADAR_ON || !API_KEY || env.CATURN_RADAR_THREAD === "0") return;
   const gapMin = Number(env.CATURN_THREAD_GAP_MIN || 14), last = feed.posts[feed.posts.length - 1];
   if (last && now - Date.parse(last.at) < gapMin * 60e3) return;
+  if (originalPaced(feed, "radar card")) return;
   if (spareOriginals(feed) <= 0) { log("radar card: no spare originals today"); feed.radarThreadNote = { at: iso(now), note: "radar card: no spare originals" }; return; }
   let rd = await makeRadarPost(feed, { minScore: Number(env.CATURN_THREAD_MIN_SCORE || 7) });
   if (!rd && INSIGHT_ON) { // a quiet tape: grade a token on the scorecard instead of waiting for a move
@@ -1174,6 +1196,7 @@ async function thesisPost(feed) {
   const everyH = Number(env.CATURN_THESIS_EVERY_H || 3);
   if (T.lastOk && now - Date.parse(T.lastOk) < everyH * 3600e3) return;
   if (T.tried && now - Date.parse(T.tried) < 30 * 60e3) return;
+  if (originalPaced(feed, "thesis")) return; // the thread opens with an original; wait for its turn before spending a model call
   T.tried = iso(now); const note = (m) => { T.note = { at: iso(now), m: String(m).slice(0, 300) }; log("thesis:", m); };
   if (feed.xAllowance?.posts_left != null && feed.xAllowance.posts_left <= 1) { note("holding back, no originals left today"); return; }
   const snaps = feed.radar?.snaps || [], snap = snaps[snaps.length - 1]?.d || {};
@@ -1736,28 +1759,33 @@ async function sayOne(feed) {
       } catch (e) { log("say image failed:", String(e.message).slice(0, 160)); }
     }
     let p = null;
-    // xDirect: straight through the X app (real link, picture uploaded to X); orbio is the fallback
-    if (next.xDirect && X_KEYS_SET) {
-      let mediaIds = [];
-      if (fileBuf) { try { mediaIds = [await uploadMediaX(fileBuf, fileType)]; } catch (e) { log("say x upload failed:", String(e.message).slice(0, 160)); } }
-      p = await postOnX(text, { replyTo: rt ? rt.id : null, mediaIds, direct: true });
-      if (p.status === "failed") log("say x direct failed:", p.err);
-    }
-    if (!p || p.status === "failed") p = X_API ? await postOnX(text, { replyTo: rt ? rt.id : null, media }) : null;
-    if ((!p || p.status === "failed") && next.replyOnly && rt) {
-      // a reply or nothing: never turn it into a standalone post
-      feed.sayTries = feed.sayTries || {}; const tries = (feed.sayTries[next.id] = (feed.sayTries[next.id] || 0) + 1);
-      event(`could not reply to @${rt.handle} (${String(p?.err || "no route").slice(0, 220)})${tries < 3 ? "; trying again next tick" : "; gave up"}`);
-      if (tries < 3) feed.said = feed.said.filter(x => x !== next.id);
-      await persistNow(feed); return;
-    }
-    if (!p || p.status === "failed") {
-      if (p) event(`x api refused the say post (${String(p.err || "unknown").slice(0, 90)}); sent it through orbio instead`);
-      text = delink(text).slice(0, 270);
-      // keep the picture on the retry: orbio takes media, only the link had to go
-      p = media ? await orbioSend(text, { replyTo: rt ? rt.id : null, media }) : null;
-      if (!p || p.status === "failed") { if (p) log("orbio retry with media failed:", p.err); p = await postToX(text); }
-    }
+    // a queued post is the owner's call: it goes out now, outside the pacing of the cat's own originals
+    const stop = await unpaced(async () => {
+      // xDirect: straight through the X app (real link, picture uploaded to X); orbio is the fallback
+      if (next.xDirect && X_KEYS_SET) {
+        let mediaIds = [];
+        if (fileBuf) { try { mediaIds = [await uploadMediaX(fileBuf, fileType)]; } catch (e) { log("say x upload failed:", String(e.message).slice(0, 160)); } }
+        p = await postOnX(text, { replyTo: rt ? rt.id : null, mediaIds, direct: true });
+        if (p.status === "failed") log("say x direct failed:", p.err);
+      }
+      if (!p || p.status === "failed") p = X_API ? await postOnX(text, { replyTo: rt ? rt.id : null, media }) : null;
+      if ((!p || p.status === "failed") && next.replyOnly && rt) {
+        // a reply or nothing: never turn it into a standalone post
+        feed.sayTries = feed.sayTries || {}; const tries = (feed.sayTries[next.id] = (feed.sayTries[next.id] || 0) + 1);
+        event(`could not reply to @${rt.handle} (${String(p?.err || "no route").slice(0, 220)})${tries < 3 ? "; trying again next tick" : "; gave up"}`);
+        if (tries < 3) feed.said = feed.said.filter(x => x !== next.id);
+        await persistNow(feed); return true;
+      }
+      if (!p || p.status === "failed") {
+        if (p) event(`x api refused the say post (${String(p.err || "unknown").slice(0, 90)}); sent it through orbio instead`);
+        text = delink(text).slice(0, 270);
+        // keep the picture on the retry: orbio takes media, only the link had to go
+        p = media ? await orbioSend(text, { replyTo: rt ? rt.id : null, media }) : null;
+        if (!p || p.status === "failed") { if (p) log("orbio retry with media failed:", p.err); p = await postToX(text); }
+      }
+      return false;
+    });
+    if (stop) return;
     if (p.error) { log("say skipped:", p.error); return; }
     const rec = { at: iso(now), text, id: p.id, url: p.url, status: p.status, cost: Number(((p.cost || 0) + readCostSay).toFixed(6)), kind: rt ? "reply" : "say", via: p.via || "orbio" };
     if (imageUrl && media && p.via === "orbio") rec.image = { url: imageUrl, prompt: String(next.image || next.imageFile).slice(0, 300) };
@@ -1834,7 +1862,7 @@ let duePost = !!agent && !!API_KEY && spentToday < DAILY_CREDIT_CAP && now - las
 const OWN_INTERVAL_MIN = ownIntervalMin(feed);
 const isOwn = (p) => !p.replyTo && p.kind !== "ping" && p.kind !== "quote" && !p.grok && p.via !== "recovered";
 const lastOwnAt = Math.max(0, ...feed.posts.filter(isOwn).map(p => Date.parse(p.at)));
-const dueOwn = now - lastOwnAt >= OWN_INTERVAL_MIN * 60e3 - 60e3;
+const dueOwn = now - lastOwnAt >= OWN_INTERVAL_MIN * 60e3 - 60e3 && !originalPaced(feed, "own post");
 if (!Number.isFinite(feed.ownSeq)) feed.ownSeq = feed.posts.filter(isOwn).length;
 // A loop cancelled mid-tick can post and then die before saving the feed. Before posting, ask X what the cat last said:
 // a post the feed does not know about, made within the interval, is adopted and this slot stays quiet.
