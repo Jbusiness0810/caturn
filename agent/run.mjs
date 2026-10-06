@@ -1382,11 +1382,26 @@ function gradeToken({ facts: f = {}, scan = null, pair = null, burnPct = 0 }) {
     if (liq > 0) { const t = v24 / liq; if (t < 0.05) hit(-8, `24h volume is ${(t * 100).toFixed(0)}% of liquidity, barely trading`, "volume_24h_usd"); else if (t > 5) hit(-5, `24h volume is ${t.toFixed(1)}x liquidity, churn that can be wash`, "volume_24h_usd"); }
     if (buys + sells >= 40 && sells > 2 * buys) hit(-8, `${sells} sells against ${buys} buys in 24h`, "holders");
   }
-  if (holders < 50) hit(-15, `${holders} holders`, "holders"); else if (holders < 150) hit(-8, `${holders} holders, thin`, "holders"); else if (holders > 1000) hit(5, `${holders.toLocaleString()} holders`, "holders");
+  // Manufactured activity. A real crowd is many small trades all day; a painted token is a few huge trades, then silence,
+  // a price that moves in steps, and holders who each received the token once. Any of these caps the grade at C.
+  let cap = 100;
+  const txns24 = buys + sells, v1 = Number(pair?.volume?.h1 || 0), tx1 = Number(pair?.txns?.h1?.buys || 0) + Number(pair?.txns?.h1?.sells || 0), ch24 = Number(pair?.priceChange?.h24 ?? 0);
+  const avgTrade = txns24 > 0 ? v24 / txns24 : 0;
+  if (v24 > 50000 && txns24 > 0 && avgTrade > Math.max(10000, liq * 0.02) && txns24 < 500) { hit(-25, `$${Math.round(v24).toLocaleString()} of volume from only ${txns24} trades, about $${Math.round(avgTrade).toLocaleString()} each: a few hands, not a crowd`, "volume_24h_usd"); cap = Math.min(cap, 69); }
+  if (v24 > 100000 && v1 < v24 / 24 * 0.03) { hit(-15, `$${Math.round(v24).toLocaleString()} traded in 24h but $${Math.round(v1).toLocaleString()} in the last hour: a burst, then silence`, "volume_24h_usd"); cap = Math.min(cap, 69); }
+  if (Math.abs(ch24) >= 30 && txns24 < 200) { hit(-12, `price ${ch24 > 0 ? "up" : "down"} ${Math.abs(ch24).toFixed(0)}% in a day on ${txns24} trades: moved by a few wallets`, "volume_24h_usd"); cap = Math.min(cap, 69); }
+  else if (ch24 <= -40) hit(-8, `down ${Math.abs(ch24).toFixed(0)}% on the day`, "volume_24h_usd");
+  const transfers = Number(f.transfers || 0);
+  if (holders >= 200 && transfers > 0 && transfers / holders < 1.6) { hit(-15, `${transfers.toLocaleString()} transfers for ${holders.toLocaleString()} holders: most wallets received the token once and never moved it, which is how an airdrop looks`, "holders"); cap = Math.min(cap, 69); }
+  const ageD = ageH != null ? ageH / 24 : (pair?.pairCreatedAt ? (Date.now() - Number(pair.pairCreatedAt)) / 86400e3 : null);
+  if (ageD != null && ageD < 14) cap = Math.min(cap, 84); // nothing under two weeks old grades A
+  if (holders < 50) hit(-15, `${holders} holders`, "holders"); else if (holders < 150) hit(-8, `${holders} holders, thin`, "holders"); else if (holders > 1000 && cap > 69) hit(5, `${holders.toLocaleString()} holders`, "holders");
   if (risk > 0) hit(-Math.round(risk / 3), `contract risk ${risk}/100${(scan?.checks || []).filter(c => c.level === "fail").length ? " (" + scan.checks.filter(c => c.level === "fail").map(c => c.title.toLowerCase()).join(", ") + ")" : ""}`, null);
   if (ageH != null && ageH < 24) hit(-5, `${Math.round(ageH)} hours old`, null);
+  else if (ageD != null && ageD < 3) hit(-12, `${ageD.toFixed(1)} days old`, null);
+  else if (ageD != null && ageD < 7) hit(-8, `${ageD.toFixed(1)} days old`, null);
   if (burnPct > 5) hit(3, `${burnPct.toFixed(1)}% of supply burned`, "burn_pct");
-  score = Math.max(0, Math.min(100, Math.round(score)));
+  score = Math.max(0, Math.min(cap, Math.round(score)));
   const grade = score >= 85 ? "A" : score >= 70 ? "B" : score >= 55 ? "C" : score >= 40 ? "D" : "F";
   const lean = ["A", "B"].includes(grade) ? "credible" : grade === "C" ? "watch" : "fade";
   const reasons = [...R].sort((a, b) => Math.abs(b.pts) - Math.abs(a.pts));
