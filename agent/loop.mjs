@@ -45,11 +45,11 @@ async function update() {
   // the live feed is the runner's working copy, never git's: a pull that touches data/feed.json must not be refused, and
   // must not roll the feed back either, so the tree is reset to master with the feed carried across
   const keep = await readFile(FEED).catch(() => null);
-  const fetched = await sh("git", ["fetch", "-q", "origin", "master"]);
-  if (fetched === 0) { await sh("git", ["reset", "-q", "--hard", "origin/master"]); if (keep) await writeFile(FEED, keep); }
+  const fetched = await sh("git", ["fetch", "-q", "origin", "master"], {}, 3 * 60e3); // a stalled fetch must never freeze the loop
+  if (fetched === 0) { await sh("git", ["reset", "-q", "--hard", "origin/master"], {}, 60e3); if (keep) await writeFile(FEED, keep); }
   else log("git fetch failed; running the code already here");
   // deps the workflow used to install per run; a no-op when they are already there
-  await sh("npm", ["i", "--no-save", "--no-audit", "--no-fund", "--loglevel=error", "playwright@1.49.1", "gifenc@1.0.3", "errand-mcp@0.5.0"]);
+  await sh("npm", ["i", "--no-save", "--no-audit", "--no-fund", "--loglevel=error", "playwright@1.49.1", "gifenc@1.0.3", "errand-mcp@0.5.0"], {}, 5 * 60e3);
 }
 async function renew() {
   if (!env.CATURN_FLY_RESOURCE_ID) return;
