@@ -1165,7 +1165,8 @@ async function mindshareDaily(feed) {
   if (M.triedDay === today && M.triedAt && now - Date.parse(M.triedAt) < 60 * 60e3) return; // a failed run tries again in an hour
   M.triedDay = today; M.triedAt = iso(now);
   const snap = feed.radar?.snaps?.[feed.radar.snaps.length - 1]?.d || {};
-  const uni = (feed.radar?.universe || []).filter(u => snap[u.token]?.v24 > 0).sort((a, b) => snap[b.token].v24 - snap[a.token].v24);
+  // the same bar as the radar: no bait names, wrapped assets, stablecoins or tokenized stocks (a "$Robinhood" search reads the whole company)
+  const uni = (feed.radar?.universe || []).filter(u => snap[u.token]?.v24 > 0 && safeOther(u, snap[u.token])).sort((a, b) => snap[b.token].v24 - snap[a.token].v24);
   const seen = new Set(), picks = [];
   for (const u of uni) { const s = String(u.symbol || "").replace(/^\$/, ""); if (!s || !/^[a-z0-9]{2,12}$/i.test(s) || seen.has(s.toUpperCase())) continue; seen.add(s.toUpperCase()); picks.push({ ...u, symbol: s }); if (picks.length >= MINDSHARE_TOKENS) break; }
   if (picks.length < 10) { log("mindshare: too few tokens to measure"); return; }
