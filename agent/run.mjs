@@ -1202,9 +1202,9 @@ async function mindshareDaily(feed) {
   const html = mindshareHtml({ rows, date: today, postsRead, tokensRead: samples.length, title: `top ${rows.length} by mindshare` });
   let png = null, media = null;
   try { png = await renderHtml(html, { width: 1200, height: 675 }); media = `data:image/png;base64,${png.toString("base64")}`; } catch (e) { log("mindshare render failed:", String(e.message).slice(0, 120)); return; }
-  // X allows one cashtag per post: the leader gets it, the rest are named plain (the picture carries all fifty)
-  const line = (r, i) => `${i + 1}. ${i === 0 ? "$" : ""}${r.symbol} ${r.share.toFixed(1)}%${r.delta != null && Math.abs(r.delta) >= 0.5 ? ` (${r.delta > 0 ? "+" : ""}${r.delta.toFixed(1)})` : ""}`;
-  const text = `mindshare on x, last 24h. robinhood chain.\n${rows.slice(0, 5).map(line).join("\n")}\n${samples.length} tokens measured from ${postsRead} posts. share of attention, not of volume.`;
+  // X allows one cashtag per post: the map post carries the leader's, and the next four each get a reply of their own
+  const dl = (r) => r.delta != null && Math.abs(r.delta) >= 0.5 ? ` (${r.delta > 0 ? "+" : ""}${r.delta.toFixed(1)})` : "";
+  const text = `mindshare on x, last 24h. robinhood chain.\n1. $${rows[0].symbol} ${rows[0].share.toFixed(1)}%${dl(rows[0])}\n${samples.length} tokens measured from ${postsRead} posts. share of attention, not of volume. the rest of the top five below.`;
   const p = await unpaced(() => orbioSend(text, { media })); // the day's one map goes out at its hour, outside the pacing
   if (p.status === "failed" || !p.id) { M.note = { at: iso(now), m: `post failed: ${p.err}` }; log("mindshare post failed:", p.err); return; }
   M.lastDay = today; M.at = iso(now); M.cost = Number((cached ? cached.cost : cost).toFixed(4)); M.postsRead = postsRead; M.tokensRead = samples.length; delete M.note; delete M.sample;
@@ -1213,6 +1213,14 @@ async function mindshareDaily(feed) {
   M.card = null;
   try { const name = `mindshare-${today}.png`; await mkdir("out", { recursive: true }); await writeFile(`out/${name}`, png); if (await uploadSketch(`out/${name}`, name)) M.card = `/a/${name}`; } catch (e) { log("mindshare upload failed:", String(e.message).slice(0, 120)); }
   feed.posts.push({ at: iso(now), text, id: p.id, url: p.url, status: p.status, cost: Number(((p.cost || 0) + cost).toFixed(6)), via: p.via || "orbio", kind: "own", format: "mindshare", card: true, mindshare: { top: rows.slice(0, 5).map(r => r.symbol), tokens: samples.length, posts: postsRead, image: M.card }, replyTo: null });
+  let parent = p.id, prevText = text;
+  for (const [i, r] of rows.slice(1, 5).entries()) {
+    const t = `${i + 2}. $${r.symbol} ${r.share.toFixed(1)}% of attention${dl(r)}. ${r.posts} post${r.posts === 1 ? "" : "s"} read, reach ${Number(r.reach || 0).toLocaleString()}.`;
+    const q = await orbioSend(t, { replyTo: parent });
+    if (q.status === "failed" || !q.id) { log("mindshare reply failed:", q.err); break; }
+    feed.posts.push({ at: iso(now), text: t, id: q.id, url: q.url, status: q.status, cost: Number(q.cost || 0), via: q.via || "orbio", kind: "reply", threaded: true, format: "mindshare", replyTo: { id: String(parent), handle: OWN_HANDLE, name: "caturn", text: prevText.slice(0, 200), url: q.url, why: "mindshare thread" } });
+    parent = q.id; prevText = t;
+  }
   event(`posted the daily mindshare map: $${rows[0].symbol} leads at ${rows[0].share.toFixed(1)}%`);
   log("mindshare:", text.replace(/\n/g, " | "));
   await persistNow(feed);
