@@ -405,7 +405,26 @@ function tagCandidates(feed) {
   const eco = (feed.room?.ecosystem || []).map(e => e.handle);
   return [...new Set([...PINNED_TAG_HANDLES, ...REPLY_ACCOUNTS, ...eco, ...pool])].filter(h => h && h !== OWN_HANDLE && !NEVER_TAG.has(h));
 }
-function allowedHandle(h, feed) { return h === "orbiodotso" || h === OWN_HANDLE || tagCandidates(feed).includes(h); }
+function allowedHandle(h, feed) { return feed.xHandles?.[h]?.ok !== false && (h === "orbiodotso" || h === OWN_HANDLE || tagCandidates(feed).includes(h)); }
+// A handle in orbio's agent list is not always a live X account (typos, renames, suspensions); tagging one prints a plain
+// @word that links nowhere. One profile read per unknown handle decides, cached for a week (gone ones for three days).
+async function liveHandles(feed, handles, maxLookups = 8) {
+  const C = feed.xHandles = feed.xHandles || {};
+  const stale = (h) => !C[h] || now - Date.parse(C[h].at) > (C[h].ok ? 7 : 3) * 86400e3;
+  const ask = handles.filter(stale).slice(0, maxLookups);
+  if (ask.length && API_KEY) {
+    try {
+      const r = await getJSON(`${ORBIO_API}/tools/social.x.profile`, { method: "POST", headers: auth, body: JSON.stringify({ handles: ask, max_cost: (ask.length * 0.015).toFixed(4) }) });
+      const ps = r.result?.profiles || r.profiles || r.result?.users || [];
+      for (const h of ask) {
+        const u = ps.find(p => String(p.screen_name || p.username || "").toLowerCase() === h);
+        if (u) C[h] = { ok: !u.error, at: iso(now) }; // a handle the reader did not answer for stays unknown
+      }
+      const gone = ask.filter(h => C[h]?.ok === false); if (gone.length) log("not on x, never tagged:", gone.map(h => "@" + h).join(" "));
+    } catch (e) { log("handle check failed:", e.status || "", String(e.message).slice(0, 120)); }
+  }
+  return handles.filter(h => C[h]?.ok === true);
+}
 // What the room is talking about: the newest agents on the launchpad (free, from the protocol) and the liveliest
 // recent posts about orbio on X (about half a cent). Refreshed every 30 minutes and cached in the feed, so posts can riff on today.
 async function readRoom(feed) {
@@ -2080,8 +2099,9 @@ if (status === "awake") {
         const cands = tagCandidates(feed);
         // never the same handle twice in six hours, whatever the rotation says
         const recentTags = new Set(feed.posts.filter(p => now - Date.parse(p.at) < 6 * 3600e3).flatMap(p => [p.tagged, p.replyTo?.handle, ...[...String(p.text || "").matchAll(/@(\w{1,15})/g)].map(m => m[1])]).filter(Boolean).map(h => String(h).toLowerCase()));
-        const fresh = cands.filter(h => !recentTags.has(h));
-        if (fresh.length) ctx.tagHandle = fresh[Math.floor(slot / TAG_EVERY) % fresh.length];
+        const rotated = cands.filter(h => !recentTags.has(h)), start = Math.floor(slot / TAG_EVERY) % Math.max(1, rotated.length);
+        const fresh = await liveHandles(feed, [...rotated.slice(start), ...rotated.slice(0, start)]); // rotation order kept, dead handles dropped
+        if (fresh.length) ctx.tagHandle = fresh[0];
       }
       if (ctx.tagHandle) {
         ctx.postAngle = `${POST_ANGLES[slot % POST_ANGLES.length]}, said to @${ctx.tagHandle}`;
