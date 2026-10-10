@@ -1101,7 +1101,15 @@ const priceSeries = (feed, token) => (feed.radar?.snaps || []).map(x => x.d?.[to
 const scanCache = new Map();
 async function scanToken(token) {
   const t = String(token).toLowerCase(); if (scanCache.has(t)) return scanCache.get(t);
-  const p = (async () => { try { process.env.SCAN_BUDGET_MS = process.env.SCAN_BUDGET_MS || "150000"; const { analyze } = await import("../api/analyze.js"); return await analyze(t); } catch (e) { log("local scan failed, asking the site:", String(e.message).slice(0, 120)); return getJSON("https://www.caturn.lol/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: t }) }); } })();
+  // the chain's public node rate-limits this machine at times, and the scan then answers with an error instead of throwing;
+  // either way the site (another IP, a 34-second budget) gets asked before the token is given up on
+  const p = (async () => {
+    let r = null;
+    try { process.env.SCAN_BUDGET_MS = process.env.SCAN_BUDGET_MS || "150000"; const { analyze } = await import("../api/analyze.js"); r = await analyze(t); if (r?.facts) return r; log("local scan gave no facts, asking the site:", String(r?.error || "empty").slice(0, 120)); }
+    catch (e) { log("local scan failed, asking the site:", String(e.message).slice(0, 120)); }
+    try { const s = await getJSON("https://www.caturn.lol/api/analyze", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token: t }) }); if (!s?.facts) log("site scan gave no facts:", String(s?.error || "empty").slice(0, 120)); return s?.facts ? s : (r || s); }
+    catch (e) { log("site scan failed:", e.status || "", String(e.body?.error || e.message).slice(0, 120)); return r || { error: String(e.body?.error || e.message).slice(0, 120) }; }
+  })();
   scanCache.set(t, p); return p;
 }
 // ---------- Radar: watch every token with a pool on Robinhood Chain, every tick, and call out what moves ----------
@@ -1370,7 +1378,7 @@ async function thesisPost(feed) {
   if (!pick) { note("nothing uncovered busy enough on the chain"); return; }
   const sub = pick;
   const scan = await scanToken(sub.token);
-  if (!scan?.facts) { note(`no scan for ${sub.symbol}`); T.done = [...T.done, { token: sub.token, symbol: sub.symbol, at: iso(now), skipped: true }].slice(-50); return; }
+  if (!scan?.facts) { note(`no scan for ${sub.symbol}: ${String(scan?.error || "empty").slice(0, 120)}`); T.done = [...T.done, { token: sub.token, symbol: sub.symbol, at: iso(now), skipped: true }].slice(-50); return; }
   const structureKnown = !scan.facts.partialHistory && !!scan.facts.holders; // a history too long to scan leaves holders and shares unknown
   const f = scan.facts, n = snap[sub.token];
   const pairs = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${sub.token}`).then(r => r.json()).then(d => (d.pairs || []).filter(p => String(p.chainId).toLowerCase().includes("robinhood"))).catch(() => []);
