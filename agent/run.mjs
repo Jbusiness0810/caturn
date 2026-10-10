@@ -14,7 +14,7 @@ const run = promisify(execFile);
 
 const env = process.env;
 const API_KEY   = env.ORBIO_API_KEY || "";
-import { renderCard, renderHtml } from "./card.mjs";
+import { renderCard, renderHtml, renderGradCard } from "./card.mjs";
 import { mindshareHtml, attention as xAttention, rank as rankMindshare } from "./mindshare.mjs";
 import { putObject as storagePut, typeOf as storageType } from "./storage.mjs";
 import { MEMORY_ON, seed as seedMemory, recall as recallMemory, remember as rememberTick, rememberEvent, measure as measurePosts, reflect as reflectDay } from "./memory.mjs";
@@ -425,6 +425,72 @@ async function liveHandles(feed, handles, maxLookups = 8) {
   }
   return handles.filter(h => C[h]?.ok === true);
 }
+// ---------- Graduation watch: every agent that graduates off the launchpad's bonding curve gets a card ----------
+// The protocol list is free and graduates are the biggest by cap, so the first pages hold all of them. The pool's creation
+// time on Dexscreener is the graduation time. The first look seeds the list and posts only the most recent graduate.
+const fmtTook = (ms) => { const m = Math.max(1, Math.round(ms / 60e3)); return m < 60 ? `${m}m` : m < 48 * 60 ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m` : `${Math.floor(m / 1440)}d ${Math.floor((m % 1440) / 60)}h`; };
+async function graduationWatch(feed) {
+  if (!API_KEY || env.CATURN_GRAD_CARDS === "0") return;
+  const G = feed.gradWatch = feed.gradWatch || { seen: null, tries: {} };
+  const all = []; let total = 0;
+  for (let off = 0; off < 2000; off += 200) {
+    const d = await getJSON(`${ORBIO_PROTOCOL}/agents?limit=200&offset=${off}&sort=cap`);
+    total = Number(d.page?.total || total); all.push(...(d.data || []));
+    if (!d.data?.length || !d.data.some(a => a.price?.graduated)) break;
+  }
+  const key = (a) => String(a.token || "").toLowerCase();
+  const grads = all.filter(a => a.price?.graduated && /^0x[a-f0-9]{40}$/.test(key(a)));
+  let fresh = G.seen ? grads.filter(a => !G.seen.includes(key(a))) : grads;
+  if (!fresh.length) return;
+  // first pool per token (graduation time) and the deepest pool (the market numbers)
+  const first = {}, deep = {};
+  for (let i = 0; i < grads.length; i += 30) {
+    try {
+      const d = await getJSON(`https://api.dexscreener.com/tokens/v1/robinhood/${grads.slice(i, i + 30).map(key).join(",")}`);
+      for (const p of (Array.isArray(d) ? d : [])) {
+        const t = String(p.baseToken?.address || "").toLowerCase();
+        if (p.pairCreatedAt && (!first[t] || p.pairCreatedAt < first[t].pairCreatedAt)) first[t] = p;
+        if (!deep[t] || Number(p.liquidity?.usd || 0) > Number(deep[t].liquidity?.usd || 0)) deep[t] = p;
+      }
+    } catch (e) { log("graduation pools read failed:", e.status || "", String(e.message).slice(0, 100)); }
+  }
+  const gradAt = (a) => first[key(a)]?.pairCreatedAt || null;
+  const order = [...grads].sort((x, y) => (gradAt(x) ?? Infinity) - (gradAt(y) ?? Infinity)); // not on dexscreener yet = newest
+  if (!G.seen) { const latest = order[order.length - 1]; G.seen = grads.filter(a => a !== latest).map(key); fresh = [latest]; log("graduation watch: seeded", G.seen.length, "graduates; posting the latest,", latest.symbol); }
+  for (const a of order.filter(x => fresh.includes(x)).slice(0, 2)) {
+    const k = key(a);
+    if (k === CA.toLowerCase()) { G.seen.push(k); continue; }
+    const at = gradAt(a), p = deep[k] || first[k] || {}, ord = order.indexOf(a) + 1;
+    const took = at && a.launchedAt ? fmtTook(at - Number(a.launchedAt) * 1000) : null;
+    const mcap = Number(p.marketCap || p.fdv || 0) || Number(a.price?.marketCapMicroUsd || 0) / 1e6;
+    let logo = null;
+    for (const src of [a.logo, p.info?.imageUrl].filter(Boolean)) {
+      try { const res = await fetch(src, { signal: AbortSignal.timeout(10000) }); if (!res.ok) continue; const buf = Buffer.from(await res.arrayBuffer()); if (buf.length && buf.length < 3e6) { logo = `data:${(res.headers.get("content-type") || "image/png").split(";")[0]};base64,${buf.toString("base64")}`; break; } } catch {}
+    }
+    const stats = [["launch to graduation", took || "—"], ["market cap", usdShort(mcap || null)], ["liquidity", usdShort(p.liquidity?.usd ?? null)], ["24h volume", usdShort(p.volume?.h24 ?? null)]];
+    let png;
+    try { png = await renderGradCard({ symbol: a.symbol, name: a.name, logo, ordinal: ord, total, stats, date: iso(now).slice(0, 10) }); }
+    catch (e) { log("graduation card failed:", String(e.message).slice(0, 120)); return; }
+    const h = (String(a.socials?.twitter || "").match(/(?:x|twitter)\.com\/([A-Za-z0-9_]{1,15})/i) || [])[1]?.toLowerCase();
+    const tag = h && h !== OWN_HANDLE && (await liveHandles(feed, [h])).length ? h : null;
+    const ago = at ? (now - at) / 3600e3 : 0;
+    const when = ago < 1.5 ? "just graduated" : ago < 36 ? `graduated ${Math.round(ago)}h ago` : "graduated";
+    const text = `$${a.symbol} ${when} on orbio. ${took ? `${took} from launch to a real pool.` : "off the curve, into a real pool."}\ngraduate #${ord} out of ${total.toLocaleString("en-US")} agents launched.${tag ? `\ncongrats @${tag}. the curve is behind you now.` : ""}`;
+    if (DRY_RUN) { log("graduation (dry run):", text); continue; }
+    const r = await unpaced(() => orbioSend(text, { media: `data:image/png;base64,${png.toString("base64")}` }));
+    if (r.status === "failed" || !r.id) {
+      log("graduation post failed:", r.err);
+      if (/allowance/i.test(String(r.err))) break; // the day's posts are used; try again after the reset
+      G.tries[k] = (G.tries[k] || 0) + 1; if (G.tries[k] >= 3) G.seen.push(k);
+      continue;
+    }
+    let image = null;
+    try { const name = `grad-${String(a.symbol).toLowerCase().replace(/[^a-z0-9]/g, "")}-${iso(now).slice(0, 10)}.png`; await mkdir("out", { recursive: true }); await writeFile(`out/${name}`, png); if (await uploadSketch(`out/${name}`, name)) image = `/a/${name}`; } catch (e) { log("graduation card upload failed:", String(e.message).slice(0, 120)); }
+    G.seen.push(k); delete G.tries[k]; G.last = { symbol: a.symbol, token: k, at: iso(now), id: r.id };
+    feed.posts.push({ at: iso(now), text, id: r.id, url: r.url, status: r.status, cost: Number(r.cost || 0), via: r.via || "orbio", kind: "own", format: "graduation", card: true, graduation: { symbol: a.symbol, token: k, ordinal: ord, took, image }, replyTo: null });
+    log("graduation posted:", a.symbol, r.url || r.id);
+  }
+}
 // What the room is talking about: the newest agents on the launchpad (free, from the protocol) and the liveliest
 // recent posts about orbio on X (about half a cent). Refreshed every 30 minutes and cached in the feed, so posts can riff on today.
 async function readRoom(feed) {
@@ -444,7 +510,8 @@ async function readRoom(feed) {
     const gradNow = all.filter(a => !mine(a) && a.price?.graduated).map(a => String(a.symbol || a.name || "")).filter(Boolean);
     const newGrads = feed.roomSeen.graduated.length ? gradNow.filter(sym => !feed.roomSeen.graduated.includes(sym)) : [];
     const fresh = newest.filter(l => l.hoursAgo <= 3 && !feed.roomSeen.launched.includes(l.symbol || l.name));
-    next.news = [...newGrads.slice(0, 2).map(sym => { const a = all.find(x => String(x.symbol) === sym); return { kind: "graduated", name: a?.name || sym, symbol: sym, handle: (String(a?.socials?.twitter || "").match(/x\.com\/(\w{1,15})/i) || [])[1]?.toLowerCase() || null }; }),
+    // graduations get their own card post (graduationWatch), so the cat does not tell them twice
+    next.news = [...(env.CATURN_GRAD_CARDS === "0" ? newGrads.slice(0, 2) : []).map(sym => { const a = all.find(x => String(x.symbol) === sym); return { kind: "graduated", name: a?.name || sym, symbol: sym, handle: (String(a?.socials?.twitter || "").match(/x\.com\/(\w{1,15})/i) || [])[1]?.toLowerCase() || null }; }),
       ...fresh.slice(0, 2).map(l => ({ kind: "launched", name: l.name, symbol: l.symbol, hoursAgo: l.hoursAgo }))];
     feed.roomSeen.graduated = gradNow.slice(0, 400); feed.roomSeen.launched = [...feed.roomSeen.launched, ...fresh.map(l => l.symbol || l.name)].slice(-200);
     // The ecosystem on X: every agent on the launchpad that lists an X account. These are the people Caturn talks to.
@@ -2260,6 +2327,7 @@ await saySomething(feed);
 await announceBuild(feed);
 try { await scoreCalls(feed); } catch (e) { log("score calls failed:", String(e.message).slice(0, 160)); }
 try { await measureFormats(feed); } catch (e) { log("measure formats failed:", String(e.message).slice(0, 160)); }
+try { await graduationWatch(feed); } catch (e) { log("graduation watch failed:", String(e.message).slice(0, 160)); }
 try { await mindshareDaily(feed); } catch (e) { log("mindshare failed:", String(e.message).slice(0, 160)); }
 try { await thesisPost(feed); } catch (e) { log("thesis failed:", String(e.message).slice(0, 160)); }
 try { await radarThread(feed); } catch (e) { log("radar thread failed:", String(e.message).slice(0, 160)); }
