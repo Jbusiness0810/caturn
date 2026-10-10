@@ -34,7 +34,7 @@ async function chat(system, user, max_tokens) {
       const messages = [{ role: "system", content: system }, { role: "user", content: user }];
       let text = "", cost = 0, finish = "";
       for (let turn = 0; turn < 4; turn++) { // the gateway caps one answer's length; a cut-off file is continued, not thrown away
-        const r = await fetch(`${ORBIO_API}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, messages, max_tokens, temperature: 0.7 }) });
+        const r = await fetch(`${ORBIO_API}/chat/completions`, { method: "POST", headers: { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, messages, max_tokens, ...(String(model).startsWith("anthropic/") ? {} : { temperature: 0.7 }) }) });
         const body = await r.json().catch(() => ({}));
         if (!r.ok) { lastErr = new Error(`${model} ${r.status} ${JSON.stringify(body.error || "").slice(0, 100)}`); if (turn === 0 && [404, 429, 500, 502, 503, 504].includes(r.status)) break; throw lastErr; }
         const part = String(body.choices?.[0]?.message?.content || ""); cost += Number(body.usage?.cost || 0); finish = body.choices?.[0]?.finish_reason || "";

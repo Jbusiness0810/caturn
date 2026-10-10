@@ -85,8 +85,13 @@ async function listBoard(limit = 60, conc = 8) {
   return out.filter(Boolean);
 }
 
+// The gateway refuses sampling settings for Claude 5 models ("no provider is serving this model"), so they are dropped there.
+function dropSampling(init) {
+  if (typeof init?.body !== "string" || !init.body.includes('"anthropic/')) return init;
+  try { const b = JSON.parse(init.body); if (!String(b.model || "").startsWith("anthropic/")) return init; delete b.temperature; delete b.top_p; delete b.top_k; return { ...init, body: JSON.stringify(b) }; } catch { return init; }
+}
 async function getJSON(url, init = {}) {
-  const r = await fetch(url, init); const text = await r.text();
+  const r = await fetch(url, dropSampling(init)); const text = await r.text();
   let body = null; try { body = JSON.parse(text); } catch {}
   if (!r.ok) { const e = new Error(`${r.status} ${url}: ${text.slice(0, 200)}`); e.status = r.status; e.body = body; throw e; }
   return body ?? text;
