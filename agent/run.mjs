@@ -6,6 +6,8 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 // Retired from GitHub Actions on 2026-10-05: the always-on orbio runner is the only writer now. A leftover loop here
 // pulls master each tick and lands on this line, so it stops posting without being cancelled. Manual one-off runs still work.
 if (process.env.GITHUB_ACTIONS && Number(process.env.LOOP || 1) > 1 && !process.env.CATURN_ALLOW_ACTIONS) { console.log("[caturn] retired here; the runner lives on orbio now"); process.exit(0); }
+// Paused by the owner: while a PAUSED file sits at the repo root, every tick exits here and nothing is posted. Delete it to resume.
+if ((await import("node:fs")).existsSync(new URL("../PAUSED", import.meta.url))) { console.log("[caturn] paused"); process.exit(0); }
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
