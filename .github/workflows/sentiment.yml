@@ -22,8 +22,8 @@ jobs:
           n=$(awk '{print $2; exit}' .sentiment); [ -n "$n" ] || n=100
           node agent/sentiment.mjs --posts "$n" | tee report.md
           cat report.md >> "$GITHUB_STEP_SUMMARY"
-          # the report as an annotation too, so it can be read back through the checks API
-          echo "::notice title=sentiment::$(node -e 'process.stdout.write(require("fs").readFileSync("report.md","utf8").replace(/%/g,"%25").replace(/\r/g,"%0D").replace(/\n/g,"%0A"))')"
+          # the report as annotations too (one holds about 4k characters), so it can be read back through the checks API
+          node -e 'const t=require("fs").readFileSync("report.md","utf8"),e=s=>s.replace(/%/g,"%25").replace(/\r/g,"%0D").replace(/\n/g,"%0A");for(let i=0,k=1;i<t.length;i+=3500,k++)console.log(`::notice title=sentiment ${k}::${e(t.slice(i,i+3500))}`)'
         env:
           ORBIO_API_KEY: ${{ secrets.ORBIO_API_KEY }}
       - uses: actions/upload-artifact@v4
