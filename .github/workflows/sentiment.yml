@@ -1,0 +1,29 @@
+name: Sentiment read
+on:
+  push:
+    branches: [master]
+    paths: [".sentiment"]   # the file holds the options, e.g. "read 100"; a push of it runs one read
+permissions:
+  contents: read
+concurrency:
+  group: sentiment
+  cancel-in-progress: false
+jobs:
+  read:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: master }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: read
+        run: |
+          n=$(awk '{print $2; exit}' .sentiment); [ -n "$n" ] || n=100
+          node agent/sentiment.mjs --posts "$n" | tee report.md
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+        env:
+          ORBIO_API_KEY: ${{ secrets.ORBIO_API_KEY }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: sentiment, path: out/sentiment/, if-no-files-found: ignore }

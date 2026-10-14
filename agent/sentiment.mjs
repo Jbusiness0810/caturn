@@ -1,6 +1,8 @@
 // On-demand read of Robinhood Chain sentiment on X, paid from Caturn's orbio balance. Posts nothing.
-//   node agent/sentiment.mjs            -> full read (about 4 credit of X reads plus one model call)
-//   node agent/sentiment.mjs --quick    -> fewer, smaller reads
+//   node agent/sentiment.mjs              -> full read, 100 posts per search (about 8 credit of X reads plus one model call)
+//   node agent/sentiment.mjs --posts 200  -> more posts per search
+//   node agent/sentiment.mjs --quick      -> fewer, smaller reads
+// Runs in GitHub Actions on a push of .sentiment, where Caturn's orbio key lives (.github/workflows/sentiment.yml).
 // Writes the report to out/sentiment/<time>.md and .json and prints it.
 import { writeFile, mkdir } from "node:fs/promises";
 
@@ -8,6 +10,7 @@ const env = process.env, KEY = env.ORBIO_API_KEY || "";
 const API = "https://api.orbio.so/api/v1", PROTOCOL = "https://www.orbio.so/api/protocol";
 const MODELS = (env.CATURN_SENTIMENT_MODEL || "anthropic/claude-fable-5.1,anthropic/claude-opus-5.5,anthropic/claude-sonnet-5.5").split(",").map(s => s.trim());
 const QUICK = process.argv.includes("--quick");
+const POSTS = Math.max(10, Number(process.argv[process.argv.indexOf("--posts") + 1]) || 100);
 const auth = { Authorization: `Bearer ${KEY}`, "Content-Type": "application/json" };
 const log = (...a) => console.error("[sentiment]", ...a);
 let spent = 0;
@@ -63,7 +66,7 @@ score (integer -100 very bearish to 100 very bullish), label (one of: very beari
   const user = `On-chain backdrop (orbio launchpad tokens on Robinhood Chain, last 24h): ${mkt ? JSON.stringify({ tokens: mkt.tokens, up: mkt.up, down: mkt.down, volWeightedChange24h: mkt.volWeightedChange24h, vol24h: mkt.vol24h, top: mkt.top }) : "unavailable"}\n\nX posts (${posts.length}):\n${lines}`;
   for (const model of MODELS) {
     try {
-      const body = { model, max_tokens: 2500, messages: [{ role: "system", content: sys }, { role: "user", content: user }], response_format: { type: "json_object" } };
+      const body = { model, max_tokens: 4000, messages: [{ role: "system", content: sys }, { role: "user", content: user }], response_format: { type: "json_object" } };
       const r = await post("chat/completions", body, 180000);
       spent += Number(r.cost?.credit || r.usage?.cost || 0);
       const txt = String(r.choices?.[0]?.message?.content || "");
@@ -76,22 +79,24 @@ score (integer -100 very bearish to 100 very bullish), label (one of: very beari
 
 if (!KEY) { console.error("ORBIO_API_KEY is not set"); process.exit(1); }
 const mkt = await market();
-const n = QUICK ? 20 : 50;
+const n = QUICK ? 20 : POSTS;
 const tick = mkt?.symbols?.filter(s => /^[A-Za-z]{3,10}$/.test(s)).slice(0, 8).map(s => `$${s}`).join(" OR ");
 const queries = [
   ['"robinhood chain"', "Latest", n], ['"robinhood chain"', "Top", n],
-  ['#RobinhoodChain OR "rh chain" OR "robinhood l2" OR "robinhood testnet"', "Latest", QUICK ? 0 : 40],
-  ["@orbiodotso OR orbio.so OR $ORBIO", "Latest", QUICK ? 20 : 40],
-  ...(tick && !QUICK ? [[tick, "Latest", 40]] : [])
+  ['#RobinhoodChain OR "rh chain" OR "robinhood l2" OR "robinhood testnet"', "Latest", QUICK ? 0 : n],
+  ["@orbiodotso OR orbio.so OR $ORBIO", "Latest", QUICK ? 20 : n],
+  ...(tick && !QUICK ? [[tick, "Latest", n]] : [])
 ].filter(q => q[2] > 0);
-const reads = await Promise.all(queries.map(([q, s, l]) => readX(q, s, l)));
+// one read at a time: each holds its worst-case price from the balance while it runs
+const reads = [];
+for (const [q, s, l] of queries) { const got = await readX(q, s, l); log(`${q} (${s}): ${got.length} posts`); reads.push(got); }
 const seen = new Set(), posts = [];
 for (const t of reads.flat()) {
   if (seen.has(t.id) || /^RT @/.test(t.text) || SCAM_RE.test(t.text) || tagCount(t.text) >= 4) continue;
   seen.add(t.id); posts.push(t);
 }
 // one voice per account at most three times, the most engaged first
-const per = {}; const sample = posts.sort((a, b) => (b.likes + 2 * b.replies + 3 * b.reposts) - (a.likes + 2 * a.replies + 3 * a.reposts)).filter(t => (per[t.handle] = (per[t.handle] || 0) + 1) <= 3).slice(0, 160);
+const per = {}; const sample = posts.sort((a, b) => (b.likes + 2 * b.replies + 3 * b.reposts) - (a.likes + 2 * a.replies + 3 * a.reposts)).filter(t => (per[t.handle] = (per[t.handle] || 0) + 1) <= 3).slice(0, Math.max(160, POSTS * 2));
 log(`${reads.flat().length} posts read, ${sample.length} kept from ${new Set(sample.map(t => t.handle)).size} accounts`);
 if (!sample.length) { console.error("no posts to read"); process.exit(1); }
 
