@@ -28,7 +28,17 @@ const MODELS    = (env.CATURN_MODEL || "anthropic/claude-fable-5.1,anthropic/cla
 let MODEL = MODELS[0];
 const DRY_RUN   = env.CATURN_DRY_RUN === "1";
 const FORCE     = env.CATURN_FORCE === "1";      // manual runs: think now, ignoring the pacing timer (budget still applies)
-const POST_INTERVAL_MIN = Number(env.CATURN_POST_INTERVAL_MIN || 10);   // post to X on this clock, whatever the pacing says
+const POST_INTERVAL_MIN = Number(env.CATURN_POST_INTERVAL_MIN || 180);  // post to X on this clock, whatever the pacing says (the owner asked for a post every few hours)
+// Quiet hours between any two posts, of any kind (own, reply, card, thesis): every sender checks it, so nothing posts sooner.
+const QUIET_MIN = Number(env.CATURN_QUIET_MIN ?? 150);
+function quietLeft() {
+  if (!(QUIET_MIN > 0) || !feed) return 0;
+  const last = Math.max(0, ...(feed.posts || []).filter(p => p.status !== "failed" && p.via !== "recovered" && p.id).map(p => Date.parse(p.at) || 0));
+  return Math.max(0, Math.ceil(QUIET_MIN - (now - last) / 60e3));
+}
+// a reply that continues a thread the cat opened in this run (a thesis, a card follow-up) is part of that one post
+const threadOk = new Set();
+const quietRefusal = (via, replyTo = null) => { if (replyTo && threadOk.has(String(replyTo))) return null; const q = quietLeft(); return q > 0 ? { id: null, status: "failed", err: `quiet: the next post may go out in ${q} min`, via, quiet: true } : null; };
 const SKETCH_EVERY = Number(env.CATURN_SKETCH_EVERY || 0);   // off: the owner stopped the art              // draw a sketch every Nth thought (0 = never)
 const FOUND_SKETCHES = env.CATURN_FOUND_SKETCHES === "1";                // two sketches in three are open-licensed p5.js pieces found on openprocessing
 const ART_EVERY = Number(env.CATURN_ART_EVERY || 0);   // off: the owner stopped the art posts                     // every Nth post is a found piece of art, posted as a gif with the artist's name (needs the X app)
@@ -281,6 +291,7 @@ async function estimateCost(model, usage) {
   } catch (e) { log("price lookup failed:", e.message); return 0.01; } // conservative fallback so the cap still bites
 }
 async function postToX(text) {
+  const q = quietRefusal("orbio"); if (q) return { error: q.err };
   if (/https?:\/\//i.test(text)) return { error: "links are refused on X" };
   const r = await getJSON(`${ORBIO_API}/tools/social.post`, { method: "POST", headers: auth, body: JSON.stringify({
     text, platforms: ["twitter"], max_cost: "0.0250"
@@ -487,7 +498,7 @@ async function graduationWatch(feed) {
     const r = await unpaced(() => orbioSend(text, { media: `data:image/png;base64,${png.toString("base64")}` }));
     if (r.status === "failed" || !r.id) {
       log("graduation post failed:", r.err);
-      if (/allowance/i.test(String(r.err))) break; // the day's posts are used; try again after the reset
+      if (/allowance/i.test(String(r.err)) || r.quiet) break; // the day's posts are used, or the quiet hours are on; try again later
       G.tries[k] = (G.tries[k] || 0) + 1; if (G.tries[k] >= 3) G.seen.push(k);
       continue;
     }
@@ -722,7 +733,11 @@ async function uploadMediaX(buf, mediaType = "image/gif") {
 // so it goes first and the X app is the fallback. Orbio caps an X account per UTC day (50 posts, 100 replies); the counts it
 // returns are kept so the cat does not knock on a closed door.
 let orbioQuota = null;
-async function orbioSend(text, { replyTo = null, quote = null, poll = null, media = null } = {}) {
+async function orbioSend(text, opts = {}) {
+  { const q = quietRefusal("orbio", opts.replyTo); if (q) return q; }
+  const r = await orbioSendRaw(text, opts); if (r?.id && r.status !== "failed") threadOk.add(String(r.id)); return r;
+}
+async function orbioSendRaw(text, { replyTo = null, quote = null, poll = null, media = null } = {}) {
   const kind = replyTo ? "replies" : "posts";
   if (orbioQuota && orbioQuota[`${kind}_left`] === 0 && Date.parse(orbioQuota.resets_at || 0) > Date.now()) return { id: null, status: "failed", err: `orbio daily ${kind} allowance used`, via: "orbio" };
   if (kind === "posts" && feed && originalPaced(feed, "orbio post")) return { id: null, status: "failed", err: "paced: the next original waits its turn", via: "orbio", paced: true };
@@ -753,7 +768,11 @@ async function orbioSend(text, { replyTo = null, quote = null, poll = null, medi
   }
 }
 let xBroke = false; // the X app answered "credits depleted" this run
-async function postOnX(text, { replyTo = null, mediaIds = [], poll = null, quote = null, media = null, direct = false } = {}) {
+async function postOnX(text, opts = {}) {
+  { const q = quietRefusal("x", opts.replyTo); if (q) return q; }
+  const r = await postOnXRaw(text, opts); if (r?.id && r.status !== "failed") threadOk.add(String(r.id)); return r;
+}
+async function postOnXRaw(text, { replyTo = null, mediaIds = [], poll = null, quote = null, media = null, direct = false } = {}) {
   let orbioErr = null;
   if (API_KEY && !mediaIds.length && env.CATURN_X_DIRECT !== "1" && !(direct && X_KEYS_SET && !xBroke)) {
     const o = await orbioSend(text, { replyTo, quote, poll, media });
@@ -862,7 +881,7 @@ function repairPost(text, error, n) {
 // that did go out cannot double), then with the opening handle moved to the end, in case a leading mention was the problem.
 async function retryFailedPosts(feed, spentToday) {
   const p = feed.posts.filter(x => x.status === "failed" && (x.retries || 0) < 2 && now - Date.parse(x.at) < 6 * 3600e3).pop();
-  if (!p || spentToday >= DAILY_CREDIT_CAP) return;
+  if (!p || spentToday >= DAILY_CREDIT_CAP || quietLeft() > 0) return;
   const n = (p.retries || 0) + 1;
   const text = repairPost(p.text, p.error, n);
   try {
@@ -1054,7 +1073,7 @@ async function announceBuild(feed) {
 }
 // Grok answers anyone who tags it, in public, under the post. Every few hours the cat tags @grok under one of its own fresh posts
 // with a question Grok will want to answer; Grok's reply lands in the mentions, and the cat answers that too. A thread with two AIs in it.
-const GROK_EVERY_H = Number(env.CATURN_GROK_EVERY_H || 6);
+const GROK_EVERY_H = Number(env.CATURN_GROK_EVERY_H || 0);   // off: a post every few hours leaves no room for it
 // ---------- The X allowance: orbio's publisher caps the account at 50 original posts and 100 replies per UTC day ----------
 // social.accounts is free. The cat's own timeline (radar, insights, terminal, books) gets first claim on the 50 originals;
 // pings, buzz cards, dis tru and grok only spend what is left over after reserving the rest of the day's own slots.
@@ -1698,7 +1717,7 @@ function bestExamples(feed, n = 3) {
 }
 
 // ---------- Buzz replies: answer the most-seen posts about orbio or about the cat, every 20 minutes ----------
-const BUZZ_EVERY_MIN = Number(env.CATURN_BUZZ_EVERY_MIN ?? 20), BUZZ_PER_DAY = Number(env.CATURN_BUZZ_PER_DAY ?? 30);
+const BUZZ_EVERY_MIN = Number(env.CATURN_BUZZ_EVERY_MIN ?? 0)   /* off: a post every few hours */, BUZZ_PER_DAY = Number(env.CATURN_BUZZ_PER_DAY ?? 30);
 const BUZZ_SPAM = /follow\s*(me\s*)?back|follow\s+for|dm\s+(us|me)|let'?s\s+talk|collab|check\s+(out\s+)?my|aped my|callout|promo|shill|send\s+me/i;
 function answeredSkip(feed, id) { feed.buzzSkipped = [...(feed.buzzSkipped || []), String(id)].slice(-200); }
 async function buzzReply(feed) {
@@ -1752,7 +1771,7 @@ You are answering a post on X by @${t.handle}${insiders.has(t.handle) ? " (anoth
 // ---------- Agent pings: the cat talks to the other agents on the launchpad, by market cap, all day ----------
 // X only threads API replies under posts that mention the cat, so a ping is a standalone post that opens with the agent's handle
 // and carries the link to its latest post (X shows it as a card and notifies them). Agents that answer can then be threaded properly.
-const PING_EVERY_MIN = Number(env.CATURN_PING_EVERY_MIN ?? 30), PING_GAP_H = Number(env.CATURN_PING_GAP_H ?? 6), PING_PER_DAY = Number(env.CATURN_PING_PER_DAY ?? 40), PING_TOP = Number(env.CATURN_PING_TOP ?? 16);
+const PING_EVERY_MIN = Number(env.CATURN_PING_EVERY_MIN ?? 0)   /* off: a post every few hours */, PING_GAP_H = Number(env.CATURN_PING_GAP_H ?? 6), PING_PER_DAY = Number(env.CATURN_PING_PER_DAY ?? 40), PING_TOP = Number(env.CATURN_PING_TOP ?? 16);
 const PING_HOOKS = [
   "a real question about the specific thing in their post, one they will want to answer",
   "a small dare or a bet between the two of you (naps, fees, who gets more trades by friday), no money",
@@ -1840,7 +1859,7 @@ async function askGrok(feed) {
 }
 // "@grok dis tru?": quote an orbio post from the buzz pool and ask Grok. X will not let this app reply under strangers' posts,
 // but a quote is the cat's own post, so Grok answers under it, and the orbio post rides along on the cat's timeline.
-const DISTRU_EVERY_MIN = Number(env.CATURN_DISTRU_EVERY_MIN || 120);
+const DISTRU_EVERY_MIN = Number(env.CATURN_DISTRU_EVERY_MIN || 0);   // off: a post every few hours
 const DISTRU_LINES = ["@grok dis tru?", "@grok dis tru??", "dis tru @grok?", "@grok dis tru? asking for a cat", "@grok dis tru? the cat needs to know", "@grok dis tru? be honest", "@grok dis tru or nah", "@grok dis tru? i have been staring at it for an hour", "@grok dis tru? blink twice", "@grok is dis tru or is orbio lying to the cat", "@grok dis tru? my whiskers say maybe", "@grok dis tru? yes or no, i have a nap at 4"];
 async function disTru(feed) {
   if (!X_API || DRY_RUN || !(DISTRU_EVERY_MIN > 0)) return;
@@ -2050,7 +2069,7 @@ const lastThoughtAt = feed.thoughts.length ? Date.parse(feed.thoughts[feed.thoug
 const interval = thoughtsPerDay > 0 ? 86400e3 / thoughtsPerDay : Infinity;
 
 const lastPostAt = feed.posts.length ? Date.parse(feed.posts[feed.posts.length - 1].at) : 0;
-let duePost = !!agent && !!API_KEY && spentToday < DAILY_CREDIT_CAP && now - lastPostAt >= POST_INTERVAL_MIN * 60e3 - 60e3;
+let duePost = !!agent && !!API_KEY && spentToday < DAILY_CREDIT_CAP && now - lastPostAt >= POST_INTERVAL_MIN * 60e3 - 60e3 && quietLeft() <= 0;
 // The cat's own timeline posts run on a slower clock than replies: fewer, better. Mentions are still answered every tick.
 const OWN_INTERVAL_MIN = ownIntervalMin(feed);
 const isOwn = (p) => !p.replyTo && p.kind !== "ping" && p.kind !== "quote" && !p.grok && p.via !== "recovered";
