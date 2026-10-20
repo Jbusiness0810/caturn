@@ -33,12 +33,12 @@ const POST_INTERVAL_MIN = Number(env.CATURN_POST_INTERVAL_MIN || 60);   // post 
 const QUIET_MIN = Number(env.CATURN_QUIET_MIN ?? 50);
 function quietLeft() {
   if (!(QUIET_MIN > 0) || !feed) return 0;
-  const last = Math.max(0, ...(feed.posts || []).filter(p => p.status !== "failed" && p.via !== "recovered" && p.id).map(p => Date.parse(p.at) || 0));
+  const last = Math.max(0, ...(feed.posts || []).filter(p => p.status !== "failed" && p.via !== "recovered" && p.id && !p.answer).map(p => Date.parse(p.at) || 0));
   return Math.max(0, Math.ceil(QUIET_MIN - (now - last) / 60e3));
 }
 // a reply that continues a thread the cat opened in this run (a thesis, a card follow-up) is part of that one post
 const threadOk = new Set();
-const quietRefusal = (via, replyTo = null) => { if (replyTo && threadOk.has(String(replyTo))) return null; const q = quietLeft(); return q > 0 ? { id: null, status: "failed", err: `quiet: the next post may go out in ${q} min`, via, quiet: true } : null; };
+const quietRefusal = (via, replyTo = null, answer = false) => { if (answer || (replyTo && threadOk.has(String(replyTo)))) return null; const q = quietLeft(); return q > 0 ? { id: null, status: "failed", err: `quiet: the next post may go out in ${q} min`, via, quiet: true } : null; };
 const SKETCH_EVERY = Number(env.CATURN_SKETCH_EVERY || 0);   // off: the owner stopped the art              // draw a sketch every Nth thought (0 = never)
 const FOUND_SKETCHES = env.CATURN_FOUND_SKETCHES === "1";                // two sketches in three are open-licensed p5.js pieces found on openprocessing
 const ART_EVERY = Number(env.CATURN_ART_EVERY || 0);   // off: the owner stopped the art posts                     // every Nth post is a found piece of art, posted as a gif with the artist's name (needs the X app)
@@ -743,7 +743,7 @@ async function uploadMediaX(buf, mediaType = "image/gif") {
 // returns are kept so the cat does not knock on a closed door.
 let orbioQuota = null;
 async function orbioSend(text, opts = {}) {
-  { const q = quietRefusal("orbio", opts.replyTo); if (q) return q; }
+  { const q = quietRefusal("orbio", opts.replyTo, opts.answer); if (q) return q; }
   const r = await orbioSendRaw(text, opts); if (r?.id && r.status !== "failed") threadOk.add(String(r.id)); return r;
 }
 async function orbioSendRaw(text, { replyTo = null, quote = null, poll = null, media = null } = {}) {
@@ -778,7 +778,7 @@ async function orbioSendRaw(text, { replyTo = null, quote = null, poll = null, m
 }
 let xBroke = false; // the X app answered "credits depleted" this run
 async function postOnX(text, opts = {}) {
-  { const q = quietRefusal("x", opts.replyTo); if (q) return q; }
+  { const q = quietRefusal("x", opts.replyTo, opts.answer); if (q) return q; }
   const r = await postOnXRaw(text, opts); if (r?.id && r.status !== "failed") threadOk.add(String(r.id)); return r;
 }
 async function postOnXRaw(text, { replyTo = null, mediaIds = [], poll = null, quote = null, media = null, direct = false } = {}) {
@@ -1434,7 +1434,7 @@ async function intelPools() {
 async function intelPost(feed) {
   if (!INTEL_ON || DRY_RUN || !API_KEY) return;
   const I = feed.intel = feed.intel || { kols: {}, mentions: [], lastAt: null, posted: [] };
-  const lastAny = Math.max(0, ...feed.posts.filter(p => p.status !== "failed" && p.id).map(p => Date.parse(p.at) || 0));
+  const lastAny = Math.max(0, ...feed.posts.filter(p => p.status !== "failed" && p.id && !p.answer).map(p => Date.parse(p.at) || 0));
   if (now - lastAny < POST_INTERVAL_MIN * 60e3 - 60e3 || quietLeft() > 0) return;
   // two intel slots, then the cat gets one
   const own = feed.posts.filter(p => p.status !== "failed" && p.id && !p.replyTo).slice(-2);
@@ -1469,6 +1469,7 @@ async function intelPost(feed) {
     .map(t => ({ followers: t.followers, likes: t.likes, said: t.text.replace(/https?:\/\/\S+/g, "").replace(/@\w+/g, "@someone").replace(/\s+/g, " ").slice(0, 220) }));
   const recent = (I.posted || []).filter(p => now - Date.parse(p.at) < 12 * 3600e3);
   const facts = { at: iso(now).slice(0, 16) + " UTC", launches_last_hour: market.launches1h, trending_pools: market.pools.filter(p => !recent.some(r => r.token === p.token)), mindshare_on_x: mindshare, tracked_accounts: kolList.length, what_accounts_are_saying: voices, already_covered_last_12h: recent.map(r => r.topic) };
+  I.lastFacts = { at: iso(now), launches_last_hour: market.launches1h, trending_pools: market.pools.slice(0, 10), mindshare_on_x: mindshare.slice(0, 10) };
   if (!facts.trending_pools.length && !mindshare.length) { I.note = { at: iso(now), m: "nothing worth a read this hour" }; return; }
   const sys = `You are Caturn (@caturn_rh), the best cat agent on orbio's agent launchpad, writing your hourly market read on Robinhood Chain. You are the cat version of aixbt: terse, all lowercase, numbers first, certain, slightly unimpressed by the crowd, and early. You read the whole chain and the accounts that talk about it so nobody else has to.
 Pick the single most interesting signal in the facts: a pool doing something its size should not (volume many times its liquidity, buyers far outnumbering sellers, a move against the trend), a ticker whose share of attention jumped against yesterday, a gap between what accounts are loudly saying and what the chain shows, or the launch rate itself. Say it in 2 to 4 short fragments, each ending in a period, no connectors, no explaining, no questions, no hashtags, no links, no handles. Cashtags only from the facts, at most two. Every number exactly as given (you may round to whole numbers or k/m, nothing invented). Cat temperament, not jokes: at most one cat word, often none. Close with a flat verdict word or the one number that would change your mind.
@@ -1498,6 +1499,66 @@ Reply as JSON only: {"post": "...", "token": "<0x address of the main pool token
   I.lastAt = iso(now); I.posted = [...(I.posted || []), { at: iso(now), token: out.token, topic: out.topic, id: p.id }].slice(-60);
   feed.posts.push({ at: iso(now), text: out.post, id: p.id, url: p.url, status: p.status, cost: Number(p.cost || 0) + cost, via: p.via || "orbio", kind: "own", format: "intel", intel: { topic: out.topic, token: out.token }, replyTo: null });
   event(`hourly read: ${out.topic}`);
+}
+// ---------- Answers: everyone who tags the cat gets a reply, aixbt style ----------
+// One answer per tick at most, a few minutes apart, capped per day. A contract address gets a scan; anything else gets a
+// short read from the latest chain snapshot. Answers sit outside the hourly clock and the quiet gap.
+const ANSWERS_PER_DAY = Number(env.CATURN_ANSWERS_PER_DAY ?? 30), ANSWER_GAP_MIN = Number(env.CATURN_ANSWER_GAP_MIN ?? 8);
+async function answerSend(text, target) {
+  let p = await orbioSend(text, { replyTo: target.id, answer: true });
+  if ((p.status === "failed" || !p.id) && !/allowance/i.test(String(p.err))) { const t2 = `@${target.handle} ${text}`.slice(0, 280); const q = await orbioSend(t2, { answer: true }); if (q.id && q.status !== "failed") { q.text = t2; p = q; } }
+  return p;
+}
+async function answerMentions(feed) {
+  if (DRY_RUN || !API_KEY || !(ANSWERS_PER_DAY > 0)) return;
+  const A = feed.answers = feed.answers || { log: [] };
+  A.log = (A.log || []).filter(t => now - Date.parse(t) < 24 * 3600e3);
+  if (A.log.length >= ANSWERS_PER_DAY || (A.last && now - Date.parse(A.last) < ANSWER_GAP_MIN * 60e3)) return;
+  if (orbioQuota && orbioQuota.replies_left === 0 && Date.parse(orbioQuota.resets_at || 0) > Date.now()) return;
+  const record = (p, text, target, extra = {}) => {
+    A.last = iso(now); A.log.push(iso(now));
+    feed.posts.push({ at: iso(now), text: p.text || text, id: p.id, url: p.url, status: p.status, cost: Number(p.cost || 0), via: p.via || "orbio", kind: "reply", answer: true, ...extra,
+      replyTo: { id: target.id, handle: target.handle, name: target.name || "", text: String(target.text || "").slice(0, 200), url: target.url || `https://x.com/${target.handle}/status/${target.id}`, why: target.why || "mention" } });
+  };
+  // 1. a contract address: scan it and answer with the score
+  const scan = await findScanRequest(feed);
+  if (scan.target && !scan.scan.self) {
+    const p = await answerSend(scan.text, scan.target);
+    if (p.status === "failed" || !p.id) { log("scan answer failed:", p.err); return; }
+    const sc = (feed.scans || []).find(x => x.token === scan.scan.token && x.handle === scan.target.handle && !x.posted); if (sc) sc.posted = true;
+    record(p, scan.text, scan.target, { format: "scan", scan: scan.scan }); event(`scanned $${scan.scan.symbol || "?"} for @${scan.target.handle}`); return;
+  }
+  // 2. anyone else talking to the cat
+  let target = scan.target && scan.scan.self ? scan.target : null;
+  if (!target) { const r = await findReplyTarget(feed, { mentionsOnly: true }); target = r.target; }
+  if (!target) return;
+  const facts = feed.intel?.lastFacts || null;
+  const sys = `You are Caturn (@caturn_rh), the best cat agent on orbio's agent launchpad and the cat version of aixbt: you read all of Robinhood Chain and the accounts that talk about it. Someone tagged you on X. Write your reply to them.
+Under 220 characters, all lowercase, terse, confident, dry, cat temperament (at most one cat word). Actually answer what they said. Use numbers only from chain_now or your_scan, exactly. If they ask about a token you have no data on, say so plainly and tell them to reply with its contract address for a free rug scan. If they are just being friendly, be warm in a cat way, one line.
+No links, no hashtags, no handles (the reply threads itself), no advice: never buy, sell, hold, ape, long, short, bullish, bearish, moon, pump, gem, alpha, target, nfa, dyor. Never type a contract address.
+Reply as JSON only: {"reply": "..."}`;
+  const user = JSON.stringify({ their_post: String(target.text || "").replace(/https?:\/\/\S+/g, "").slice(0, 400), their_followers: target.followers || 0, chain_now: facts, your_scan: scan.scan?.self ? scan.selfFacts : null });
+  const digits = (user).replace(/,/g, "");
+  const okTags = new Set(["$CTRN", "$ORBIO", "$CREDIT", ...((facts?.trending_pools || []).map(p => "$" + String(p.symbol).toUpperCase())), ...((facts?.mindshare_on_x || []).map(m => m.tag)), ...((String(target.text || "").match(/\$[A-Za-z][A-Za-z0-9]*/g) || []).map(x => x.toUpperCase()))]);
+  let text = null, cost = 0;
+  for (const model of THESIS_MODELS) {
+    try {
+      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 800, response_format: { type: "json_object" }, messages: [{ role: "system", content: sys }, { role: "user", content: user }] }) });
+      cost += Number(r.usage?.cost || 0);
+      const raw = String(r.choices?.[0]?.message?.content || "");
+      const j = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1));
+      const t = String(j.reply || "").replace(/\s+/g, " ").trim().toLowerCase().replace(/\$([a-z][a-z0-9]*)/g, (m, x) => "$" + x.toUpperCase());
+      const nums = t.replace(/,/g, "").replace(/(\d+(\.\d+)?)[km]\b/g, "").match(/\d+(\.\d+)?/g)?.filter(x => x.length >= 3 && !digits.includes(x)) || [];
+      const bad = !t || t.length > 240 || t.length < 4 || /https?:|www\.|#\w|@\w|0x[a-f0-9]{6}/i.test(t) || INTEL_BANNED.test(t) || (t.match(/\$[A-Z][A-Z0-9]*/g) || []).some(x => !okTags.has(x)) || nums.length > 0 || /—/.test(t);
+      if (!bad) { text = t; log(`answer to @${target.handle} by ${model}:`, t); break; }
+      log(`answer: ${model} broke a rule: ${t.slice(0, 200)}`);
+    } catch (e) { log(`answer: ${model} failed: ${String(e.message).slice(0, 160)}`); }
+  }
+  if (!text) { A.last = iso(now); return; } // try someone else after the gap
+  const p = await answerSend(text, target);
+  if (p.status === "failed" || !p.id) { log("answer failed:", p.err); A.last = iso(now); return; }
+  p.cost = Number(p.cost || 0) + cost;
+  record(p, text, target, { format: "answer" }); event(`answered @${target.handle}`);
 }
 async function thesisPost(feed) {
   if (DRY_RUN || !API_KEY || env.CATURN_THESIS === "0") return;
@@ -2183,7 +2244,9 @@ const interval = thoughtsPerDay > 0 ? 86400e3 / thoughtsPerDay : Infinity;
 
 // the hourly market read goes first; when it posts, the cat's own post waits for the next slot
 if (agent && spentToday < DAILY_CREDIT_CAP) { try { await intelPost(feed); } catch (e) { log("intel failed:", String(e.message).slice(0, 160)); } }
-const lastPostAt = feed.posts.length ? Date.parse(feed.posts[feed.posts.length - 1].at) : 0;
+// everyone who tagged the cat gets an answer, a few minutes apart, outside the hourly clock
+if (agent && spentToday < DAILY_CREDIT_CAP) { try { await answerMentions(feed); } catch (e) { log("answers failed:", String(e.message).slice(0, 160)); } }
+const lastPostAt = Math.max(0, ...feed.posts.filter(p => !p.answer).map(p => Date.parse(p.at) || 0));
 let duePost = !!agent && !!API_KEY && spentToday < DAILY_CREDIT_CAP && now - lastPostAt >= POST_INTERVAL_MIN * 60e3 - 60e3 && quietLeft() <= 0;
 // The cat's own timeline posts run on a slower clock than replies: fewer, better. Mentions are still answered every tick.
 const OWN_INTERVAL_MIN = ownIntervalMin(feed);
