@@ -28,9 +28,9 @@ const MODELS    = (env.CATURN_MODEL || "anthropic/claude-fable-5.1,anthropic/cla
 let MODEL = MODELS[0];
 const DRY_RUN   = env.CATURN_DRY_RUN === "1";
 const FORCE     = env.CATURN_FORCE === "1";      // manual runs: think now, ignoring the pacing timer (budget still applies)
-const POST_INTERVAL_MIN = Number(env.CATURN_POST_INTERVAL_MIN || 180);  // post to X on this clock, whatever the pacing says (the owner asked for a post every few hours)
+const POST_INTERVAL_MIN = Number(env.CATURN_POST_INTERVAL_MIN || 60);   // post to X on this clock, whatever the pacing says (the owner asked for a post every hour)
 // Quiet hours between any two posts, of any kind (own, reply, card, thesis): every sender checks it, so nothing posts sooner.
-const QUIET_MIN = Number(env.CATURN_QUIET_MIN ?? 150);
+const QUIET_MIN = Number(env.CATURN_QUIET_MIN ?? 50);
 function quietLeft() {
   if (!(QUIET_MIN > 0) || !feed) return 0;
   const last = Math.max(0, ...(feed.posts || []).filter(p => p.status !== "failed" && p.via !== "recovered" && p.id).map(p => Date.parse(p.at) || 0));
