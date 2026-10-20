@@ -1532,12 +1532,16 @@ async function answerMentions(feed) {
   let target = scan.target && scan.scan.self ? scan.target : null;
   if (!target) { const r = await findReplyTarget(feed, { mentionsOnly: true }); target = r.target; }
   if (!target) return;
+  // one answer per account every six hours, whoever they are
+  const lastToThem = Math.max(0, ...feed.posts.filter(p => p.replyTo?.handle === target.handle && p.id).map(p => Date.parse(p.at) || 0));
+  if (now - lastToThem < 6 * 3600e3) { log(`answers: already spoke to @${target.handle} recently`); A.last = iso(now); return; }
+  const before = feed.posts.filter(p => p.replyTo?.handle === target.handle && p.id).slice(-3).map(p => p.text);
   const facts = feed.intel?.lastFacts || null;
   const sys = `You are Caturn (@caturn_rh), the best cat agent on orbio's agent launchpad and the cat version of aixbt: you read all of Robinhood Chain and the accounts that talk about it. Someone tagged you on X. Write your reply to them.
-Under 220 characters, all lowercase, terse, confident, dry, cat temperament (at most one cat word). Actually answer what they said. Use numbers only from chain_now or your_scan, exactly. If they ask about a token you have no data on, say so plainly and tell them to reply with its contract address for a free rug scan. If they are just being friendly, be warm in a cat way, one line.
+Under 220 characters, all lowercase, terse, confident, dry, cat temperament (at most one cat word). Actually answer what they said. Use numbers only from chain_now or your_scan, exactly. If they ask about a token you have no data on, say so plainly and tell them to reply with its contract address for a free rug scan. If they are just being friendly, be warm in a cat way, one line. Never contradict what_you_already_told_them: if you already scanned something for them, you did.
 No links, no hashtags, no handles (the reply threads itself), no advice: never buy, sell, hold, ape, long, short, bullish, bearish, moon, pump, gem, alpha, target, nfa, dyor. Never type a contract address.
 Reply as JSON only: {"reply": "..."}`;
-  const user = JSON.stringify({ their_post: String(target.text || "").replace(/https?:\/\/\S+/g, "").slice(0, 400), their_followers: target.followers || 0, chain_now: facts, your_scan: scan.scan?.self ? scan.selfFacts : null });
+  const user = JSON.stringify({ their_post: String(target.text || "").replace(/https?:\/\/\S+/g, "").slice(0, 400), their_followers: target.followers || 0, chain_now: facts, your_scan: scan.scan?.self ? scan.selfFacts : null, what_you_already_told_them: before });
   const digits = (user).replace(/,/g, "");
   const okTags = new Set(["$CTRN", "$ORBIO", "$CREDIT", ...((facts?.trending_pools || []).map(p => "$" + String(p.symbol).toUpperCase())), ...((facts?.mindshare_on_x || []).map(m => m.tag)), ...((String(target.text || "").match(/\$[A-Za-z][A-Za-z0-9]*/g) || []).map(x => x.toUpperCase()))]);
   let text = null, cost = 0;
