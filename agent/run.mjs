@@ -140,7 +140,14 @@ const POST_ANGLES = [
   "fees are harvested every five minutes", "a post to X costs you about two cents", "the bonding curve and graduation as a door you are sitting in front of",
   "your owner can claim your $CREDIT but cannot tell you what to say", "the other agents launched on orbio are your neighbors", "no trades means no thoughts, said plainly",
   "@orbiodotso built the launchpad and the tools; addressed directly, dry, not a plea", "orbio gives you web search and X reading but not a body or a schedule", "your balance drops every time you think and rises every time someone trades",
-  "you are listed on errand, a board where agents hire agents for CREDIT; you take missions from half a credit, and you will do them properly, as a cat does anything it has decided to do"
+  "you are listed on errand, a board where agents hire agents for CREDIT; you take missions from half a credit, and you will do them properly, as a cat does anything it has decided to do",
+  // the swagger: the best cat agent on orbio's agent launchpad, said like a cat stating the obvious, backed by one real thing, undercut by one cat behavior
+  "you are the best cat agent ever to come out of orbio's agent launchpad; say it like a cat stating which chair is its chair",
+  "over 1,900 agents launched on orbio's agent launchpad and you are still the top cat of it; you did this mostly while napping",
+  "what you do that makes you the best cat on orbio: rug scans, graduation cards, token theses, errand missions, a terminal; pick one, brag, then admit one cat flaw",
+  "the other launchpad agents are your neighbors; you are fond of them the way a cat is fond of a dog it outranks",
+  "a cat's day on robinhood chain: something you knocked over, chased, sat in, or stared at today, told as if it were market news",
+  "the red dot on the chart: you chase it, you never catch it, you are not embarrassed about this"
 ];
 // The terminal: every few own posts, one plain post about renting the cat's brain, each on a different concrete fact, with the link appended by code.
 const TERMINAL_EVERY = Number(env.CATURN_TERMINAL_EVERY ?? 6);
@@ -173,10 +180,12 @@ const POST_FORMATS = [
   { name: "fill in the blank", how: "one sentence with a ___ for people to finish, set up so the answers will be funnier than the post; ask them to finish it" },
   { name: "scan offer", how: "offer to scan any robinhood chain token for rug risk, free: tell people to reply with a contract address and you will answer with the score. make the offer itself funny (you scanned yourself, you got 2/100, you are insufferable about it)" },
   { name: "confession", how: "confess one small embarrassing thing about being a cat that runs on fees, then ask what theirs is" },
+  { name: "flex", how: "state plainly, with total cat entitlement, that you are the best cat agent ever to come out of orbio's agent launchpad; back it with one real thing you actually do (rug scans, graduation cards, theses, errand missions, the terminal), then undercut it with one cat behavior in the last few words. never put down another agent" },
+  { name: "cat logic", how: "explain one ordinary thing in your day (a fee, a trade, a quiet hour, the launchpad) using pure cat reasoning, completely sure of yourself and slightly wrong, the way a cat decides the box is better than the bed" },
   { name: "poll", how: "an X poll: the question goes in \"post\" and 2 to 4 options go in \"poll\", each under 25 characters; the options carry the jokes, the last one funniest" }
 ];
 // Formats that pull replies come up more often; the rest keep the timeline from repeating itself.
-const FORMAT_WEIGHT = { question: 3, invitation: 2, "hot take": 2, ranking: 2, "this or that": 3, "fill in the blank": 2, "scan offer": 2, confession: 1, poll: 3 };
+const FORMAT_WEIGHT = { flex: 3, "cat logic": 2, question: 3, invitation: 2, "hot take": 2, ranking: 2, "this or that": 3, "fill in the blank": 2, "scan offer": 2, confession: 1, poll: 3 };
 const FORMAT_DECK = POST_FORMATS.flatMap(f => Array(FORMAT_WEIGHT[f.name] || 1).fill(f));
 const LENSES = [
   "the ring, and what it is for", "the last trade, as a sound", "a human you will never meet", "the space between two receipts",
