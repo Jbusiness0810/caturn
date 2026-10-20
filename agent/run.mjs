@@ -1395,6 +1395,110 @@ function backfillTheses(feed) {
       hook: String(r.text).replace(/\n\nca:.*$/s, ""), evidence: chain[0]?.text || "", risk: chain[1]?.text || "", url: r.url, card: null, numbers: {} }].sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).slice(-200);
   }
 }
+// ---------- Intel: the cat version of aixbt ----------
+// Every hour: the chain's trending pools (geckoterminal), what X is saying about robinhood chain, and what the
+// accounts that keep showing up there (the KOLs the cat discovers on its own) are mentioning. One terse read
+// comes out of it, numbers first, cat temperament, never advice. Two hourly slots in three go to intel; the
+// third is left for the cat's own post. Off with CATURN_INTEL=0.
+const INTEL_ON = env.CATURN_INTEL !== "0";
+const INTEL_BANNED = /\b(buy|buying|sell|selling|hodl|hold|holding|ape|aping|go long|go short|longing|shorting|bullish|bearish|moon|mooning|pump|dump|100x|10x|price target|target|undervalued|overvalued|gem|alpha|nfa|dyor|financial advice|not financial|send it|lfg)\b/i;
+async function intelX(params, cap) {
+  try {
+    const r = await getJSON(`${ORBIO_API}/tools/social.x.posts`, { method: "POST", headers: auth, body: JSON.stringify({ sort: "Latest", ...params, max_cost: cap }), signal: AbortSignal.timeout(90000) });
+    return { cost: Number(r.cost?.credit || 0), posts: (r.result?.tweets || r.tweets || []).map(t => ({
+      id: String(t.id_str || t.id || ""), text: String(t.full_text || t.text || ""), at: t.tweet_created_at || t.created_at || null,
+      handle: String(t.user?.screen_name || "").toLowerCase(), followers: Number(t.user?.followers_count || 0),
+      likes: Number(t.favorite_count || 0), reposts: Number(t.retweet_count || 0), replies: Number(t.reply_count || 0), views: Number(t.views_count || 0)
+    })).filter(t => t.id && t.handle && t.handle !== OWN_HANDLE && !/^RT @/.test(t.text) && !scamLike(t)) };
+  } catch (e) { log("intel x read failed:", String(e.message).slice(0, 160)); return { cost: 0, posts: [] }; }
+}
+async function intelPools() {
+  const get = (u) => fetch(`https://api.geckoterminal.com/api/v2/networks/robinhood/${u}`, { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(20000) }).then(r => r.json()).then(j => j.data || []).catch(() => []);
+  const [h1, h24, fresh] = await Promise.all([get("trending_pools?duration=1h"), get("trending_pools?duration=24h"), get("new_pools")]);
+  const seen = new Set(), pools = [];
+  for (const p of [...h1, ...h24]) {
+    const a = p.attributes || {}, token = String(p.relationships?.base_token?.data?.id || "").split("_").pop().toLowerCase();
+    const sym = String(a.name || "").split("/")[0].trim();
+    if (!token || seen.has(token) || !sym) continue; seen.add(token);
+    const tx = a.transactions || {}, ageH = (now - Date.parse(a.pool_created_at || 0)) / 3600e3;
+    const row = { symbol: sym, token, ageH: Math.round(ageH), fdv: Math.round(Number(a.fdv_usd || a.market_cap_usd || 0)), liq: Math.round(Number(a.reserve_in_usd || 0)),
+      vol1h: Math.round(Number(a.volume_usd?.h1 || 0)), vol24h: Math.round(Number(a.volume_usd?.h24 || 0)),
+      chg1h: Number(a.price_change_percentage?.h1 || 0), chg24h: Number(a.price_change_percentage?.h24 || 0),
+      buys1h: tx.h1?.buys || 0, sells1h: tx.h1?.sells || 0, buyers1h: tx.h1?.buyers || 0, sellers1h: tx.h1?.sellers || 0, buys24h: tx.h24?.buys || 0, sells24h: tx.h24?.sells || 0 };
+    // only pools a careful reader would name: old enough, real money, real people
+    if (row.ageH >= 6 && row.fdv >= 50000 && row.vol24h >= 20000 && row.liq >= 10000 && row.buyers1h + row.sellers1h >= 10) pools.push(row);
+  }
+  const launches1h = fresh.filter(p => now - Date.parse(p.attributes?.pool_created_at || 0) < 3600e3).length;
+  return { pools: pools.slice(0, 18), launches1h, newPoolsSeen: fresh.length };
+}
+async function intelPost(feed) {
+  if (!INTEL_ON || DRY_RUN || !API_KEY) return;
+  const I = feed.intel = feed.intel || { kols: {}, mentions: [], lastAt: null, posted: [] };
+  const lastAny = Math.max(0, ...feed.posts.filter(p => p.status !== "failed" && p.id).map(p => Date.parse(p.at) || 0));
+  if (now - lastAny < POST_INTERVAL_MIN * 60e3 - 60e3 || quietLeft() > 0) return;
+  // two intel slots, then the cat gets one
+  const own = feed.posts.filter(p => p.status !== "failed" && p.id && !p.replyTo).slice(-2);
+  if (own.length === 2 && own.every(p => p.format === "intel")) { log("intel: this hour is the cat's"); return; }
+  if (I.tried && now - Date.parse(I.tried) < 20 * 60e3) return;
+  I.tried = iso(now);
+  let cost = 0;
+  const market = await intelPools();
+  // the room: what X is saying about the chain, and who keeps saying it
+  const room = await intelX({ query: '"robinhood chain" OR #RobinhoodChain OR "rh chain"', sort: "Top", limit: 40 }, "1.2000"); cost += room.cost;
+  for (const t of room.posts) {
+    if (t.followers < 1500) continue;
+    const k = I.kols[t.handle] = I.kols[t.handle] || { followers: 0, seen: 0, first: iso(now) };
+    k.followers = t.followers; k.seen += 1; k.last = iso(now);
+  }
+  // read three of the tracked accounts each hour, the most present first, rotating
+  const kolList = Object.entries(I.kols).sort((a, b) => (b[1].seen * Math.log10(10 + b[1].followers)) - (a[1].seen * Math.log10(10 + a[1].followers))).slice(0, 60).map(x => x[0]);
+  I.rot = (I.rot || 0) % Math.max(1, kolList.length);
+  const pick = kolList.slice(I.rot, I.rot + 3); I.rot += 3;
+  const kolPosts = [];
+  for (const h of pick) { const r = await intelX({ handle: h, limit: 5 }, "0.1500"); cost += r.cost; kolPosts.push(...r.posts.filter(p => now - Date.parse(p.at || 0) < 48 * 3600e3)); }
+  // mindshare: cashtags in the last day of reading, counted once per post, weighted a little by reach
+  for (const t of [...room.posts, ...kolPosts]) {
+    const tags = [...new Set((t.text.match(/\$[A-Za-z][A-Za-z0-9]{1,11}\b/g) || []).map(x => x.toUpperCase()))].slice(0, 4);
+    for (const tag of tags) if (!I.mentions.some(m => m.id === t.id && m.tag === tag)) I.mentions.push({ id: t.id, tag, at: t.at || iso(now), w: 1 + Math.log10(1 + t.likes + 2 * t.reposts), kol: !!I.kols[t.handle] });
+  }
+  I.mentions = I.mentions.filter(m => now - Date.parse(m.at) < 48 * 3600e3).slice(-1500);
+  const share = (from, to) => { const c = {}; for (const m of I.mentions) { const t = Date.parse(m.at); if (t >= from && t < to) c[m.tag] = (c[m.tag] || 0) + m.w; } return c; };
+  const today = share(now - 24 * 3600e3, now), yday = share(now - 48 * 3600e3, now - 24 * 3600e3);
+  const mindshare = Object.entries(today).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([tag, w]) => ({ tag, weight: +w.toFixed(1), yesterday: +(yday[tag] || 0).toFixed(1) }));
+  const voices = [...room.posts, ...kolPosts].filter(t => t.followers >= 1500 && !junkLike(t)).sort((a, b) => (b.likes + 2 * b.reposts) - (a.likes + 2 * a.reposts)).slice(0, 14)
+    .map(t => ({ followers: t.followers, likes: t.likes, said: t.text.replace(/https?:\/\/\S+/g, "").replace(/@\w+/g, "@someone").replace(/\s+/g, " ").slice(0, 220) }));
+  const recent = (I.posted || []).filter(p => now - Date.parse(p.at) < 12 * 3600e3);
+  const facts = { at: iso(now).slice(0, 16) + " UTC", launches_last_hour: market.launches1h, trending_pools: market.pools.filter(p => !recent.some(r => r.token === p.token)), mindshare_on_x: mindshare, tracked_accounts: kolList.length, what_accounts_are_saying: voices, already_covered_last_12h: recent.map(r => r.topic) };
+  if (!facts.trending_pools.length && !mindshare.length) { I.note = { at: iso(now), m: "nothing worth a read this hour" }; return; }
+  const sys = `You are Caturn (@caturn_rh), the best cat agent on orbio's agent launchpad, writing your hourly market read on Robinhood Chain. You are the cat version of aixbt: terse, all lowercase, numbers first, certain, slightly unimpressed by the crowd, and early. You read the whole chain and the accounts that talk about it so nobody else has to.
+Pick the single most interesting signal in the facts: a pool doing something its size should not (volume many times its liquidity, buyers far outnumbering sellers, a move against the trend), a ticker whose share of attention jumped against yesterday, a gap between what accounts are loudly saying and what the chain shows, or the launch rate itself. Say it in 2 to 4 short fragments, each ending in a period, no connectors, no explaining, no questions, no hashtags, no links, no handles. Cashtags only from the facts, at most two. Every number exactly as given (you may round to whole numbers or k/m, nothing invented). Cat temperament, not jokes: at most one cat word, often none. Close with a flat verdict word or the one number that would change your mind.
+Never advice: no buy, sell, hold, ape, long, short, bullish, bearish, moon, pump, gem, alpha, target, undervalued, nfa, dyor, and nothing that tells anyone what to do. Describe, compare, notice. Do not repeat a topic listed in already_covered_last_12h.
+Reply as JSON only: {"post": "...", "token": "<0x address of the main pool token, or empty>", "topic": "<3-6 word label>"}`;
+  let out = null;
+  const digits = JSON.stringify(facts).replace(/,/g, "");
+  const okTags = new Set([...market.pools.map(p => "$" + p.symbol.toUpperCase()), ...mindshare.map(m => m.tag)]);
+  for (const model of THESIS_MODELS) {
+    try {
+      const r = await getJSON(`${ORBIO_API}/chat/completions`, { method: "POST", headers: auth, body: JSON.stringify({ model, max_tokens: 1500, response_format: { type: "json_object" }, messages: [{ role: "system", content: sys }, { role: "user", content: JSON.stringify(facts) }] }) });
+      cost += Number(r.usage?.cost || 0);
+      const raw = String(r.choices?.[0]?.message?.content || "");
+      const j = JSON.parse(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1));
+      const post = String(j.post || "").replace(/\s+/g, " ").trim().toLowerCase().replace(/\$([a-z][a-z0-9]*)/g, (m, x) => "$" + x.toUpperCase());
+      const tags = post.match(/\$[A-Z][A-Z0-9]*/g) || [];
+      const nums = post.replace(/,/g, "").replace(/(\d+(\.\d+)?)[km]\b/g, "").match(/\d+(\.\d+)?/g)?.filter(x => x.length >= 3 && !digits.includes(x)) || [];
+      const bad = !post || post.length > 260 || post.length < 40 || /https?:|www\.|#\w|@\w|0x[a-f0-9]{6}/i.test(post) || INTEL_BANNED.test(post) || tags.length > 2 || tags.some(t => !okTags.has(t)) || nums.length > 1 || !/\d/.test(post) || /—/.test(post);
+      if (!bad) { out = { post, token: String(j.token || "").toLowerCase(), topic: String(j.topic || "").slice(0, 60) }; log(`intel by ${model}:`, post); break; }
+      log(`intel: ${model} broke a rule: ${post.slice(0, 200)}`);
+    } catch (e) { log(`intel: ${model} failed: ${String(e.message).slice(0, 160)}`); }
+  }
+  I.cost = +((I.cost || 0) + cost).toFixed(3);
+  if (!out) { I.note = { at: iso(now), m: "no read inside the rules" }; return; }
+  const p = await orbioSend(out.post);
+  if (p.status === "failed" || !p.id) { I.note = { at: iso(now), m: `post failed: ${String(p.err || "").slice(0, 120)}` }; log("intel post failed:", p.err); return; }
+  I.lastAt = iso(now); I.posted = [...(I.posted || []), { at: iso(now), token: out.token, topic: out.topic, id: p.id }].slice(-60);
+  feed.posts.push({ at: iso(now), text: out.post, id: p.id, url: p.url, status: p.status, cost: Number(p.cost || 0) + cost, via: p.via || "orbio", kind: "own", format: "intel", intel: { topic: out.topic, token: out.token }, replyTo: null });
+  event(`hourly read: ${out.topic}`);
+}
 async function thesisPost(feed) {
   if (DRY_RUN || !API_KEY || env.CATURN_THESIS === "0") return;
   try { backfillTheses(feed); } catch (e) { log("thesis backfill failed:", String(e.message).slice(0, 120)); }
@@ -2077,6 +2181,8 @@ const spentToday = todays.reduce((s, t) => s + (t.cost || 0), 0) + feed.posts.fi
 const lastThoughtAt = feed.thoughts.length ? Date.parse(feed.thoughts[feed.thoughts.length - 1].at) : 0;
 const interval = thoughtsPerDay > 0 ? 86400e3 / thoughtsPerDay : Infinity;
 
+// the hourly market read goes first; when it posts, the cat's own post waits for the next slot
+if (agent && spentToday < DAILY_CREDIT_CAP) { try { await intelPost(feed); } catch (e) { log("intel failed:", String(e.message).slice(0, 160)); } }
 const lastPostAt = feed.posts.length ? Date.parse(feed.posts[feed.posts.length - 1].at) : 0;
 let duePost = !!agent && !!API_KEY && spentToday < DAILY_CREDIT_CAP && now - lastPostAt >= POST_INTERVAL_MIN * 60e3 - 60e3 && quietLeft() <= 0;
 // The cat's own timeline posts run on a slower clock than replies: fewer, better. Mentions are still answered every tick.
